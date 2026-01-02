@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Distributor Dashboard - Tulip Tea</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        .user-info {
+            background: rgba(255,255,255,0.1);
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+            display: none;
+        }
+        .user-info.active {
+            display: block;
+        }
+        .content {
+            padding: 30px;
+        }
+        .section {
+            margin-bottom: 40px;
+            padding: 25px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        .section h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.8em;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 600;
+        }
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        .form-group input:focus, .form-group select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .btn {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 600;
+        }
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+        .btn-success:hover {
+            background: #218838;
+        }
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        .btn-danger:hover {
+            background: #c82333;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+            display: none;
+        }
+        .result.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+            display: block;
+        }
+        .result.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            display: block;
+        }
+        .result.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+            display: block;
+        }
+        .credentials-box {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 15px;
+            font-family: monospace;
+        }
+        .credentials-box strong {
+            color: #856404;
+        }
+        .list-item {
+            background: white;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            border-left: 3px solid #667eea;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .list-item-info {
+            flex: 1;
+        }
+        .list-item-info strong {
+            color: #667eea;
+        }
+        .hidden {
+            display: none;
+        }
+        .tabs {
+            display: flex;
+            border-bottom: 2px solid #ddd;
+            margin-bottom: 20px;
+        }
+        .tab {
+            padding: 15px 30px;
+            cursor: pointer;
+            background: #f8f9fa;
+            border: none;
+            font-size: 16px;
+            font-weight: 600;
+            color: #666;
+            transition: all 0.3s;
+        }
+        .tab.active {
+            background: white;
+            color: #667eea;
+            border-bottom: 3px solid #667eea;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🌷 Tulip Tea - Distributor Dashboard</h1>
+            <div class="user-info" id="userInfo">
+                <p><strong>Logged in as:</strong> <span id="userName"></span></p>
+                <p><strong>Zone:</strong> <span id="userZone"></span></p>
+                <p><strong>Phone:</strong> <span id="userPhone"></span></p>
+                <button class="btn btn-danger" onclick="logout()" style="margin-top: 10px;">Logout</button>
+            </div>
+        </div>
+
+        <div class="content">
+            <!-- Login Section -->
+            <div id="loginSection" class="section">
+                <h2>Distributor Login</h2>
+                <div class="form-group">
+                    <label>Phone Number</label>
+                    <input type="text" id="loginPhone" placeholder="Enter phone number" value="03001234567">
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="loginPassword" placeholder="Enter password" value="faraz12">
+                </div>
+                <button class="btn btn-primary" onclick="login()">Login</button>
+                <div id="loginResult" class="result"></div>
+            </div>
+
+            <!-- Dashboard Section (Hidden until login) -->
+            <div id="dashboardSection" class="section hidden">
+                <div class="tabs">
+                    <button class="tab active" onclick="switchTab('orderBookers')">Order Bookers</button>
+                    <button class="tab" onclick="switchTab('deliveryMen')">Delivery Men</button>
+                </div>
+
+                <!-- Order Bookers Tab -->
+                <div id="orderBookersTab" class="tab-content active">
+                    <h2>Create Order Booker</h2>
+                    <form id="orderBookerForm" onsubmit="createOrderBooker(event)">
+                        <div class="form-group">
+                            <label>Name</label>
+                            <input type="text" id="obName" required placeholder="Order Booker Name">
+                        </div>
+                        <div class="form-group">
+                            <label>Phone Number</label>
+                            <input type="text" id="obPhone" required placeholder="Phone Number">
+                        </div>
+                        <div class="form-group">
+                            <label>Email (Optional)</label>
+                            <input type="email" id="obEmail" placeholder="Email Address">
+                        </div>
+                        <div class="form-group">
+                            <label>Assigned Zone</label>
+                            <input type="text" id="obZone" required placeholder="Zone (e.g., Islamabad)">
+                        </div>
+                        <div class="form-group">
+                            <label>Password</label>
+                            <input type="password" id="obPassword" required placeholder="Password">
+                        </div>
+                        <button type="submit" class="btn btn-primary">Create Order Booker</button>
+                    </form>
+                    <div id="obResult" class="result"></div>
+                    
+                    <h2 style="margin-top: 40px;">Existing Order Bookers</h2>
+                    <button class="btn btn-success" onclick="loadOrderBookers()">Refresh List</button>
+                    <div id="obList" style="margin-top: 20px;"></div>
+                </div>
+
+                <!-- Delivery Men Tab -->
+                <div id="deliveryMenTab" class="tab-content">
+                    <h2>Create Delivery Man</h2>
+                    <form id="deliveryManForm" onsubmit="createDeliveryMan(event)">
+                        <div class="form-group">
+                            <label>Name</label>
+                            <input type="text" id="dmName" required placeholder="Delivery Man Name">
+                        </div>
+                        <div class="form-group">
+                            <label>Phone Number</label>
+                            <input type="text" id="dmPhone" required placeholder="Phone Number">
+                        </div>
+                        <div class="form-group">
+                            <label>Password</label>
+                            <input type="password" id="dmPassword" required placeholder="Password">
+                        </div>
+                        <button type="submit" class="btn btn-primary">Create Delivery Man</button>
+                    </form>
+                    <div id="dmResult" class="result"></div>
+                    
+                    <h2 style="margin-top: 40px;">Existing Delivery Men</h2>
+                    <button class="btn btn-success" onclick="loadDeliveryMen()">Refresh List</button>
+                    <div id="dmList" style="margin-top: 20px;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        let currentToken = null;
+        let currentUser = null;
+        let currentDistributorId = null;
+
+        // Tab switching
+        function switchTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+
+            // Show selected tab
+            if (tabName === 'orderBookers') {
+                document.getElementById('orderBookersTab').classList.add('active');
+                document.querySelectorAll('.tab')[0].classList.add('active');
+            } else {
+                document.getElementById('deliveryMenTab').classList.add('active');
+                document.querySelectorAll('.tab')[1].classList.add('active');
+            }
+        }
+
+        // Login function
+        async function login() {
+            const phone = document.getElementById('loginPhone').value;
+            const password = document.getElementById('loginPassword').value;
+            const resultDiv = document.getElementById('loginResult');
+
+            if (!phone || !password) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Please enter both phone and password';
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/auth/login/distributor`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ phone, password })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Login failed');
+                }
+
+                currentToken = data.access_token;
+                currentUser = data.user;
+                currentDistributorId = data.user.id;
+
+                // Show dashboard
+                document.getElementById('loginSection').classList.add('hidden');
+                document.getElementById('dashboardSection').classList.remove('hidden');
+                document.getElementById('userInfo').classList.add('active');
+                document.getElementById('userName').textContent = data.user.name;
+                document.getElementById('userZone').textContent = data.user.assigned_zone || 'N/A';
+                document.getElementById('userPhone').textContent = data.user.phone;
+
+                resultDiv.className = 'result success';
+                resultDiv.textContent = 'Login successful!';
+
+                // Load initial data
+                loadOrderBookers();
+                loadDeliveryMen();
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // Logout function
+        function logout() {
+            currentToken = null;
+            currentUser = null;
+            currentDistributorId = null;
+            document.getElementById('loginSection').classList.remove('hidden');
+            document.getElementById('dashboardSection').classList.add('hidden');
+            document.getElementById('userInfo').classList.remove('active');
+            document.getElementById('loginResult').className = 'result';
+            document.getElementById('loginResult').textContent = '';
+        }
+
+        // Create Order Booker
+        async function createOrderBooker(event) {
+            event.preventDefault();
+            const resultDiv = document.getElementById('obResult');
+
+            if (!currentToken) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Please login first';
+                return;
+            }
+
+            const orderBookerData = {
+                name: document.getElementById('obName').value,
+                phone: document.getElementById('obPhone').value,
+                email: document.getElementById('obEmail').value || null,
+                assigned_zone: document.getElementById('obZone').value,
+                password: document.getElementById('obPassword').value
+            };
+
+            try {
+                const response = await fetch(
+                    `${API_BASE}/order-bookers/${currentDistributorId}`,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${currentToken}`
+                        },
+                        body: JSON.stringify(orderBookerData)
+                    }
+                );
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Failed to create order booker');
+                }
+
+                resultDiv.className = 'result success';
+                resultDiv.innerHTML = `
+                    <strong>Order Booker Created Successfully!</strong><br>
+                    <div class="credentials-box">
+                        <strong>Credentials for Order Booker:</strong><br>
+                        Phone: ${data.phone}<br>
+                        Password: ${orderBookerData.password}<br>
+                        <small>Share these credentials with the Order Booker</small>
+                    </div>
+                `;
+
+                // Reset form
+                document.getElementById('orderBookerForm').reset();
+
+                // Reload list
+                loadOrderBookers();
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // Load Order Bookers
+        async function loadOrderBookers() {
+            const listDiv = document.getElementById('obList');
+
+            if (!currentDistributorId) {
+                listDiv.innerHTML = '<p>Please login first</p>';
+                return;
+            }
+
+            try {
+                const response = await fetch(
+                    `${API_BASE}/order-bookers/distributor/${currentDistributorId}`,
+                    {
+                        headers: {
+                            'Authorization': `Bearer ${currentToken}`
+                        }
+                    }
+                );
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Failed to load order bookers');
+                }
+
+                if (data.length === 0) {
+                    listDiv.innerHTML = '<p>No order bookers found. Create one above.</p>';
+                    return;
+                }
+
+                listDiv.innerHTML = data.map(ob => `
+                    <div class="list-item">
+                        <div class="list-item-info">
+                            <strong>${ob.name}</strong><br>
+                            Phone: ${ob.phone}<br>
+                            Zone: ${ob.assigned_zone || 'N/A'}<br>
+                            <small>Created: ${new Date(ob.created_at).toLocaleDateString()}</small>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                listDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+
+        // Create Delivery Man
+        async function createDeliveryMan(event) {
+            event.preventDefault();
+            const resultDiv = document.getElementById('dmResult');
+
+            if (!currentToken) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Please login first';
+                return;
+            }
+
+            const deliveryManData = {
+                name: document.getElementById('dmName').value,
+                phone: document.getElementById('dmPhone').value,
+                password: document.getElementById('dmPassword').value
+            };
+
+            try {
+                const response = await fetch(
+                    `${API_BASE}/delivery-men/${currentDistributorId}`,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${currentToken}`
+                        },
+                        body: JSON.stringify(deliveryManData)
+                    }
+                );
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Failed to create delivery man');
+                }
+
+                resultDiv.className = 'result success';
+                resultDiv.innerHTML = `
+                    <strong>Delivery Man Created Successfully!</strong><br>
+                    <div class="credentials-box">
+                        <strong>Credentials for Delivery Man:</strong><br>
+                        Phone: ${data.phone}<br>
+                        Password: ${deliveryManData.password}<br>
+                        <small>Share these credentials with the Delivery Man</small>
+                    </div>
+                `;
+
+                // Reset form
+                document.getElementById('deliveryManForm').reset();
+
+                // Reload list
+                loadDeliveryMen();
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // Load Delivery Men
+        async function loadDeliveryMen() {
+            const listDiv = document.getElementById('dmList');
+
+            if (!currentDistributorId) {
+                listDiv.innerHTML = '<p>Please login first</p>';
+                return;
+            }
+
+            try {
+                const response = await fetch(
+                    `${API_BASE}/delivery-men/distributor/${currentDistributorId}`,
+                    {
+                        headers: {
+                            'Authorization': `Bearer ${currentToken}`
+                        }
+                    }
+                );
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Failed to load delivery men');
+                }
+
+                if (data.length === 0) {
+                    listDiv.innerHTML = '<p>No delivery men found. Create one above.</p>';
+                    return;
+                }
+
+                listDiv.innerHTML = data.map(dm => `
+                    <div class="list-item">
+                        <div class="list-item-info">
+                            <strong>${dm.name}</strong><br>
+                            Phone: ${dm.phone}<br>
+                            <small>Created: ${new Date(dm.created_at).toLocaleDateString()}</small>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                listDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>';
+            }
+        }
+    </script>
+</body>
+</html>
+

@@ -192,6 +192,71 @@
         .tab-content.active {
             display: block;
         }
+        .list-item {
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .list-item:hover {
+            background: #f0f0f0;
+            transform: translateX(5px);
+        }
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            overflow: auto;
+        }
+        .modal.active {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-content {
+            background-color: white;
+            margin: auto;
+            padding: 30px;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            position: relative;
+        }
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            position: absolute;
+            right: 20px;
+            top: 15px;
+            cursor: pointer;
+        }
+        .close:hover {
+            color: #000;
+        }
+        .modal-header {
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #eee;
+        }
+        .modal-header h3 {
+            color: #667eea;
+            margin: 0;
+        }
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .modal-actions .btn {
+            flex: 1;
+        }
     </style>
 </head>
 <body>
@@ -225,8 +290,68 @@
             <!-- Dashboard Section (Hidden until login) -->
             <div id="dashboardSection" class="section hidden">
                 <div class="tabs">
-                    <button class="tab active" onclick="switchTab('orderBookers')">Order Bookers</button>
+                    <button class="tab active" onclick="switchTab('zones')">Zones</button>
+                    <button class="tab" onclick="switchTab('routes')">Routes</button>
+                    <button class="tab" onclick="switchTab('orderBookers')">Order Bookers</button>
                     <button class="tab" onclick="switchTab('deliveryMen')">Delivery Men</button>
+                </div>
+
+                <!-- Zones Tab -->
+                <div id="zonesTab" class="tab-content active">
+                    <h2>Create Zone</h2>
+                    <form id="zoneForm" onsubmit="createZone(event)">
+                        <div class="form-group">
+                            <label>Zone Name</label>
+                            <input type="text" id="zoneName" required placeholder="e.g., Rawalpindi, Chakwal">
+                        </div>
+                        <button type="submit" class="btn btn-primary">Create Zone</button>
+                    </form>
+                    <div id="zoneResult" class="result"></div>
+                    
+                    <h2 style="margin-top: 40px;">Existing Zones</h2>
+                    <button class="btn btn-success" onclick="loadZones()">Refresh List</button>
+                    <div id="zonesList" style="margin-top: 20px;"></div>
+                </div>
+
+                <!-- Routes Tab -->
+                <div id="routesTab" class="tab-content">
+                    <h2>Create Route</h2>
+                    <form id="routeForm" onsubmit="createRoute(event)">
+                        <div class="form-group">
+                            <label>Route Name</label>
+                            <input type="text" id="routeName" required placeholder="e.g., Route 1, Route 2">
+                        </div>
+                        <div class="form-group">
+                            <label>Zone *</label>
+                            <select id="routeZoneId" required>
+                                <option value="">Select Zone</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Create Route</button>
+                    </form>
+                    <div id="routeResult" class="result"></div>
+                    
+                    <h2 style="margin-top: 40px;">Existing Routes</h2>
+                    <button class="btn btn-success" onclick="loadRoutes()">Refresh List</button>
+                    <div id="routesList" style="margin-top: 20px;"></div>
+                    
+                    <h2 style="margin-top: 40px;">Assign Route to Order Booker</h2>
+                    <form id="assignRouteForm" onsubmit="assignRoute(event)">
+                        <div class="form-group">
+                            <label>Select Route</label>
+                            <select id="assignRouteId" required>
+                                <option value="">Select Route</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Select Order Booker</label>
+                            <select id="assignOrderBookerId" required>
+                                <option value="">Select Order Booker</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Assign Route</button>
+                    </form>
+                    <div id="assignRouteResult" class="result"></div>
                 </div>
 
                 <!-- Order Bookers Tab -->
@@ -246,8 +371,10 @@
                             <input type="email" id="obEmail" placeholder="Email Address">
                         </div>
                         <div class="form-group">
-                            <label>Assigned Zone</label>
-                            <input type="text" id="obZone" required placeholder="Zone (e.g., Islamabad)">
+                            <label>Zone (Optional)</label>
+                            <select id="obZoneId">
+                                <option value="">Select Zone (Optional)</option>
+                            </select>
                         </div>
                         <div class="form-group">
                             <label>Password</label>
@@ -307,12 +434,12 @@
             });
 
             // Show selected tab
-            if (tabName === 'orderBookers') {
-                document.getElementById('orderBookersTab').classList.add('active');
-                document.querySelectorAll('.tab')[0].classList.add('active');
-            } else {
-                document.getElementById('deliveryMenTab').classList.add('active');
-                document.querySelectorAll('.tab')[1].classList.add('active');
+            const tabs = ['zones', 'routes', 'orderBookers', 'deliveryMen'];
+            const tabIndex = tabs.indexOf(tabName);
+            if (tabIndex !== -1) {
+                const tabContents = ['zonesTab', 'routesTab', 'orderBookersTab', 'deliveryMenTab'];
+                document.getElementById(tabContents[tabIndex]).classList.add('active');
+                document.querySelectorAll('.tab')[tabIndex].classList.add('active');
             }
         }
 
@@ -352,13 +479,15 @@
                 document.getElementById('dashboardSection').classList.remove('hidden');
                 document.getElementById('userInfo').classList.add('active');
                 document.getElementById('userName').textContent = data.user.name;
-                document.getElementById('userZone').textContent = data.user.assigned_zone || 'N/A';
+                document.getElementById('userZone').textContent = data.user.zone_id ? `Zone ID: ${data.user.zone_id}` : 'N/A';
                 document.getElementById('userPhone').textContent = data.user.phone;
 
                 resultDiv.className = 'result success';
                 resultDiv.textContent = 'Login successful!';
 
                 // Load initial data
+                loadAreas();
+                loadRoutes();
                 loadOrderBookers();
                 loadDeliveryMen();
             } catch (error) {
@@ -394,7 +523,7 @@
                 name: document.getElementById('obName').value,
                 phone: document.getElementById('obPhone').value,
                 email: document.getElementById('obEmail').value || null,
-                assigned_zone: document.getElementById('obZone').value,
+                zone_id: document.getElementById('obZoneId').value ? parseInt(document.getElementById('obZoneId').value) : null,
                 password: document.getElementById('obPassword').value
             };
 
@@ -466,19 +595,29 @@
 
                 if (data.length === 0) {
                     listDiv.innerHTML = '<p>No order bookers found. Create one above.</p>';
+                    // Clear assignment dropdown
+                    document.getElementById('assignOrderBookerId').innerHTML = '<option value="">Select Order Booker</option>';
                     return;
                 }
 
                 listDiv.innerHTML = data.map(ob => `
-                    <div class="list-item">
+                    <div class="list-item" onclick="openEditModal('order_booker', ${ob.id}, '${ob.name.replace(/'/g, "\\'")}', '${ob.phone}', '${(ob.email || '').replace(/'/g, "\\'")}', ${ob.zone_id || 'null'})">
                         <div class="list-item-info">
                             <strong>${ob.name}</strong><br>
                             Phone: ${ob.phone}<br>
-                            Zone: ${ob.assigned_zone || 'N/A'}<br>
+                            Email: ${ob.email || 'N/A'}<br>
+                            Zone ID: ${ob.zone_id || 'N/A'}<br>
                             <small>Created: ${new Date(ob.created_at).toLocaleDateString()}</small>
                         </div>
                     </div>
                 `).join('');
+                
+                // Populate order booker dropdown for route assignment
+                const assignOBSelect = document.getElementById('assignOrderBookerId');
+                if (assignOBSelect) {
+                    assignOBSelect.innerHTML = '<option value="">Select Order Booker</option>' + 
+                        data.map(ob => `<option value="${ob.id}">${ob.name} (${ob.phone})</option>`).join('');
+                }
             } catch (error) {
                 listDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
             }
@@ -573,10 +712,11 @@
                 }
 
                 listDiv.innerHTML = data.map(dm => `
-                    <div class="list-item">
+                    <div class="list-item" onclick="openEditModal('delivery_man', ${dm.id}, '${dm.name.replace(/'/g, "\\'")}', '${dm.phone}', '', ${dm.zone_id || 'null'})">
                         <div class="list-item-info">
                             <strong>${dm.name}</strong><br>
                             Phone: ${dm.phone}<br>
+                            Zone ID: ${dm.zone_id || 'N/A'}<br>
                             <small>Created: ${new Date(dm.created_at).toLocaleDateString()}</small>
                         </div>
                     </div>
@@ -585,6 +725,386 @@
                 listDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
             }
         }
+
+        // Load Zones
+        async function loadZones() {
+            try {
+                const response = await fetch(`${API_BASE}/zones/`, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.detail || 'Failed to load zones');
+                
+                const listDiv = document.getElementById('zonesList');
+                if (data.length === 0) {
+                    listDiv.innerHTML = '<p>No zones found. Create one above.</p>';
+                    return;
+                }
+                listDiv.innerHTML = data.map(zone => `
+                    <div class="list-item">
+                        <div class="list-item-info">
+                            <strong>${zone.name}</strong><br>
+                            <small>ID: ${zone.id} | Created: ${new Date(zone.created_at).toLocaleDateString()}</small>
+                        </div>
+                    </div>
+                `).join('');
+                
+                // Populate zone dropdowns
+                const routeZoneSelect = document.getElementById('routeZoneId');
+                if (routeZoneSelect) {
+                    routeZoneSelect.innerHTML = '<option value="">Select Zone</option>' + 
+                        data.map(z => `<option value="${z.id}">${z.name}</option>`).join('');
+                }
+                
+                const obZoneSelect = document.getElementById('obZoneId');
+                if (obZoneSelect) {
+                    obZoneSelect.innerHTML = '<option value="">Select Zone (Optional)</option>' + 
+                        data.map(z => `<option value="${z.id}">${z.name}</option>`).join('');
+                }
+            } catch (error) {
+                document.getElementById('zonesList').innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+
+        // Create Zone
+        async function createZone(event) {
+            event.preventDefault();
+            const resultDiv = document.getElementById('zoneResult');
+            const name = document.getElementById('zoneName').value;
+            
+            try {
+                const response = await fetch(`${API_BASE}/zones/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify({ name })
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.detail || 'Failed to create zone');
+                
+                resultDiv.className = 'result success';
+                resultDiv.textContent = `Zone "${data.name}" created successfully!`;
+                document.getElementById('zoneForm').reset();
+                loadZones();
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // Load Routes
+        async function loadRoutes() {
+            try {
+                const response = await fetch(`${API_BASE}/routes/distributor/${currentDistributorId}`, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.detail || 'Failed to load routes');
+                
+                const listDiv = document.getElementById('routesList');
+                if (data.length === 0) {
+                    listDiv.innerHTML = '<p>No routes found. Create one above.</p>';
+                    return;
+                }
+                listDiv.innerHTML = data.map(route => `
+                    <div class="list-item">
+                        <div class="list-item-info">
+                            <strong>${route.name}</strong><br>
+                            Zone ID: ${route.zone_id}<br>
+                            ${route.order_booker_id ? `Assigned to Order Booker ID: ${route.order_booker_id}` : 'Not assigned'}<br>
+                            <small>ID: ${route.id} | Created: ${new Date(route.created_at).toLocaleDateString()}</small>
+                        </div>
+                    </div>
+                `).join('');
+                
+                // Populate route dropdown for assignment
+                const assignRouteSelect = document.getElementById('assignRouteId');
+                assignRouteSelect.innerHTML = '<option value="">Select Route</option>' + 
+                    data.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+            } catch (error) {
+                document.getElementById('routesList').innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+
+        // Create Route
+        async function createRoute(event) {
+            event.preventDefault();
+            const resultDiv = document.getElementById('routeResult');
+            const routeData = {
+                name: document.getElementById('routeName').value,
+                zone_id: parseInt(document.getElementById('routeZoneId').value)
+            };
+            
+            try {
+                const response = await fetch(`${API_BASE}/routes/${currentDistributorId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify(routeData)
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.detail || 'Failed to create route');
+                
+                resultDiv.className = 'result success';
+                resultDiv.textContent = `Route "${data.name}" created successfully!`;
+                document.getElementById('routeForm').reset();
+                loadRoutes();
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // Assign Route to Order Booker
+        async function assignRoute(event) {
+            event.preventDefault();
+            const resultDiv = document.getElementById('assignRouteResult');
+            const routeId = parseInt(document.getElementById('assignRouteId').value);
+            const orderBookerId = parseInt(document.getElementById('assignOrderBookerId').value);
+            
+            try {
+                const response = await fetch(`${API_BASE}/routes/${routeId}/assign`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify({ order_booker_id: orderBookerId })
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.detail || 'Failed to assign route');
+                
+                resultDiv.className = 'result success';
+                resultDiv.textContent = `Route "${data.name}" assigned successfully!`;
+                document.getElementById('assignRouteForm').reset();
+                loadRoutes();
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // Modal Functions
+        let currentEditType = null; // 'order_booker' or 'delivery_man'
+        let currentEditId = null;
+
+        function openEditModal(type, id, name, phone, email, zoneId) {
+            currentEditType = type;
+            currentEditId = id;
+            
+            const modal = document.getElementById('editModal');
+            const modalTitle = document.getElementById('modalTitle');
+            const editName = document.getElementById('editName');
+            const editPhone = document.getElementById('editPhone');
+            const editEmail = document.getElementById('editEmail');
+            const editEmailGroup = document.getElementById('editEmailGroup');
+            const editZoneId = document.getElementById('editZoneId');
+            const editPassword = document.getElementById('editPassword');
+            
+            // Set title
+            modalTitle.textContent = `Edit ${type === 'order_booker' ? 'Order Booker' : 'Delivery Man'}`;
+            
+            // Populate fields
+            editName.value = name;
+            editPhone.value = phone;
+            editEmail.value = email || '';
+            editPassword.value = ''; // Clear password field
+            
+            // Show/hide email field (only for order bookers)
+            if (editEmailGroup) {
+                editEmailGroup.style.display = type === 'order_booker' ? 'block' : 'none';
+            }
+            
+            // Set zone
+            if (zoneId && zoneId !== 'null' && zoneId !== null) {
+                editZoneId.value = zoneId;
+            } else {
+                editZoneId.value = '';
+            }
+            
+            // Load zones for dropdown
+            loadZonesForModal();
+            
+            // Show modal
+            modal.classList.add('active');
+        }
+
+        function closeEditModal() {
+            const modal = document.getElementById('editModal');
+            modal.classList.remove('active');
+            currentEditType = null;
+            currentEditId = null;
+        }
+
+        async function loadZonesForModal() {
+            try {
+                const response = await fetch(`${API_BASE}/zones/`, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+                const data = await response.json();
+                if (response.ok && data.length > 0) {
+                    const zoneSelect = document.getElementById('editZoneId');
+                    if (zoneSelect) {
+                        const currentValue = zoneSelect.value;
+                        zoneSelect.innerHTML = '<option value="">Select Zone (Optional)</option>' + 
+                            data.map(z => `<option value="${z.id}" ${z.id == currentValue ? 'selected' : ''}>${z.name}</option>`).join('');
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading zones:', error);
+            }
+        }
+
+        async function saveEdit() {
+            if (!currentEditType || !currentEditId) return;
+            
+            const editName = document.getElementById('editName').value;
+            const editPhone = document.getElementById('editPhone').value;
+            const editEmail = document.getElementById('editEmail').value;
+            const editZoneId = document.getElementById('editZoneId').value;
+            const editPassword = document.getElementById('editPassword').value;
+            
+            const updateData = {
+                name: editName,
+                phone: editPhone,
+                zone_id: editZoneId ? parseInt(editZoneId) : null
+            };
+            
+            if (currentEditType === 'order_booker') {
+                if (editEmail) updateData.email = editEmail;
+            }
+            
+            if (editPassword) {
+                updateData.password = editPassword;
+            }
+            
+            try {
+                const endpoint = currentEditType === 'order_booker' 
+                    ? `${API_BASE}/order-bookers/${currentEditId}`
+                    : `${API_BASE}/delivery-men/${currentEditId}`;
+                
+                const response = await fetch(endpoint, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify(updateData)
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Failed to update');
+                }
+                
+                alert(`${currentEditType === 'order_booker' ? 'Order Booker' : 'Delivery Man'} updated successfully!`);
+                closeEditModal();
+                
+                // Reload lists
+                if (currentEditType === 'order_booker') {
+                    loadOrderBookers();
+                } else {
+                    loadDeliveryMen();
+                }
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        }
+
+        async function deleteUser() {
+            if (!currentEditType || !currentEditId) return;
+            
+            const confirmMessage = `Are you sure you want to delete this ${currentEditType === 'order_booker' ? 'Order Booker' : 'Delivery Man'}? This action cannot be undone.`;
+            if (!confirm(confirmMessage)) {
+                return;
+            }
+            
+            try {
+                const endpoint = currentEditType === 'order_booker' 
+                    ? `${API_BASE}/order-bookers/${currentEditId}`
+                    : `${API_BASE}/delivery-men/${currentEditId}`;
+                
+                const response = await fetch(endpoint, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+                
+                if (!response.ok) {
+                    const data = await response.json();
+                    throw new Error(data.detail || 'Failed to delete');
+                }
+                
+                alert(`${currentEditType === 'order_booker' ? 'Order Booker' : 'Delivery Man'} deleted successfully!`);
+                closeEditModal();
+                
+                // Reload lists
+                if (currentEditType === 'order_booker') {
+                    loadOrderBookers();
+                } else {
+                    loadDeliveryMen();
+                }
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('editModal');
+            if (event.target === modal) {
+                closeEditModal();
+            }
+        }
     </script>
+
+    <!-- Edit Modal -->
+    <div id="editModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeEditModal()">&times;</span>
+            <div class="modal-header">
+                <h3 id="modalTitle">Edit User</h3>
+            </div>
+            <div class="form-group">
+                <label>Name *</label>
+                <input type="text" id="editName" required>
+            </div>
+            <div class="form-group">
+                <label>Phone *</label>
+                <input type="text" id="editPhone" required>
+            </div>
+            <div class="form-group" id="editEmailGroup">
+                <label>Email (Optional)</label>
+                <input type="email" id="editEmail">
+            </div>
+            <div class="form-group">
+                <label>Zone (Optional)</label>
+                <select id="editZoneId">
+                    <option value="">Select Zone (Optional)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>New Password (Leave empty to keep current)</label>
+                <input type="password" id="editPassword" placeholder="Enter new password">
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-primary" onclick="saveEdit()">Save Changes</button>
+                <button class="btn btn-danger" onclick="deleteUser()">Delete Account</button>
+                <button class="btn" onclick="closeEditModal()" style="background: #6c757d; color: white;">Cancel</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

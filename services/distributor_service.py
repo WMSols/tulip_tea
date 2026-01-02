@@ -12,7 +12,7 @@ class DistributorService:
     
     @staticmethod
     def create_distributor(db: Session, name: str, email: str, phone: str,
-                          assigned_zone: str, password: str) -> Dict:
+                          password: str, zone_id: int = None) -> Dict:
         """
         Create a new distributor.
         
@@ -39,8 +39,8 @@ class DistributorService:
             name=name,
             email=email,
             phone=phone,
-            assigned_zone=assigned_zone,
-            password_hash=password_hash
+            password_hash=password_hash,
+            zone_id=zone_id
         )
         
         return {
@@ -48,7 +48,7 @@ class DistributorService:
             "name": distributor.name,
             "email": distributor.email,
             "phone": distributor.phone,
-            "assigned_zone": distributor.assigned_zone,
+            "zone_id": distributor.zone_id,
             "created_at": distributor.created_at.isoformat() if distributor.created_at else None
         }
     
@@ -85,7 +85,7 @@ class DistributorService:
                 "name": distributor.name,
                 "email": distributor.email,
                 "phone": distributor.phone,
-                "assigned_zone": distributor.assigned_zone,
+                "zone_id": distributor.zone_id,
                 "role": "distributor"
             }
         }

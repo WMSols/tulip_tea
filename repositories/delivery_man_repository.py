@@ -42,4 +42,36 @@ class DeliveryManRepository:
         return db.query(DeliveryMan).filter(
             DeliveryMan.distributor_id == distributor_id
         ).offset(skip).limit(limit).all()
+    
+    @staticmethod
+    def update(db: Session, delivery_man_id: int, name: str = None,
+              phone: str = None, zone_id: int = None,
+              password_hash: str = None) -> Optional[DeliveryMan]:
+        """Update a delivery man."""
+        delivery_man = db.query(DeliveryMan).filter(DeliveryMan.id == delivery_man_id).first()
+        if not delivery_man:
+            return None
+        
+        if name is not None:
+            delivery_man.name = name
+        if phone is not None:
+            delivery_man.phone = phone
+        if zone_id is not None:
+            delivery_man.zone_id = zone_id
+        if password_hash is not None:
+            delivery_man.password_hash = password_hash
+        
+        db.commit()
+        db.refresh(delivery_man)
+        return delivery_man
+    
+    @staticmethod
+    def delete(db: Session, delivery_man_id: int) -> bool:
+        """Delete a delivery man."""
+        delivery_man = db.query(DeliveryMan).filter(DeliveryMan.id == delivery_man_id).first()
+        if not delivery_man:
+            return False
+        db.delete(delivery_man)
+        db.commit()
+        return True
 

@@ -12,14 +12,14 @@ class DistributorRepository:
     
     @staticmethod
     def create(db: Session, name: str, email: str, phone: str, 
-              assigned_zone: str, password_hash: str) -> Distributor:
+              password_hash: str, zone_id: int = None) -> Distributor:
         """Create a new distributor."""
         distributor = Distributor(
             name=name,
             email=email,
             phone=phone,
-            assigned_zone=assigned_zone,
-            password_hash=password_hash
+            password_hash=password_hash,
+            zone_id=zone_id
         )
         db.add(distributor)
         db.commit()

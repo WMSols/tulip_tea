@@ -3,151 +3,167 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tulip Tea API Tester</title>
+    <title>Tulip Tea - Dashboard Hub</title>
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
         body {
-            font-family: Arial, sans-serif;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
             max-width: 1200px;
             margin: 0 auto;
-            padding: 20px;
-            background: #f5f5f5;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            overflow: hidden;
         }
-        h1 {
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+        .header h1 {
+            font-size: 3em;
+            margin-bottom: 10px;
+        }
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+        .content {
+            padding: 40px;
+        }
+        .dashboards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin-top: 30px;
+        }
+        .dashboard-card {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 30px;
+            text-align: center;
+            transition: all 0.3s;
+            border: 3px solid transparent;
+            cursor: pointer;
+        }
+        .dashboard-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            border-color: #667eea;
+        }
+        .dashboard-card.distributor {
+            border-left: 5px solid #667eea;
+        }
+        .dashboard-card.order-booker {
+            border-left: 5px solid #28a745;
+        }
+        .dashboard-card.delivery-man {
+            border-left: 5px solid #f5576c;
+        }
+        .dashboard-card h2 {
+            font-size: 1.8em;
+            margin-bottom: 15px;
             color: #333;
         }
-        .endpoint {
-            background: white;
-            padding: 20px;
-            margin: 20px 0;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        .dashboard-card.distributor h2 {
+            color: #667eea;
         }
-        .endpoint h2 {
-            margin-top: 0;
-            color: #2c3e50;
+        .dashboard-card.order-booker h2 {
+            color: #28a745;
         }
-        button {
-            background: #3498db;
-            color: white;
+        .dashboard-card.delivery-man h2 {
+            color: #f5576c;
+        }
+        .dashboard-card p {
+            color: #666;
+            margin-bottom: 20px;
+            line-height: 1.6;
+        }
+        .btn {
+            padding: 12px 30px;
             border: none;
-            padding: 10px 20px;
-            border-radius: 4px;
+            border-radius: 5px;
+            font-size: 16px;
             cursor: pointer;
-            font-size: 14px;
+            transition: all 0.3s;
+            font-weight: 600;
+            text-decoration: none;
+            display: inline-block;
         }
-        button:hover {
-            background: #2980b9;
+        .btn-distributor {
+            background: #667eea;
+            color: white;
         }
-        #result {
-            margin-top: 20px;
-            padding: 15px;
-            background: #ecf0f1;
-            border-radius: 4px;
-            white-space: pre-wrap;
-            font-family: monospace;
-            font-size: 12px;
+        .btn-distributor:hover {
+            background: #5568d3;
+        }
+        .btn-order-booker {
+            background: #28a745;
+            color: white;
+        }
+        .btn-order-booker:hover {
+            background: #218838;
+        }
+        .btn-delivery-man {
+            background: #f5576c;
+            color: white;
+        }
+        .btn-delivery-man:hover {
+            background: #e04a5f;
+        }
+        .icon {
+            font-size: 3em;
+            margin-bottom: 15px;
         }
     </style>
 </head>
 <body>
-    <h1>🌷 Tulip Tea API Tester</h1>
-    <p>Use this page to test API endpoints manually.</p>
-    
-    <div class="endpoint">
-        <h2>Simple Test (No DB)</h2>
-        <button onclick="testSimple()">Test Simple Endpoint</button>
-        <div id="result1"></div>
-    </div>
-    
-    <div class="endpoint">
-        <h2>Root Endpoint</h2>
-        <button onclick="testRoot()">Test Root</button>
-        <div id="result2"></div>
-    </div>
-    
-    <div class="endpoint">
-        <h2>Health Check (With DB)</h2>
-        <button onclick="testHealth()">Test Health Check</button>
-        <div id="result3"></div>
+    <div class="container">
+        <div class="header">
+            <h1>🌷 Tulip Tea</h1>
+            <p>Field Operations Management System</p>
+        </div>
+
+        <div class="content">
+            <h2 style="text-align: center; color: #333; margin-bottom: 20px;">Select Your Dashboard</h2>
+            
+            <div class="dashboards">
+                <!-- Distributor Dashboard -->
+                <div class="dashboard-card distributor" onclick="window.location.href='distributor_dashboard.html'">
+                    <div class="icon">👔</div>
+                    <h2>Distributor</h2>
+                    <p>Manage Order Bookers and Delivery Men. Create accounts, assign zones, and monitor operations.</p>
+                    <a href="distributor_dashboard.html" class="btn btn-distributor">Open Dashboard</a>
+                </div>
+
+                <!-- Order Booker Dashboard -->
+                <div class="dashboard-card order-booker" onclick="window.location.href='order_booker_dashboard.html'">
+                    <div class="icon">📋</div>
+                    <h2>Order Booker</h2>
+                    <p>Register shops, create orders, manage routes, and track shop visits with GPS validation.</p>
+                    <a href="order_booker_dashboard.html" class="btn btn-order-booker">Open Dashboard</a>
+                </div>
+
+                <!-- Delivery Man Dashboard -->
+                <div class="dashboard-card delivery-man" onclick="window.location.href='delivery_man_dashboard.html'">
+                    <div class="icon">🚚</div>
+                    <h2>Delivery Man</h2>
+                    <p>View delivery routes, mark deliveries, collect payments, and manage stock returns.</p>
+                    <a href="delivery_man_dashboard.html" class="btn btn-delivery-man">Open Dashboard</a>
+                </div>
+            </div>
+        </div>
     </div>
 </body>
-<script>
-    const API_BASE = 'http://localhost:8000';
-    
-    async function testSimple() {
-        const resultDiv = document.getElementById('result1');
-        resultDiv.textContent = 'Testing...';
-        
-        try {
-            const response = await fetch(`${API_BASE}/test`, {
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            
-            const data = await response.json();
-            resultDiv.textContent = JSON.stringify(data, null, 2);
-            resultDiv.style.color = 'green';
-        } catch (error) {
-            resultDiv.textContent = `Error: ${error.message}`;
-            resultDiv.style.color = 'red';
-        }
-    }
-    
-    async function testRoot() {
-        const resultDiv = document.getElementById('result2');
-        resultDiv.textContent = 'Testing...';
-        
-        try {
-            const response = await fetch(`${API_BASE}/`, {
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            
-            const data = await response.json();
-            resultDiv.textContent = JSON.stringify(data, null, 2);
-            resultDiv.style.color = 'green';
-        } catch (error) {
-            resultDiv.textContent = `Error: ${error.message}`;
-            resultDiv.style.color = 'red';
-        }
-    }
-    
-    async function testHealth() {
-        const resultDiv = document.getElementById('result3');
-        resultDiv.textContent = 'Testing...';
-        
-        try {
-            const response = await fetch(`${API_BASE}/health`, {
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            
-            const data = await response.json();
-            resultDiv.textContent = JSON.stringify(data, null, 2);
-            resultDiv.style.color = data.status === 'healthy' ? 'green' : 'orange';
-        } catch (error) {
-            resultDiv.textContent = `Error: ${error.message}`;
-            resultDiv.style.color = 'red';
-        }
-    }
-</script>
 </html>
 

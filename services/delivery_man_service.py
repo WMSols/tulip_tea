@@ -90,14 +90,62 @@ class DeliveryManService:
     @staticmethod
     def get_delivery_men_by_distributor(db: Session, distributor_id: int) -> List[Dict]:
         """Get all delivery men for a distributor."""
-        delivery_men = DeliveryManRepository.get_by_distributor(db, distributor_id)
-        return [
-            {
-                "id": dm.id,
-                "name": dm.name,
-                "phone": dm.phone,
-                "created_at": dm.created_at.isoformat() if dm.created_at else None
-            }
-            for dm in delivery_men
-        ]
+        try:
+            delivery_men = DeliveryManRepository.get_by_distributor(db, distributor_id)
+            result = []
+            for dm in delivery_men:
+                result.append({
+                    "id": dm.id,
+                    "name": dm.name,
+                    "phone": dm.phone,
+                    "zone_id": dm.zone_id,
+                    "distributor_id": dm.distributor_id,
+                    "created_at": dm.created_at.isoformat() if dm.created_at else None
+                })
+            return result
+        except Exception as e:
+            raise ValueError(f"Error retrieving delivery men: {str(e)}")
+    
+    @staticmethod
+    def update_delivery_man(db: Session, delivery_man_id: int, name: str = None,
+                           phone: str = None, zone_id: int = None,
+                           password: str = None) -> Dict:
+        """Update a delivery man."""
+        delivery_man = DeliveryManRepository.get_by_id(db, delivery_man_id)
+        if not delivery_man:
+            raise ValueError("Delivery Man not found")
+        
+        password_hash = None
+        if password:
+            password_hash = get_password_hash(password)
+        
+        updated = DeliveryManRepository.update(
+            db=db,
+            delivery_man_id=delivery_man_id,
+            name=name,
+            phone=phone,
+            zone_id=zone_id,
+            password_hash=password_hash
+        )
+        
+        if not updated:
+            raise ValueError("Failed to update delivery man")
+        
+        return {
+            "id": updated.id,
+            "name": updated.name,
+            "phone": updated.phone,
+            "zone_id": updated.zone_id,
+            "distributor_id": updated.distributor_id,
+            "created_at": updated.created_at.isoformat() if updated.created_at else None
+        }
+    
+    @staticmethod
+    def delete_delivery_man(db: Session, delivery_man_id: int) -> bool:
+        """Delete a delivery man."""
+        delivery_man = DeliveryManRepository.get_by_id(db, delivery_man_id)
+        if not delivery_man:
+            raise ValueError("Delivery Man not found")
+        
+        return DeliveryManRepository.delete(db, delivery_man_id)
 

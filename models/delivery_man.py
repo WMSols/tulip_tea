@@ -15,6 +15,7 @@ class DeliveryMan(Base):
     name = Column(String, nullable=False)
     phone = Column(String, nullable=False, unique=True, index=True)
     password_hash = Column(String, nullable=False)
+    zone_id = Column(BigInteger, ForeignKey("zones.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

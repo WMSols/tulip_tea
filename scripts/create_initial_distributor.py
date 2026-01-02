@@ -22,15 +22,15 @@ def create_initial_distributor():
             name="faraz",
             email="faraz@tuliptea.com",
             phone="03001234567",
-            assigned_zone="islamabad",
-            password="faraz12"
+            password="faraz12",
+            zone_id=None  # Can be set later after creating zones
         )
         
         print("✅ Distributor created successfully!")
         print(f"   ID: {result['id']}")
         print(f"   Name: {result['name']}")
         print(f"   Phone: {result['phone']}")
-        print(f"   Zone: {result['assigned_zone']}")
+        print(f"   Zone ID: {result.get('zone_id', 'Not assigned')}")
         print(f"\n📋 Login Credentials:")
         print(f"   Phone: {result['phone']}")
         print(f"   Password: faraz12")

@@ -13,7 +13,7 @@ class OrderBookerService:
     
     @staticmethod
     def create_order_booker(db: Session, distributor_id: int, name: str, phone: str,
-                           assigned_zone: str, password: str, email: str = None) -> Dict:
+                           password: str, email: str = None, zone_id: int = None) -> Dict:
         """
         Create a new order booker (only by distributor).
         
@@ -39,9 +39,9 @@ class OrderBookerService:
             distributor_id=distributor_id,
             name=name,
             phone=phone,
-            assigned_zone=assigned_zone,
             password_hash=password_hash,
-            email=email
+            email=email,
+            zone_id=zone_id
         )
         
         return {
@@ -49,7 +49,7 @@ class OrderBookerService:
             "name": order_booker.name,
             "email": order_booker.email,
             "phone": order_booker.phone,
-            "assigned_zone": order_booker.assigned_zone,
+            "zone_id": order_booker.zone_id,
             "distributor_id": order_booker.distributor_id,
             "created_at": order_booker.created_at.isoformat() if order_booker.created_at else None
         }
@@ -87,7 +87,7 @@ class OrderBookerService:
                 "name": order_booker.name,
                 "email": order_booker.email,
                 "phone": order_booker.phone,
-                "assigned_zone": order_booker.assigned_zone,
+                "zone_id": order_booker.zone_id,
                 "distributor_id": order_booker.distributor_id,
                 "role": "order_booker"
             }
@@ -96,16 +96,65 @@ class OrderBookerService:
     @staticmethod
     def get_order_bookers_by_distributor(db: Session, distributor_id: int) -> List[Dict]:
         """Get all order bookers for a distributor."""
-        order_bookers = OrderBookerRepository.get_by_distributor(db, distributor_id)
-        return [
-            {
-                "id": ob.id,
-                "name": ob.name,
-                "email": ob.email,
-                "phone": ob.phone,
-                "assigned_zone": ob.assigned_zone,
-                "created_at": ob.created_at.isoformat() if ob.created_at else None
-            }
-            for ob in order_bookers
-        ]
+        try:
+            order_bookers = OrderBookerRepository.get_by_distributor(db, distributor_id)
+            result = []
+            for ob in order_bookers:
+                result.append({
+                    "id": ob.id,
+                    "name": ob.name,
+                    "email": ob.email if ob.email else None,
+                    "phone": ob.phone,
+                    "zone_id": ob.zone_id,
+                    "distributor_id": ob.distributor_id,
+                    "created_at": ob.created_at.isoformat() if ob.created_at else None
+                })
+            return result
+        except Exception as e:
+            raise ValueError(f"Error retrieving order bookers: {str(e)}")
+    
+    @staticmethod
+    def update_order_booker(db: Session, order_booker_id: int, name: str = None,
+                           phone: str = None, email: str = None, zone_id: int = None,
+                           password: str = None) -> Dict:
+        """Update an order booker."""
+        order_booker = OrderBookerRepository.get_by_id(db, order_booker_id)
+        if not order_booker:
+            raise ValueError("Order Booker not found")
+        
+        password_hash = None
+        if password:
+            password_hash = get_password_hash(password)
+        
+        updated = OrderBookerRepository.update(
+            db=db,
+            order_booker_id=order_booker_id,
+            name=name,
+            phone=phone,
+            email=email,
+            zone_id=zone_id,
+            password_hash=password_hash
+        )
+        
+        if not updated:
+            raise ValueError("Failed to update order booker")
+        
+        return {
+            "id": updated.id,
+            "name": updated.name,
+            "email": updated.email,
+            "phone": updated.phone,
+            "zone_id": updated.zone_id,
+            "distributor_id": updated.distributor_id,
+            "created_at": updated.created_at.isoformat() if updated.created_at else None
+        }
+    
+    @staticmethod
+    def delete_order_booker(db: Session, order_booker_id: int) -> bool:
+        """Delete an order booker."""
+        order_booker = OrderBookerRepository.get_by_id(db, order_booker_id)
+        if not order_booker:
+            raise ValueError("Order Booker not found")
+        
+        return OrderBookerRepository.delete(db, order_booker_id)
 

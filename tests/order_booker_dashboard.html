@@ -166,9 +166,98 @@
         .list-item-info strong {
             color: #667eea;
         }
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            font-family: inherit;
+            resize: vertical;
+        }
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        /* API Call Helper Styles */
+        .api-helper {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #2c3e50;
+            color: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            max-width: 400px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            z-index: 9999;
+            display: none;
+        }
+        .api-helper.active {
+            display: block;
+        }
+        .api-helper .api-title {
+            font-weight: bold;
+            color: #3498db;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        .api-helper .api-method {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+        .api-helper .method-POST {
+            background: #27ae60;
+            color: white;
+        }
+        .api-helper .method-GET {
+            background: #3498db;
+            color: white;
+        }
+        .api-helper .method-PUT {
+            background: #f39c12;
+            color: white;
+        }
+        .api-helper .method-DELETE {
+            background: #e74c3c;
+            color: white;
+        }
+        .api-helper .api-endpoint {
+            color: #ecf0f1;
+            word-break: break-all;
+            margin: 5px 0;
+        }
+        .api-helper .api-status {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid #34495e;
+        }
+        .api-helper .status-loading {
+            color: #f39c12;
+        }
+        .api-helper .status-success {
+            color: #27ae60;
+        }
+        .api-helper .status-error {
+            color: #e74c3c;
+        }
     </style>
 </head>
 <body>
+    <!-- API Call Helper (Fixed Position) -->
+    <div id="apiHelper" class="api-helper">
+        <div class="api-title">📡 API Call Information</div>
+        <div id="apiMethod" class="api-method"></div>
+        <div id="apiEndpoint" class="api-endpoint"></div>
+        <div id="apiOperation" class="api-endpoint" style="color: #95a5a6; font-style: italic;"></div>
+        <div id="apiStatus" class="api-status"></div>
+    </div>
+
     <div class="container">
         <div class="header">
             <h1>📋 Tulip Tea - Order Booker Dashboard</h1>
@@ -287,6 +376,41 @@
                     <button class="btn btn-success" onclick="loadMyShops()" style="margin-bottom: 15px;">Refresh List</button>
                     <div id="shopsList"></div>
                 </div>
+
+                <!-- Request Credit Limit Change -->
+                <div class="info-card">
+                    <h3>💰 Request Credit Limit Change</h3>
+                    <p style="color: #666; margin-bottom: 15px;">Select an existing shop and request to increase or decrease its credit limit.</p>
+                    <form id="creditLimitRequestForm" onsubmit="requestCreditLimitChange(event)">
+                        <div class="form-group">
+                            <label>Select Shop *</label>
+                            <select id="requestShopId" required>
+                                <option value="">Select Shop</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Current Credit Limit</label>
+                            <input type="number" id="currentCreditLimit" step="0.01" readonly style="background: #f0f0f0;">
+                        </div>
+                        <div class="form-group">
+                            <label>Requested Credit Limit *</label>
+                            <input type="number" id="requestedCreditLimit" step="0.01" required placeholder="Enter new credit limit">
+                        </div>
+                        <div class="form-group">
+                            <label>Remarks (Optional)</label>
+                            <textarea id="requestRemarks" rows="3" placeholder="Reason for credit limit change"></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Submit Request</button>
+                    </form>
+                    <div id="creditLimitRequestResult" class="result"></div>
+                </div>
+
+                <!-- My Credit Limit Requests -->
+                <div class="info-card">
+                    <h3>📝 My Credit Limit Requests</h3>
+                    <button class="btn btn-success" onclick="loadMyCreditLimitRequests()" style="margin-bottom: 15px;">Refresh List</button>
+                    <div id="creditLimitRequestsList"></div>
+                </div>
             </div>
         </div>
     </div>
@@ -295,6 +419,38 @@
         const API_BASE = 'http://localhost:8000';
         let currentToken = null;
         let currentUser = null;
+
+        /**
+         * Show API call information in the helper panel
+         * @param {string} method - HTTP method (GET, POST, PUT, DELETE)
+         * @param {string} endpoint - API endpoint URL
+         * @param {string} operation - Human-readable operation description
+         * @param {string} status - Status (loading, success, error)
+         */
+        function showApiCall(method, endpoint, operation, status = 'loading') {
+            const helper = document.getElementById('apiHelper');
+            const methodEl = document.getElementById('apiMethod');
+            const endpointEl = document.getElementById('apiEndpoint');
+            const operationEl = document.getElementById('apiOperation');
+            const statusEl = document.getElementById('apiStatus');
+
+            helper.classList.add('active');
+            methodEl.textContent = method;
+            methodEl.className = `api-method method-${method}`;
+            endpointEl.textContent = endpoint;
+            operationEl.textContent = operation;
+            
+            statusEl.className = `api-status status-${status}`;
+            if (status === 'loading') {
+                statusEl.textContent = '⏳ Loading...';
+            } else if (status === 'success') {
+                statusEl.textContent = '✅ Success';
+                setTimeout(() => helper.classList.remove('active'), 3000);
+            } else if (status === 'error') {
+                statusEl.textContent = '❌ Error';
+                setTimeout(() => helper.classList.remove('active'), 5000);
+            }
+        }
 
         // Login function
         async function login() {
@@ -308,8 +464,11 @@
                 return;
             }
 
+            const endpoint = `${API_BASE}/auth/login/order-booker`;
+            showApiCall('POST', endpoint, 'Order Booker Login', 'loading');
+
             try {
-                const response = await fetch(`${API_BASE}/auth/login/order-booker`, {
+                const response = await fetch(endpoint, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -320,8 +479,11 @@
                 const data = await response.json();
 
                 if (!response.ok) {
+                    showApiCall('POST', endpoint, 'Order Booker Login', 'error');
                     throw new Error(data.detail || 'Login failed');
                 }
+                
+                showApiCall('POST', endpoint, 'Order Booker Login', 'success');
 
                 currentToken = data.access_token;
                 currentUser = data.user;
@@ -353,6 +515,7 @@
                 loadMyRoutes();
                 loadMyShops();
                 loadZones();
+                loadMyCreditLimitRequests();
             } catch (error) {
                 resultDiv.className = 'result error';
                 resultDiv.textContent = `Error: ${error.message}`;
@@ -452,32 +615,39 @@
                 legacy_balance: document.getElementById('legacyBalance').value ? parseFloat(document.getElementById('legacyBalance').value) : 0
             };
 
+            const endpoint = `${API_BASE}/shops/order-booker/${currentUser.id}`;
+            showApiCall('POST', endpoint, 'Register Shop', 'loading');
+
             try {
-                const response = await fetch(
-                    `${API_BASE}/shops/order-booker/${currentUser.id}`,
-                    {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${currentToken}`
-                        },
-                        body: JSON.stringify(shopData)
-                    }
-                );
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify(shopData)
+                });
 
                 const data = await response.json();
 
                 if (!response.ok) {
+                    showApiCall('POST', endpoint, 'Register Shop', 'error');
                     throw new Error(data.detail || 'Failed to register shop');
                 }
 
                 resultDiv.className = 'result success';
-                resultDiv.innerHTML = `
+                let resultHtml = `
                     <strong>Shop Registered Successfully!</strong><br>
                     Shop ID: ${data.id}<br>
                     Name: ${data.name}<br>
-                    GPS: ${data.gps_lat}, ${data.gps_lng}
+                    GPS: ${data.gps_lat}, ${data.gps_lng}<br>
+                    Status: <span style="color: ${data.registration_status === 'approved' ? 'green' : 'orange'}">${data.registration_status || 'pending'}</span>
                 `;
+                if (data.credit_limit_request_id) {
+                    resultHtml += `<br>Credit Limit Request ID: ${data.credit_limit_request_id} (Pending Approval)`;
+                }
+                resultDiv.innerHTML = resultHtml;
+                showApiCall('POST', endpoint, 'Register Shop', 'success');
 
                 document.getElementById('shopRegistrationForm').reset();
                 loadMyShops();
@@ -493,21 +663,24 @@
             
             const listDiv = document.getElementById('shopsList');
             
+            const endpoint = `${API_BASE}/shops/order-booker/${currentUser.id}`;
+            showApiCall('GET', endpoint, 'Load My Shops', 'loading');
+
             try {
-                const response = await fetch(
-                    `${API_BASE}/shops/order-booker/${currentUser.id}`,
-                    {
-                        headers: {
-                            'Authorization': `Bearer ${currentToken}`
-                        }
+                const response = await fetch(endpoint, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
                     }
-                );
+                });
 
                 const data = await response.json();
 
                 if (!response.ok) {
+                    showApiCall('GET', endpoint, 'Load My Shops', 'error');
                     throw new Error(data.detail || 'Failed to load shops');
                 }
+                
+                showApiCall('GET', endpoint, 'Load My Shops', 'success');
 
                 if (data.length === 0) {
                     listDiv.innerHTML = '<p>No shops registered yet. Register a shop above.</p>';
@@ -515,17 +688,169 @@
                 }
 
                 listDiv.innerHTML = data.map(shop => `
-                    <div class="list-item">
+                    <div class="list-item" onclick="selectShopForCreditRequest(${shop.id}, '${shop.name}', ${shop.credit_limit || 0})">
                         <div class="list-item-info">
                             <strong>${shop.name}</strong><br>
                             Owner: ${shop.owner_name || 'N/A'}<br>
                             Phone: ${shop.owner_phone || 'N/A'}<br>
                             GPS: ${shop.gps_lat ? shop.gps_lat.toFixed(6) : 'N/A'}, ${shop.gps_lng ? shop.gps_lng.toFixed(6) : 'N/A'}<br>
-                            Credit Limit: ${shop.credit_limit || 0}<br>
+                            Credit Limit: Rs. ${(shop.credit_limit || 0).toLocaleString()}<br>
+                            Status: <span style="color: ${shop.registration_status === 'approved' ? 'green' : shop.registration_status === 'pending' ? 'orange' : 'red'}">${shop.registration_status || 'pending'}</span><br>
                             <small>ID: ${shop.id} | Created: ${new Date(shop.created_at).toLocaleDateString()}</small>
                         </div>
                     </div>
                 `).join('');
+
+                // Populate shop dropdown for credit limit requests
+                const shopSelect = document.getElementById('requestShopId');
+                if (shopSelect) {
+                    shopSelect.innerHTML = '<option value="">Select Shop</option>' +
+                        data.map(shop => `<option value="${shop.id}" data-credit="${shop.credit_limit || 0}">${shop.name} (Current: Rs. ${(shop.credit_limit || 0).toLocaleString()})</option>`).join('');
+                }
+            } catch (error) {
+                listDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+
+        // Select shop for credit limit request (click handler)
+        function selectShopForCreditRequest(shopId, shopName, currentCreditLimit) {
+            document.getElementById('requestShopId').value = shopId;
+            document.getElementById('currentCreditLimit').value = currentCreditLimit;
+            document.getElementById('requestedCreditLimit').focus();
+        }
+
+        // Update current credit limit when shop is selected from dropdown
+        document.addEventListener('DOMContentLoaded', () => {
+            const shopSelect = document.getElementById('requestShopId');
+            if (shopSelect) {
+                shopSelect.addEventListener('change', function() {
+                    const selectedOption = this.options[this.selectedIndex];
+                    if (selectedOption.value) {
+                        const currentCredit = selectedOption.getAttribute('data-credit') || 0;
+                        document.getElementById('currentCreditLimit').value = currentCredit;
+                    } else {
+                        document.getElementById('currentCreditLimit').value = '';
+                    }
+                });
+            }
+        });
+
+        // Request Credit Limit Change
+        async function requestCreditLimitChange(event) {
+            event.preventDefault();
+            const resultDiv = document.getElementById('creditLimitRequestResult');
+
+            if (!currentUser || !currentUser.id) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Please login first';
+                return;
+            }
+
+            const shopId = document.getElementById('requestShopId').value;
+            const requestedCreditLimit = parseFloat(document.getElementById('requestedCreditLimit').value);
+            const remarks = document.getElementById('requestRemarks').value;
+
+            if (!shopId || !requestedCreditLimit) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Please select a shop and enter requested credit limit';
+                return;
+            }
+
+            const endpoint = `${API_BASE}/credit-limit-requests/order-booker/${currentUser.id}`;
+            showApiCall('POST', endpoint, 'Request Credit Limit Change', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify({
+                        shop_id: parseInt(shopId),
+                        requested_credit_limit: requestedCreditLimit,
+                        remarks: remarks || null
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showApiCall('POST', endpoint, 'Request Credit Limit Change', 'error');
+                    throw new Error(data.detail || 'Failed to create credit limit request');
+                }
+
+                resultDiv.className = 'result success';
+                resultDiv.innerHTML = `
+                    <strong>Credit Limit Request Submitted!</strong><br>
+                    Request ID: ${data.id}<br>
+                    Shop ID: ${data.shop_id}<br>
+                    Requested Credit Limit: Rs. ${requestedCreditLimit.toLocaleString()}<br>
+                    Status: <span style="color: orange; font-weight: bold;">${data.status || 'pending'}</span>
+                `;
+                showApiCall('POST', endpoint, 'Request Credit Limit Change', 'success');
+
+                document.getElementById('creditLimitRequestForm').reset();
+                document.getElementById('currentCreditLimit').value = '';
+                loadMyCreditLimitRequests();
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // Load My Credit Limit Requests
+        async function loadMyCreditLimitRequests() {
+            if (!currentUser || !currentUser.id) return;
+
+            const listDiv = document.getElementById('creditLimitRequestsList');
+
+            const endpoint = `${API_BASE}/credit-limit-requests/pending`;
+            showApiCall('GET', endpoint, 'Load Credit Limit Requests', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showApiCall('GET', endpoint, 'Load Credit Limit Requests', 'error');
+                    throw new Error(data.detail || 'Failed to load credit limit requests');
+                }
+
+                // Filter to show only requests by current order booker
+                const myRequests = data.filter(req => 
+                    req.requested_by_role === 'order_booker' && req.requested_by_id === currentUser.id
+                );
+
+                if (myRequests.length === 0) {
+                    listDiv.innerHTML = '<p>No credit limit requests found.</p>';
+                    showApiCall('GET', endpoint, 'Load Credit Limit Requests', 'success');
+                    return;
+                }
+
+                listDiv.innerHTML = myRequests.map(req => {
+                    const statusColor = req.status === 'approved' ? 'green' : req.status === 'rejected' ? 'red' : 'orange';
+                    return `
+                        <div class="list-item">
+                            <div class="list-item-info">
+                                <strong>Shop: ${req.shop_name || 'N/A'}</strong><br>
+                                Current Limit: Rs. ${(req.old_credit_limit || 0).toLocaleString()}<br>
+                                Requested Limit: Rs. ${(req.requested_credit_limit || 0).toLocaleString()}<br>
+                                Status: <span style="color: ${statusColor}; font-weight: bold;">${req.status || 'pending'}</span><br>
+                                ${req.remarks ? `Remarks: ${req.remarks}<br>` : ''}
+                                ${req.reviewed_at ? `Reviewed: ${new Date(req.reviewed_at).toLocaleString()}<br>` : ''}
+                                <small>Request ID: ${req.id} | Created: ${new Date(req.created_at).toLocaleString()}</small>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                showApiCall('GET', endpoint, 'Load Credit Limit Requests', 'success');
             } catch (error) {
                 listDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
             }

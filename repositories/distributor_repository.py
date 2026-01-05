@@ -1,6 +1,19 @@
 """
-Distributor repository.
-Data access layer for Distributor operations.
+Distributor Repository
+======================
+Data access layer for Distributor database operations.
+
+This repository handles all direct database interactions for the Distributor model.
+It uses SQLAlchemy ORM to perform CRUD operations on the 'distributors' table.
+
+ARCHITECTURE:
+Router → Service → Repository → Database
+
+This layer:
+- Receives database session from Service layer
+- Performs SQL queries via SQLAlchemy ORM
+- Returns model instances or None
+- No business logic (validation, hashing, etc.) - that's in Service layer
 """
 from sqlalchemy.orm import Session
 from models.distributor import Distributor
@@ -8,12 +21,45 @@ from typing import Optional, List
 
 
 class DistributorRepository:
-    """Repository for Distributor database operations."""
+    """
+    Repository for Distributor database operations.
+    
+    This class contains static methods for all database operations on distributors table.
+    Each method:
+    1. Takes a database session and parameters
+    2. Performs SQL query via SQLAlchemy
+    3. Returns Distributor model instance(s) or None
+    """
     
     @staticmethod
     def create(db: Session, name: str, email: str, phone: str, 
               password_hash: str, zone_id: int = None) -> Distributor:
-        """Create a new distributor."""
+        """
+        Create a new distributor record in the database.
+        
+        FLOW:
+        1. Creates Distributor model instance with provided data
+        2. Adds to database session (staged for commit)
+        3. Commits transaction (saves to database)
+        4. Refreshes instance to get auto-generated ID and timestamps
+        5. Returns the created distributor
+        
+        Args:
+            db: SQLAlchemy database session
+            name: Distributor name
+            email: Distributor email (unique)
+            phone: Distributor phone number (unique)
+            password_hash: Hashed password (from AuthService.get_password_hash())
+            zone_id: Optional zone ID (foreign key to zones table)
+        
+        Returns:
+            Distributor: Created distributor model instance with ID and timestamps
+        
+        Note:
+            - Password should already be hashed (Service layer responsibility)
+            - Email and phone uniqueness should be checked before calling this
+        """
+        # Create model instance (maps to distributors table)
         distributor = Distributor(
             name=name,
             email=email,
@@ -21,28 +67,101 @@ class DistributorRepository:
             password_hash=password_hash,
             zone_id=zone_id
         )
+        # Add to session (staged, not yet saved)
         db.add(distributor)
+        # Commit transaction (saves to database)
         db.commit()
+        # Refresh to get auto-generated fields (id, created_at, updated_at)
         db.refresh(distributor)
         return distributor
     
     @staticmethod
     def get_by_id(db: Session, distributor_id: int) -> Optional[Distributor]:
-        """Get distributor by ID."""
+        """
+        Get a distributor by their ID.
+        
+        FLOW:
+        1. Queries distributors table
+        2. Filters by id = distributor_id
+        3. Returns first match or None
+        
+        Args:
+            db: SQLAlchemy database session
+            distributor_id: Distributor ID (primary key)
+        
+        Returns:
+            Optional[Distributor]: Distributor instance if found, None otherwise
+        """
+        # SQL: SELECT * FROM distributors WHERE id = distributor_id LIMIT 1
         return db.query(Distributor).filter(Distributor.id == distributor_id).first()
     
     @staticmethod
     def get_by_phone(db: Session, phone: str) -> Optional[Distributor]:
-        """Get distributor by phone number."""
+        """
+        Get a distributor by their phone number.
+        
+        FLOW:
+        1. Queries distributors table
+        2. Filters by phone = phone
+        3. Returns first match or None
+        
+        Args:
+            db: SQLAlchemy database session
+            phone: Phone number (unique, indexed)
+        
+        Returns:
+            Optional[Distributor]: Distributor instance if found, None otherwise
+        
+        Usage:
+            Used during login to find user by phone number
+        """
+        # SQL: SELECT * FROM distributors WHERE phone = phone LIMIT 1
         return db.query(Distributor).filter(Distributor.phone == phone).first()
     
     @staticmethod
     def get_by_email(db: Session, email: str) -> Optional[Distributor]:
-        """Get distributor by email."""
+        """
+        Get a distributor by their email address.
+        
+        FLOW:
+        1. Queries distributors table
+        2. Filters by email = email
+        3. Returns first match or None
+        
+        Args:
+            db: SQLAlchemy database session
+            email: Email address (unique, indexed)
+        
+        Returns:
+            Optional[Distributor]: Distributor instance if found, None otherwise
+        
+        Usage:
+            Used to check if email already exists during registration
+        """
+        # SQL: SELECT * FROM distributors WHERE email = email LIMIT 1
         return db.query(Distributor).filter(Distributor.email == email).first()
     
     @staticmethod
     def get_all(db: Session, skip: int = 0, limit: int = 100) -> List[Distributor]:
-        """Get all distributors with pagination."""
+        """
+        Get all distributors with pagination.
+        
+        FLOW:
+        1. Queries distributors table
+        2. Applies offset (skip) and limit for pagination
+        3. Returns list of distributor instances
+        
+        Args:
+            db: SQLAlchemy database session
+            skip: Number of records to skip (for pagination)
+            limit: Maximum number of records to return
+        
+        Returns:
+            List[Distributor]: List of distributor instances
+        
+        Usage:
+            Used to list all distributors (e.g., admin dashboard)
+        """
+        # SQL: SELECT * FROM distributors OFFSET skip LIMIT limit
         return db.query(Distributor).offset(skip).limit(limit).all()
 

@@ -57,3 +57,5 @@ async def delete_zone(zone_id: int, db: Session = Depends(get_db)):
             detail=str(e)
         )
 
+
+

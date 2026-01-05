@@ -63,3 +63,5 @@ Created: [Date]
 - Use `python scripts/password_manager.py --list` to see all users
 - Use `python scripts/password_manager.py --reset ROLE USER_ID NEW_PASSWORD` to reset
 
+
+

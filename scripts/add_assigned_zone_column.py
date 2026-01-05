@@ -46,3 +46,5 @@ if __name__ == "__main__":
     add_assigned_zone_column()
     print("\n✅ Migration complete!")
 
+
+

@@ -163,10 +163,73 @@ class ShopResponse(BaseModel):
     credit_limit: Optional[float]
     legacy_balance: Optional[float]
     is_registered: Optional[bool]
+    registration_status: Optional[str] = None
+    verified_by_distributor: Optional[int] = None
+    verified_at: Optional[str] = None
     zone_id: Optional[int]
     created_by_order_booker: Optional[int]
+    created_by_order_booker_name: Optional[str] = None
     created_at: Optional[str]
 
     class Config:
         from_attributes = True
+
+
+# Credit Limit Request Schemas
+class CreditLimitRequestCreate(BaseModel):
+    shop_id: int
+    requested_credit_limit: float
+    remarks: Optional[str] = None
+
+
+class CreditLimitRequestUpdate(BaseModel):
+    requested_credit_limit: Optional[float] = None
+    remarks: Optional[str] = None
+
+
+class CreditLimitRequestApprove(BaseModel):
+    final_credit_limit: Optional[float] = None
+    remarks: Optional[str] = None
+
+
+class CreditLimitRequestReject(BaseModel):
+    remarks: Optional[str] = None
+
+
+class CreditLimitRequestResponse(BaseModel):
+    id: int
+    shop_id: int
+    shop_name: Optional[str] = None
+    shop_owner: Optional[str] = None
+    requested_by_role: str
+    requested_by_id: int
+    requested_by_name: Optional[str] = None
+    old_credit_limit: Optional[float] = 0
+    requested_credit_limit: float
+    status: Optional[str]
+    reviewed_by_distributor: Optional[int] = None
+    reviewed_at: Optional[str] = None
+    remarks: Optional[str] = None
+    created_at: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+# Shop Update Schema (for distributor to edit shop data)
+class ShopUpdate(BaseModel):
+    name: Optional[str] = None
+    owner_name: Optional[str] = None
+    owner_phone: Optional[str] = None
+    gps_lat: Optional[float] = None
+    gps_lng: Optional[float] = None
+    credit_limit: Optional[float] = None
+    legacy_balance: Optional[float] = None
+    zone_id: Optional[int] = None
+
+
+# Shop Verification Schema
+class ShopVerify(BaseModel):
+    registration_status: str  # "approved" or "rejected"
+    remarks: Optional[str] = None
 

@@ -164,7 +164,20 @@
             color: #667eea;
         }
         .hidden {
-            display: none;
+            display: none !important;
+        }
+        .close-button {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            position: absolute;
+            right: 20px;
+            top: 15px;
+            cursor: pointer;
+        }
+        .close-button:hover {
+            color: #000;
         }
         .tabs {
             display: flex;
@@ -211,11 +224,14 @@
             height: 100%;
             background-color: rgba(0,0,0,0.5);
             overflow: auto;
+            align-items: center;
+            justify-content: center;
         }
         .modal.active {
             display: flex;
-            align-items: center;
-            justify-content: center;
+        }
+        .modal.hidden {
+            display: none !important;
         }
         .modal-content {
             background-color: white;
@@ -223,7 +239,9 @@
             padding: 30px;
             border-radius: 10px;
             width: 90%;
-            max-width: 500px;
+            max-width: 600px;
+            max-height: 90vh;
+            overflow-y: auto;
             box-shadow: 0 10px 40px rgba(0,0,0,0.3);
             position: relative;
         }
@@ -257,9 +275,85 @@
         .modal-actions .btn {
             flex: 1;
         }
+        /* API Call Helper Styles */
+        .api-helper {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #2c3e50;
+            color: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            max-width: 400px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            z-index: 9999;
+            display: none;
+        }
+        .api-helper.active {
+            display: block;
+        }
+        .api-helper .api-title {
+            font-weight: bold;
+            color: #3498db;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        .api-helper .api-method {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+        .api-helper .method-POST {
+            background: #27ae60;
+            color: white;
+        }
+        .api-helper .method-GET {
+            background: #3498db;
+            color: white;
+        }
+        .api-helper .method-PUT {
+            background: #f39c12;
+            color: white;
+        }
+        .api-helper .method-DELETE {
+            background: #e74c3c;
+            color: white;
+        }
+        .api-helper .api-endpoint {
+            color: #ecf0f1;
+            word-break: break-all;
+            margin: 5px 0;
+        }
+        .api-helper .api-status {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid #34495e;
+        }
+        .api-helper .status-loading {
+            color: #f39c12;
+        }
+        .api-helper .status-success {
+            color: #27ae60;
+        }
+        .api-helper .status-error {
+            color: #e74c3c;
+        }
     </style>
 </head>
 <body>
+    <!-- API Call Helper (Fixed Position) -->
+    <div id="apiHelper" class="api-helper">
+        <div class="api-title">📡 API Call Information</div>
+        <div id="apiMethod" class="api-method"></div>
+        <div id="apiEndpoint" class="api-endpoint"></div>
+        <div id="apiOperation" class="api-endpoint" style="color: #95a5a6; font-style: italic;"></div>
+        <div id="apiStatus" class="api-status"></div>
+    </div>
+
     <div class="container">
         <div class="header">
             <h1>🌷 Tulip Tea - Distributor Dashboard</h1>
@@ -294,6 +388,8 @@
                     <button class="tab" onclick="switchTab('routes')">Routes</button>
                     <button class="tab" onclick="switchTab('orderBookers')">Order Bookers</button>
                     <button class="tab" onclick="switchTab('deliveryMen')">Delivery Men</button>
+                    <button class="tab" onclick="switchTab('pendingShops')">Pending Shops <span id="pendingShopsBadge" style="background: #e74c3c; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 5px;">0</span></button>
+                    <button class="tab" onclick="switchTab('creditLimitRequests')">Credit Requests <span id="creditRequestsBadge" style="background: #e74c3c; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 5px;">0</span></button>
                 </div>
 
                 <!-- Zones Tab -->
@@ -413,7 +509,105 @@
                     <button class="btn btn-success" onclick="loadDeliveryMen()">Refresh List</button>
                     <div id="dmList" style="margin-top: 20px;"></div>
                 </div>
+
+                <!-- Pending Shops Tab -->
+                <div id="pendingShopsTab" class="tab-content">
+                    <h2>Pending Shop Registrations</h2>
+                    <p style="color: #666; margin-bottom: 20px;">Review and verify shop registrations submitted by Order Bookers.</p>
+                    <button class="btn btn-success" onclick="loadPendingShops()" style="margin-bottom: 15px;">Refresh List</button>
+                    <div id="pendingShopsList" style="margin-top: 20px;"></div>
+                </div>
+
+                <!-- Credit Limit Requests Tab -->
+                <div id="creditLimitRequestsTab" class="tab-content">
+                    <h2>Pending Credit Limit Requests</h2>
+                    <p style="color: #666; margin-bottom: 20px;">Review and approve/reject credit limit change requests.</p>
+                    <button class="btn btn-success" onclick="loadPendingCreditLimitRequests()" style="margin-bottom: 15px;">Refresh List</button>
+                    <div id="creditLimitRequestsList" style="margin-top: 20px;"></div>
+                </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Edit Shop Modal -->
+    <div id="editShopModal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeEditShopModal()">&times;</span>
+            <h2 id="editShopModalTitle">Edit Shop</h2>
+            <form id="editShopForm" onsubmit="saveShopEdit(event)">
+                <input type="hidden" id="editShopId">
+
+                <div class="form-group">
+                    <label>Shop Name *</label>
+                    <input type="text" id="editShopName" required>
+                </div>
+                <div class="form-group">
+                    <label>Owner Name</label>
+                    <input type="text" id="editShopOwnerName">
+                </div>
+                <div class="form-group">
+                    <label>Owner Phone</label>
+                    <input type="text" id="editShopOwnerPhone">
+                </div>
+                <div class="form-group">
+                    <label>GPS Latitude</label>
+                    <input type="number" id="editShopGpsLat" step="any">
+                </div>
+                <div class="form-group">
+                    <label>GPS Longitude</label>
+                    <input type="number" id="editShopGpsLng" step="any">
+                </div>
+                <div class="form-group">
+                    <label>Credit Limit</label>
+                    <input type="number" id="editShopCreditLimit" step="0.01">
+                </div>
+                <div class="form-group">
+                    <label>Legacy Balance</label>
+                    <input type="number" id="editShopLegacyBalance" step="0.01">
+                </div>
+                <div class="form-group">
+                    <label>Zone</label>
+                    <select id="editShopZoneId">
+                        <option value="">Select Zone</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary">Save Changes</button>
+                <button type="button" class="btn btn-success" onclick="verifyShop()">Verify Shop</button>
+            </form>
+            <div id="editShopResult" class="result"></div>
+        </div>
+    </div>
+
+    <!-- Edit Credit Limit Request Modal -->
+    <div id="editCreditRequestModal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeEditCreditRequestModal()">&times;</span>
+            <h2 id="editCreditRequestModalTitle">Review Credit Limit Request</h2>
+            <form id="editCreditRequestForm" onsubmit="saveCreditRequestEdit(event)">
+                <input type="hidden" id="editCreditRequestId">
+                <input type="hidden" id="editCreditRequestShopId">
+
+                <div class="form-group">
+                    <label>Shop Name</label>
+                    <input type="text" id="editCreditRequestShopName" readonly style="background: #f0f0f0;">
+                </div>
+                <div class="form-group">
+                    <label>Current Credit Limit</label>
+                    <input type="number" id="editCreditRequestOldLimit" step="0.01" readonly style="background: #f0f0f0;">
+                </div>
+                <div class="form-group">
+                    <label>Requested Credit Limit *</label>
+                    <input type="number" id="editCreditRequestNewLimit" step="0.01" required>
+                </div>
+                <div class="form-group">
+                    <label>Remarks</label>
+                    <textarea id="editCreditRequestRemarks" rows="3"></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary">Update Request</button>
+                <button type="button" class="btn btn-success" onclick="approveCreditRequest()">Approve</button>
+                <button type="button" class="btn btn-danger" onclick="rejectCreditRequest()">Reject</button>
+            </form>
+            <div id="editCreditRequestResult" class="result"></div>
         </div>
     </div>
 
@@ -422,6 +616,39 @@
         let currentToken = null;
         let currentUser = null;
         let currentDistributorId = null;
+        let allZones = [];
+
+        /**
+         * Show API call information in the helper panel
+         * @param {string} method - HTTP method (GET, POST, PUT, DELETE)
+         * @param {string} endpoint - API endpoint URL
+         * @param {string} operation - Human-readable operation description
+         * @param {string} status - Status (loading, success, error)
+         */
+        function showApiCall(method, endpoint, operation, status = 'loading') {
+            const helper = document.getElementById('apiHelper');
+            const methodEl = document.getElementById('apiMethod');
+            const endpointEl = document.getElementById('apiEndpoint');
+            const operationEl = document.getElementById('apiOperation');
+            const statusEl = document.getElementById('apiStatus');
+
+            helper.classList.add('active');
+            methodEl.textContent = method;
+            methodEl.className = `api-method method-${method}`;
+            endpointEl.textContent = endpoint;
+            operationEl.textContent = operation;
+            
+            statusEl.className = `api-status status-${status}`;
+            if (status === 'loading') {
+                statusEl.textContent = '⏳ Loading...';
+            } else if (status === 'success') {
+                statusEl.textContent = '✅ Success';
+                setTimeout(() => helper.classList.remove('active'), 3000);
+            } else if (status === 'error') {
+                statusEl.textContent = '❌ Error';
+                setTimeout(() => helper.classList.remove('active'), 5000);
+            }
+        }
 
         // Tab switching
         function switchTab(tabName) {
@@ -434,12 +661,19 @@
             });
 
             // Show selected tab
-            const tabs = ['zones', 'routes', 'orderBookers', 'deliveryMen'];
+            const tabs = ['zones', 'routes', 'orderBookers', 'deliveryMen', 'pendingShops', 'creditLimitRequests'];
             const tabIndex = tabs.indexOf(tabName);
             if (tabIndex !== -1) {
-                const tabContents = ['zonesTab', 'routesTab', 'orderBookersTab', 'deliveryMenTab'];
+                const tabContents = ['zonesTab', 'routesTab', 'orderBookersTab', 'deliveryMenTab', 'pendingShopsTab', 'creditLimitRequestsTab'];
                 document.getElementById(tabContents[tabIndex]).classList.add('active');
                 document.querySelectorAll('.tab')[tabIndex].classList.add('active');
+                
+                // Load data when switching to these tabs
+                if (tabName === 'pendingShops') {
+                    loadPendingShops();
+                } else if (tabName === 'creditLimitRequests') {
+                    loadPendingCreditLimitRequests();
+                }
             }
         }
 
@@ -455,8 +689,11 @@
                 return;
             }
 
+            const endpoint = `${API_BASE}/auth/login/distributor`;
+            showApiCall('POST', endpoint, 'Distributor Login', 'loading');
+
             try {
-                const response = await fetch(`${API_BASE}/auth/login/distributor`, {
+                const response = await fetch(endpoint, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -467,6 +704,7 @@
                 const data = await response.json();
 
                 if (!response.ok) {
+                    showApiCall('POST', endpoint, 'Distributor Login', 'error');
                     throw new Error(data.detail || 'Login failed');
                 }
 
@@ -484,12 +722,15 @@
 
                 resultDiv.className = 'result success';
                 resultDiv.textContent = 'Login successful!';
+                showApiCall('POST', endpoint, 'Distributor Login', 'success');
 
                 // Load initial data
-                loadAreas();
+                loadZones();
                 loadRoutes();
                 loadOrderBookers();
                 loadDeliveryMen();
+                loadPendingShops();
+                loadPendingCreditLimitRequests();
             } catch (error) {
                 resultDiv.className = 'result error';
                 resultDiv.textContent = `Error: ${error.message}`;
@@ -527,26 +768,28 @@
                 password: document.getElementById('obPassword').value
             };
 
+            const endpoint = `${API_BASE}/order-bookers/${currentDistributorId}`;
+            showApiCall('POST', endpoint, 'Create Order Booker', 'loading');
+
             try {
-                const response = await fetch(
-                    `${API_BASE}/order-bookers/${currentDistributorId}`,
-                    {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${currentToken}`
-                        },
-                        body: JSON.stringify(orderBookerData)
-                    }
-                );
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify(orderBookerData)
+                });
 
                 const data = await response.json();
 
                 if (!response.ok) {
+                    showApiCall('POST', endpoint, 'Create Order Booker', 'error');
                     throw new Error(data.detail || 'Failed to create order booker');
                 }
 
                 resultDiv.className = 'result success';
+                showApiCall('POST', endpoint, 'Create Order Booker', 'success');
                 resultDiv.innerHTML = `
                     <strong>Order Booker Created Successfully!</strong><br>
                     <div class="credentials-box">
@@ -577,21 +820,24 @@
                 return;
             }
 
+            const endpoint = `${API_BASE}/order-bookers/distributor/${currentDistributorId}`;
+            showApiCall('GET', endpoint, 'Load Order Bookers List', 'loading');
+
             try {
-                const response = await fetch(
-                    `${API_BASE}/order-bookers/distributor/${currentDistributorId}`,
-                    {
-                        headers: {
-                            'Authorization': `Bearer ${currentToken}`
-                        }
+                const response = await fetch(endpoint, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
                     }
-                );
+                });
 
                 const data = await response.json();
 
                 if (!response.ok) {
+                    showApiCall('GET', endpoint, 'Load Order Bookers List', 'error');
                     throw new Error(data.detail || 'Failed to load order bookers');
                 }
+                
+                showApiCall('GET', endpoint, 'Load Order Bookers List', 'success');
 
                 if (data.length === 0) {
                     listDiv.innerHTML = '<p>No order bookers found. Create one above.</p>';
@@ -640,18 +886,18 @@
                 password: document.getElementById('dmPassword').value
             };
 
+            const endpoint = `${API_BASE}/delivery-men/${currentDistributorId}`;
+            showApiCall('POST', endpoint, 'Create Delivery Man', 'loading');
+
             try {
-                const response = await fetch(
-                    `${API_BASE}/delivery-men/${currentDistributorId}`,
-                    {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${currentToken}`
-                        },
-                        body: JSON.stringify(deliveryManData)
-                    }
-                );
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify(deliveryManData)
+                });
 
                 const data = await response.json();
 
@@ -750,6 +996,8 @@
                         </div>
                     </div>
                 `).join('');
+                
+                allZones = data; // Store zones for later use
                 
                 // Populate zone dropdowns
                 const routeZoneSelect = document.getElementById('routeZoneId');
@@ -934,11 +1182,13 @@
             loadZonesForModal();
             
             // Show modal
+            modal.classList.remove('hidden');
             modal.classList.add('active');
         }
 
         function closeEditModal() {
             const modal = document.getElementById('editModal');
+            modal.classList.add('hidden');
             modal.classList.remove('active');
             currentEditType = null;
             currentEditId = null;
@@ -1022,6 +1272,439 @@
             }
         }
 
+        // Load Pending Shops
+        async function loadPendingShops() {
+            const listDiv = document.getElementById('pendingShopsList');
+            if (!currentDistributorId) {
+                listDiv.innerHTML = '<p>Please login first</p>';
+                return;
+            }
+
+            const endpoint = `${API_BASE}/shops/pending`;
+            showApiCall('GET', endpoint, 'Load Pending Shops', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    showApiCall('GET', endpoint, 'Load Pending Shops', 'error');
+                    throw new Error(data.detail || 'Failed to load pending shops');
+                }
+
+                if (data.length === 0) {
+                    listDiv.innerHTML = '<p>No pending shop registrations.</p>';
+                    document.getElementById('pendingShopsBadge').textContent = '0';
+                    showApiCall('GET', endpoint, 'Load Pending Shops', 'success');
+                    return;
+                }
+
+                document.getElementById('pendingShopsBadge').textContent = data.length;
+                listDiv.innerHTML = data.map(shop => {
+                    // Escape single quotes in strings to prevent JavaScript errors
+                    const shopName = (shop.name || '').replace(/'/g, "\\'");
+                    const ownerName = (shop.owner_name || '').replace(/'/g, "\\'");
+                    const ownerPhone = (shop.owner_phone || '').replace(/'/g, "\\'");
+                    return `
+                    <div class="list-item" onclick="openEditShopModal(${shop.id}, '${shopName}', '${ownerName}', '${ownerPhone}', ${shop.gps_lat || 0}, ${shop.gps_lng || 0}, ${shop.credit_limit || 0}, ${shop.legacy_balance || 0}, ${shop.zone_id || 'null'}, '${shop.registration_status || 'pending'}', '${(shop.created_at || '').replace(/'/g, "\\'")}')">
+                        <div class="list-item-info">
+                            <strong>${shop.name}</strong><br>
+                            Owner: ${shop.owner_name || 'N/A'}<br>
+                            Phone: ${shop.owner_phone || 'N/A'}<br>
+                            GPS: ${shop.gps_lat ? shop.gps_lat.toFixed(6) : 'N/A'}, ${shop.gps_lng ? shop.gps_lng.toFixed(6) : 'N/A'}<br>
+                            Credit Limit: Rs. ${(shop.credit_limit || 0).toLocaleString()}<br>
+                            Status: <span style="color: ${shop.registration_status === 'approved' ? 'green' : 'orange'}">${shop.registration_status || 'pending'}</span><br>
+                            <small>ID: ${shop.id} | Created: ${new Date(shop.created_at).toLocaleString()}</small>
+                        </div>
+                    </div>
+                `;
+                }).join('');
+
+                showApiCall('GET', endpoint, 'Load Pending Shops', 'success');
+            } catch (error) {
+                listDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+
+        // Load Pending Credit Limit Requests
+        async function loadPendingCreditLimitRequests() {
+            const listDiv = document.getElementById('creditLimitRequestsList');
+            if (!currentDistributorId) {
+                listDiv.innerHTML = '<p>Please login first</p>';
+                return;
+            }
+
+            const endpoint = `${API_BASE}/credit-limit-requests/pending?distributor_id=${currentDistributorId}`;
+            showApiCall('GET', endpoint, 'Load Pending Credit Limit Requests', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    showApiCall('GET', endpoint, 'Load Pending Credit Limit Requests', 'error');
+                    throw new Error(data.detail || 'Failed to load credit limit requests');
+                }
+
+                if (data.length === 0) {
+                    listDiv.innerHTML = '<p>No pending credit limit requests.</p>';
+                    document.getElementById('creditRequestsBadge').textContent = '0';
+                    showApiCall('GET', endpoint, 'Load Pending Credit Limit Requests', 'success');
+                    return;
+                }
+
+                document.getElementById('creditRequestsBadge').textContent = data.length;
+                listDiv.innerHTML = data.map(req => {
+                    // Escape single quotes in strings to prevent JavaScript errors
+                    const shopName = (req.shop_name || 'N/A').replace(/'/g, "\\'");
+                    const remarks = (req.remarks || '').replace(/'/g, "\\'");
+                    return `
+                    <div class="list-item" onclick="openEditCreditRequestModal(${req.id}, ${req.shop_id}, '${shopName}', ${req.old_credit_limit || 0}, ${req.requested_credit_limit || 0}, '${remarks}', '${(req.created_at || '').replace(/'/g, "\\'")}', '${req.requested_by_role}', ${req.requested_by_id})">
+                        <div class="list-item-info">
+                            <strong>Shop: ${req.shop_name || 'N/A'}</strong><br>
+                            Current Limit: Rs. ${(req.old_credit_limit || 0).toLocaleString()}<br>
+                            Requested Limit: Rs. ${(req.requested_credit_limit || 0).toLocaleString()}<br>
+                            Requested By: ${req.requested_by_role} (ID: ${req.requested_by_id})<br>
+                            ${req.remarks ? `Remarks: ${req.remarks}<br>` : ''}
+                            <small>Request ID: ${req.id} | Created: ${new Date(req.created_at).toLocaleString()}</small>
+                        </div>
+                    </div>
+                `;
+                }).join('');
+
+                showApiCall('GET', endpoint, 'Load Pending Credit Limit Requests', 'success');
+            } catch (error) {
+                listDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+
+        // Open Edit Shop Modal
+        function openEditShopModal(shopId, name, ownerName, ownerPhone, gpsLat, gpsLng, creditLimit, legacyBalance, zoneId, status, createdAt) {
+            const modal = document.getElementById('editShopModal');
+            modal.classList.remove('hidden');
+            modal.style.display = 'flex';
+            
+            document.getElementById('editShopId').value = shopId;
+            document.getElementById('editShopName').value = name || '';
+            document.getElementById('editShopOwnerName').value = ownerName || '';
+            document.getElementById('editShopOwnerPhone').value = ownerPhone || '';
+            document.getElementById('editShopGpsLat').value = gpsLat || '';
+            document.getElementById('editShopGpsLng').value = gpsLng || '';
+            document.getElementById('editShopCreditLimit').value = creditLimit || '';
+            document.getElementById('editShopLegacyBalance').value = legacyBalance || '';
+            
+            // Update modal title with shop name
+            document.getElementById('editShopModalTitle').textContent = `Review Shop: ${name || 'N/A'}`;
+            
+            // Populate zone dropdown
+            const zoneSelect = document.getElementById('editShopZoneId');
+            if (allZones && allZones.length > 0) {
+                zoneSelect.innerHTML = '<option value="">Select Zone</option>' +
+                    allZones.map(z => `<option value="${z.id}" ${z.id == zoneId ? 'selected' : ''}>${z.name}</option>`).join('');
+            } else {
+                // Load zones if not already loaded
+                loadZonesForShopModal();
+            }
+            
+            // Show additional info
+            const resultDiv = document.getElementById('editShopResult');
+            resultDiv.className = 'result info';
+            resultDiv.innerHTML = `
+                <strong>Shop Details:</strong><br>
+                Status: <span style="color: ${status === 'approved' ? 'green' : 'orange'}">${status || 'pending'}</span><br>
+                ${createdAt ? `Created: ${new Date(createdAt).toLocaleString()}<br>` : ''}
+                <small>Click "Verify Shop" to approve or reject this registration</small>
+            `;
+        }
+        
+        // Load zones for shop modal
+        async function loadZonesForShopModal() {
+            try {
+                const response = await fetch(`${API_BASE}/zones/`, {
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+                const data = await response.json();
+                if (response.ok && data.length > 0) {
+                    allZones = data;
+                    const zoneSelect = document.getElementById('editShopZoneId');
+                    if (zoneSelect) {
+                        const currentValue = zoneSelect.value;
+                        zoneSelect.innerHTML = '<option value="">Select Zone</option>' + 
+                            data.map(z => `<option value="${z.id}" ${z.id == currentValue ? 'selected' : ''}>${z.name}</option>`).join('');
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading zones:', error);
+            }
+        }
+
+        function closeEditShopModal() {
+            const modal = document.getElementById('editShopModal');
+            modal.classList.add('hidden');
+            modal.style.display = 'none';
+        }
+
+        // Save Shop Edit
+        async function saveShopEdit(event) {
+            event.preventDefault();
+            const resultDiv = document.getElementById('editShopResult');
+            const shopId = document.getElementById('editShopId').value;
+
+            const updateData = {};
+            if (document.getElementById('editShopName').value) updateData.name = document.getElementById('editShopName').value;
+            if (document.getElementById('editShopOwnerName').value) updateData.owner_name = document.getElementById('editShopOwnerName').value;
+            if (document.getElementById('editShopOwnerPhone').value) updateData.owner_phone = document.getElementById('editShopOwnerPhone').value;
+            if (document.getElementById('editShopGpsLat').value) updateData.gps_lat = parseFloat(document.getElementById('editShopGpsLat').value);
+            if (document.getElementById('editShopGpsLng').value) updateData.gps_lng = parseFloat(document.getElementById('editShopGpsLng').value);
+            if (document.getElementById('editShopCreditLimit').value) updateData.credit_limit = parseFloat(document.getElementById('editShopCreditLimit').value);
+            if (document.getElementById('editShopLegacyBalance').value) updateData.legacy_balance = parseFloat(document.getElementById('editShopLegacyBalance').value);
+            if (document.getElementById('editShopZoneId').value) updateData.zone_id = parseInt(document.getElementById('editShopZoneId').value);
+
+            const endpoint = `${API_BASE}/shops/${shopId}`;
+            showApiCall('PUT', endpoint, 'Update Shop', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify(updateData)
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showApiCall('PUT', endpoint, 'Update Shop', 'error');
+                    throw new Error(data.detail || 'Failed to update shop');
+                }
+
+                resultDiv.className = 'result success';
+                resultDiv.textContent = 'Shop updated successfully! You can now verify the shop.';
+                showApiCall('PUT', endpoint, 'Update Shop', 'success');
+                // Reload pending shops to show updated data
+                setTimeout(() => {
+                    loadPendingShops();
+                }, 1000);
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // Verify Shop
+        async function verifyShop() {
+            const resultDiv = document.getElementById('editShopResult');
+            const shopId = document.getElementById('editShopId').value;
+            
+            if (!confirm('Do you want to APPROVE this shop registration?\n\nClick OK to approve, Cancel to reject.')) {
+                // User clicked Cancel - reject
+                const remarks = prompt('Enter reason for rejection (optional):') || null;
+                await processShopVerification(shopId, 'rejected', remarks, resultDiv);
+                return;
+            }
+            
+            // User clicked OK - approve
+            const remarks = prompt('Enter remarks (optional):') || null;
+            await processShopVerification(shopId, 'approved', remarks, resultDiv);
+        }
+        
+        // Process shop verification
+        async function processShopVerification(shopId, status, remarks, resultDiv) {
+            const endpoint = `${API_BASE}/shops/${shopId}/verify?distributor_id=${currentDistributorId}`;
+            showApiCall('POST', endpoint, `Verify Shop (${status})`, 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify({
+                        registration_status: status,
+                        remarks: remarks
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showApiCall('POST', endpoint, `Verify Shop (${status})`, 'error');
+                    throw new Error(data.detail || 'Failed to verify shop');
+                }
+
+                resultDiv.className = 'result success';
+                resultDiv.innerHTML = `
+                    <strong>Shop ${status} successfully!</strong><br>
+                    ${remarks ? `Remarks: ${remarks}<br>` : ''}
+                    <small>This shop will be removed from pending list.</small>
+                `;
+                showApiCall('POST', endpoint, `Verify Shop (${status})`, 'success');
+                
+                // Reload pending shops - this will remove the approved/rejected shop from the list
+                setTimeout(() => {
+                    loadPendingShops();
+                    setTimeout(closeEditShopModal, 1000);
+                }, 1500);
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+                showApiCall('PUT', endpoint, `Verify Shop (${status})`, 'error');
+            }
+        }
+
+        // Open Edit Credit Request Modal
+        function openEditCreditRequestModal(requestId, shopId, shopName, oldLimit, newLimit, remarks, createdAt, requestedByRole, requestedById) {
+            const modal = document.getElementById('editCreditRequestModal');
+            modal.classList.remove('hidden');
+            modal.style.display = 'flex';
+            
+            document.getElementById('editCreditRequestId').value = requestId;
+            document.getElementById('editCreditRequestShopId').value = shopId;
+            document.getElementById('editCreditRequestShopName').value = shopName;
+            document.getElementById('editCreditRequestOldLimit').value = oldLimit;
+            document.getElementById('editCreditRequestNewLimit').value = newLimit;
+            document.getElementById('editCreditRequestRemarks').value = remarks || '';
+            
+            // Update modal title
+            document.getElementById('editCreditRequestModalTitle').textContent = `Review Credit Limit Request - ${shopName}`;
+            
+            // Show additional info
+            const resultDiv = document.getElementById('editCreditRequestResult');
+            resultDiv.className = 'result info';
+            resultDiv.innerHTML = `
+                <strong>Request Details:</strong><br>
+                Requested By: ${requestedByRole || 'N/A'} (ID: ${requestedById || 'N/A'})<br>
+                ${createdAt ? `Created: ${new Date(createdAt).toLocaleString()}<br>` : ''}
+                <small>Edit the requested limit if needed, then click Approve or Reject</small>
+            `;
+        }
+
+        function closeEditCreditRequestModal() {
+            const modal = document.getElementById('editCreditRequestModal');
+            modal.classList.add('hidden');
+            modal.style.display = 'none';
+        }
+
+        // Save Credit Request Edit
+        async function saveCreditRequestEdit(event) {
+            event.preventDefault();
+            const resultDiv = document.getElementById('editCreditRequestResult');
+
+            // Note: There's no direct update endpoint, so we'll just show a message
+            // The distributor should use approve/reject with modified values
+            resultDiv.className = 'result info';
+            resultDiv.textContent = 'Use Approve/Reject buttons to finalize changes. The values you entered will be used when you click Approve or Reject.';
+        }
+
+        // Approve Credit Request
+        async function approveCreditRequest() {
+            const resultDiv = document.getElementById('editCreditRequestResult');
+            const requestId = document.getElementById('editCreditRequestId').value;
+            const finalCreditLimit = parseFloat(document.getElementById('editCreditRequestNewLimit').value);
+            const remarks = document.getElementById('editCreditRequestRemarks').value || null;
+
+            if (!confirm(`Approve credit limit request? Final credit limit will be set to Rs. ${finalCreditLimit.toLocaleString()}`)) {
+                return;
+            }
+
+            const endpoint = `${API_BASE}/credit-limit-requests/${requestId}/approve?distributor_id=${currentDistributorId}`;
+            showApiCall('POST', endpoint, 'Approve Credit Limit Request', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify({
+                        final_credit_limit: finalCreditLimit,
+                        remarks: remarks
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showApiCall('POST', endpoint, 'Approve Credit Limit Request', 'error');
+                    throw new Error(data.detail || 'Failed to approve request');
+                }
+
+                resultDiv.className = 'result success';
+                resultDiv.innerHTML = `
+                    <strong>Credit limit request approved!</strong><br>
+                    Shop credit limit updated to Rs. ${finalCreditLimit.toLocaleString()}<br>
+                    <small>This request will be removed from pending list.</small>
+                `;
+                showApiCall('POST', endpoint, 'Approve Credit Limit Request', 'success');
+                
+                // Reload pending requests - this will remove the approved request from the list
+                setTimeout(() => {
+                    loadPendingCreditLimitRequests();
+                    setTimeout(closeEditCreditRequestModal, 1000);
+                }, 1500);
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // Reject Credit Request
+        async function rejectCreditRequest() {
+            const resultDiv = document.getElementById('editCreditRequestResult');
+            const requestId = document.getElementById('editCreditRequestId').value;
+            const remarks = prompt('Enter reason for rejection:') || 'Rejected by distributor';
+
+            if (!confirm('Reject this credit limit request?')) {
+                return;
+            }
+
+            const endpoint = `${API_BASE}/credit-limit-requests/${requestId}/reject?distributor_id=${currentDistributorId}`;
+            showApiCall('POST', endpoint, 'Reject Credit Limit Request', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify({
+                        remarks: remarks
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showApiCall('POST', endpoint, 'Reject Credit Limit Request', 'error');
+                    throw new Error(data.detail || 'Failed to reject request');
+                }
+
+                resultDiv.className = 'result success';
+                resultDiv.innerHTML = `
+                    <strong>Credit limit request rejected.</strong><br>
+                    ${remarks ? `Reason: ${remarks}<br>` : ''}
+                    <small>This request will be removed from pending list.</small>
+                `;
+                showApiCall('POST', endpoint, 'Reject Credit Limit Request', 'success');
+                
+                // Reload pending requests - this will remove the rejected request from the list
+                setTimeout(() => {
+                    loadPendingCreditLimitRequests();
+                    setTimeout(closeEditCreditRequestModal, 1000);
+                }, 1500);
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
         async function deleteUser() {
             if (!currentEditType || !currentEditId) return;
             
@@ -1071,7 +1754,7 @@
     </script>
 
     <!-- Edit Modal -->
-    <div id="editModal" class="modal">
+    <div id="editModal" class="modal hidden">
         <div class="modal-content">
             <span class="close" onclick="closeEditModal()">&times;</span>
             <div class="modal-header">

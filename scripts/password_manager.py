@@ -1,15 +1,31 @@
 """
 Password Management Utility Script
+==================================
 Since bcrypt is a one-way hash, we cannot reverse passwords.
 This script helps you:
-1. List all users
-2. Reset passwords
-3. Verify passwords
+1. List all users (from all roles)
+2. Reset passwords (hash new password and update database)
+3. Verify passwords (check if password matches stored hash)
+4. Delete users (remove from database)
+
+USAGE:
+    Interactive mode: python scripts/password_manager.py
+    List users: python scripts/password_manager.py --list
+    Reset password: python scripts/password_manager.py --reset ROLE USER_ID NEW_PASSWORD
+    Verify password: python scripts/password_manager.py --verify ROLE USER_ID PASSWORD
+    Delete user: python scripts/password_manager.py --delete ROLE USER_ID
+
+FLOW:
+1. Opens database session
+2. Queries user tables (distributors, order_bookers, delivery_men)
+3. Formats and displays user information
+4. For password operations: uses AuthService functions
+5. Closes database session
 """
 import sys
 import os
 
-# Add parent directory to path
+# Add parent directory to path so we can import from project root
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy.orm import Session
@@ -23,7 +39,27 @@ from models.delivery_man import DeliveryMan
 
 
 def list_all_users():
-    """List all users from all tables with formatted output."""
+    """
+    List all users from all tables with formatted output.
+    
+    FLOW:
+    1. Opens database session
+    2. Queries distributors table via DistributorRepository.get_all()
+    3. Queries order_bookers table directly (using SQLAlchemy)
+    4. Queries delivery_men table directly
+    5. Formats data in a table and prints to console
+    6. Shows summary with total counts
+    7. Closes database session
+    
+    Returns:
+        None (prints to console)
+    
+    Output Format:
+        - Distributors: ID, Name, Phone, Email, Zone
+        - Order Bookers: ID, Name, Phone, Email, Zone, Distributor ID
+        - Delivery Men: ID, Name, Phone, Distributor ID, Created At
+        - Summary: Total counts
+    """
     db: Session = SessionLocal()
     
     try:
@@ -90,12 +126,37 @@ def list_all_users():
 
 
 def reset_password(role: str, user_id: int, new_password: str):
-    """Reset password for a user."""
+    """
+    Reset password for a user.
+    
+    FLOW:
+    1. Opens database session
+    2. Hashes new password using AuthService.get_password_hash()
+    3. Gets user by ID from appropriate repository based on role
+    4. Updates password_hash field in database
+    5. Commits transaction
+    6. Prints success message
+    7. Closes database session
+    
+    Args:
+        role: User role ("distributor", "order_booker", "delivery_man")
+        user_id: User ID (primary key)
+        new_password: New plain text password (will be hashed)
+    
+    Returns:
+        None (prints result to console)
+    
+    Note:
+        - Password is hashed using bcrypt before storing
+        - Old password cannot be recovered (bcrypt is one-way)
+    """
     db: Session = SessionLocal()
     
     try:
+        # Hash the new password using AuthService (bcrypt with 12 rounds)
         password_hash = get_password_hash(new_password)
         
+        # Get user from appropriate repository based on role
         if role.lower() == "distributor":
             user = DistributorRepository.get_by_id(db, user_id)
             if not user:
@@ -137,7 +198,30 @@ def reset_password(role: str, user_id: int, new_password: str):
 
 
 def verify_user_password(role: str, user_id: int, password: str):
-    """Verify if a password matches for a user."""
+    """
+    Verify if a password matches for a user.
+    
+    FLOW:
+    1. Opens database session
+    2. Gets user by ID from appropriate repository based on role
+    3. Uses AuthService.verify_password() to compare:
+       - Plain password (user input)
+       - Hashed password (from database)
+    4. Prints result (correct/incorrect)
+    5. Closes database session
+    
+    Args:
+        role: User role ("distributor", "order_booker", "delivery_man")
+        user_id: User ID (primary key)
+        password: Plain text password to verify
+    
+    Returns:
+        None (prints result to console)
+    
+    Note:
+        - Uses bcrypt.checkpw() to securely compare passwords
+        - Never stores or logs the plain password
+    """
     db: Session = SessionLocal()
     
     try:
@@ -177,7 +261,28 @@ def verify_user_password(role: str, user_id: int, password: str):
 
 
 def delete_user(role: str, user_id: int):
-    """Delete a user from the system."""
+    """
+    Delete a user from the system.
+    
+    FLOW:
+    1. Opens database session
+    2. Gets user by ID from appropriate repository
+    3. Deletes user record from database
+    4. Commits transaction
+    5. Prints success message
+    6. Closes database session
+    
+    Args:
+        role: User role ("distributor", "order_booker", "delivery_man")
+        user_id: User ID (primary key)
+    
+    Returns:
+        bool: True if deleted successfully, False otherwise
+    
+    Warning:
+        - This action is permanent and cannot be undone
+        - Foreign key constraints may prevent deletion if user has related records
+    """
     db: Session = SessionLocal()
     
     try:

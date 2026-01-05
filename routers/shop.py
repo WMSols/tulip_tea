@@ -66,6 +66,7 @@ async def register_shop(
             gps_lng=Decimal(str(shop.gps_lng)),
             order_booker_id=order_booker_id,
             zone_id=shop.zone_id,
+            route_id=shop.route_id,
             credit_limit=Decimal(str(shop.credit_limit)) if shop.credit_limit else None,
             legacy_balance=Decimal(str(shop.legacy_balance)) if shop.legacy_balance else None
         )
@@ -140,6 +141,49 @@ async def list_pending_shops(db: Session = Depends(get_db)):
         )
 
 
+@router.get("/all", response_model=List[ShopResponse])
+async def get_all_shops(
+    distributor_id: int = None,
+    zone_id: int = None,
+    route_id: int = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Get all shops with their associated order_booker and route information.
+    
+    API: GET /shops/all?distributor_id={id}&zone_id={id}&route_id={id}
+    
+    FLOW:
+    1. Gets all shops (optionally filtered by zone_id or route_id)
+    2. For each shop, includes order_booker who created it
+    3. For each shop, includes routes it belongs to and their order_bookers
+    4. Returns formatted list with all associations
+    
+    Query Parameters:
+        distributor_id: Optional - For future use (currently not used for filtering)
+        zone_id: Optional - Filter shops by zone
+        route_id: Optional - Filter shops by route
+    
+    Note: distributor_id is accepted but doesn't filter shops. Use zone_id or route_id for filtering.
+    
+    Response (200):
+        List of shops with order_booker and route information
+    """
+    try:
+        shops = ShopService.get_all_shops_with_associations(
+            db=db,
+            distributor_id=distributor_id,
+            zone_id=zone_id,
+            route_id=route_id
+        )
+        return shops
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching shops: {str(e)}"
+        )
+
+
 @router.put("/{shop_id}", response_model=ShopResponse)
 async def update_shop(
     shop_id: int,
@@ -190,6 +234,117 @@ async def update_shop(
         updated_shop = ShopRepository.update(db=db, shop_id=shop_id, **update_data)
         if not updated_shop:
             raise ValueError("Shop not found")
+        
+        # Get order booker name if exists
+        created_by_name = None
+        if updated_shop.created_by_order_booker:
+            order_booker = OrderBookerRepository.get_by_id(db, updated_shop.created_by_order_booker)
+            created_by_name = order_booker.name if order_booker else None
+        
+        return {
+            "id": updated_shop.id,
+            "name": updated_shop.name,
+            "owner_name": updated_shop.owner_name,
+            "owner_phone": updated_shop.owner_phone,
+            "gps_lat": float(updated_shop.gps_lat) if updated_shop.gps_lat else None,
+            "gps_lng": float(updated_shop.gps_lng) if updated_shop.gps_lng else None,
+            "credit_limit": float(updated_shop.credit_limit) if updated_shop.credit_limit else 0,
+            "legacy_balance": float(updated_shop.legacy_balance) if updated_shop.legacy_balance else 0,
+            "is_registered": updated_shop.is_registered,
+            "registration_status": updated_shop.registration_status,
+            "verified_by_distributor": updated_shop.verified_by_distributor,
+            "verified_at": updated_shop.verified_at.isoformat() if updated_shop.verified_at else None,
+            "zone_id": updated_shop.zone_id,
+            "created_by_order_booker": updated_shop.created_by_order_booker,
+            "created_by_order_booker_name": created_by_name,
+            "created_at": updated_shop.created_at.isoformat() if updated_shop.created_at else None
+        }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+
+@router.put("/{shop_id}/resubmit", response_model=ShopResponse)
+async def resubmit_rejected_shop(
+    shop_id: int,
+    shop_update: ShopUpdate,
+    db: Session = Depends(get_db)
+):
+    """
+    Resubmit a rejected shop for approval (by Order Booker).
+    
+    API: PUT /shops/{shop_id}/resubmit
+    
+    FLOW:
+    1. Order Booker views rejected shop
+    2. Edits shop details
+    3. Resubmits for approval (status changes from "rejected" to "pending")
+    4. Returns updated shop
+    
+    Request Body:
+        {
+            "name": "Updated Shop Name",
+            "owner_name": "Updated Owner",
+            "gps_lat": 33.6844,
+            "gps_lng": 73.0479,
+            "zone_id": 1,
+            "route_id": 1,
+            "credit_limit": 50000.00,
+            ...
+        }
+    
+    Response (200):
+        Updated shop data with status "pending"
+    """
+    try:
+        # Check if shop exists and is rejected
+        shop = ShopRepository.get_by_id(db, shop_id)
+        if not shop:
+            raise ValueError("Shop not found")
+        
+        if shop.registration_status != "rejected":
+            raise ValueError("Only rejected shops can be resubmitted")
+        
+        # Update shop data
+        update_data = {}
+        if shop_update.name:
+            update_data["name"] = shop_update.name
+        if shop_update.owner_name:
+            update_data["owner_name"] = shop_update.owner_name
+        if shop_update.owner_phone:
+            update_data["owner_phone"] = shop_update.owner_phone
+        if shop_update.gps_lat:
+            update_data["gps_lat"] = Decimal(str(shop_update.gps_lat))
+        if shop_update.gps_lng:
+            update_data["gps_lng"] = Decimal(str(shop_update.gps_lng))
+        if shop_update.credit_limit is not None:
+            update_data["credit_limit"] = Decimal(str(shop_update.credit_limit))
+        if shop_update.legacy_balance is not None:
+            update_data["legacy_balance"] = Decimal(str(shop_update.legacy_balance))
+        if shop_update.zone_id:
+            update_data["zone_id"] = shop_update.zone_id
+        
+        # Change status back to pending
+        update_data["registration_status"] = "pending"
+        update_data["verified_by_distributor"] = None
+        update_data["verified_at"] = None
+        
+        # Handle route assignment if route_id is provided
+        route_id = None
+        if hasattr(shop_update, 'route_id') and shop_update.route_id:
+            route_id = shop_update.route_id
+        
+        updated_shop = ShopService.update_and_resubmit_shop(
+            db=db,
+            shop_id=shop_id,
+            route_id=route_id,
+            **update_data
+        )
+        
+        if not updated_shop:
+            raise ValueError("Failed to update shop")
         
         # Get order booker name if exists
         created_by_name = None

@@ -151,10 +151,37 @@ class OrderBookerService:
     
     @staticmethod
     def delete_order_booker(db: Session, order_booker_id: int) -> bool:
-        """Delete an order booker."""
+        """
+        Delete an order booker.
+        
+        Checks for foreign key references before deletion:
+        - Shops created by this order booker
+        - Routes assigned to this order booker
+        
+        Raises ValueError if order booker cannot be deleted due to references.
+        """
+        from models.shop import Shop
+        from models.route import Route
+        
         order_booker = OrderBookerRepository.get_by_id(db, order_booker_id)
         if not order_booker:
             raise ValueError("Order Booker not found")
+        
+        # Check for shops created by this order booker
+        shops_count = db.query(Shop).filter(Shop.created_by_order_booker == order_booker_id).count()
+        if shops_count > 0:
+            raise ValueError(
+                f"Cannot delete order booker: {shops_count} shop(s) were created by this order booker. "
+                "Please reassign or delete the shops first."
+            )
+        
+        # Check for routes assigned to this order booker
+        routes_count = db.query(Route).filter(Route.order_booker_id == order_booker_id).count()
+        if routes_count > 0:
+            raise ValueError(
+                f"Cannot delete order booker: {routes_count} route(s) are assigned to this order booker. "
+                "Please reassign the routes first."
+            )
         
         return OrderBookerRepository.delete(db, order_booker_id)
 

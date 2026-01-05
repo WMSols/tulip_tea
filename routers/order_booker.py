@@ -63,14 +63,30 @@ async def delete_order_booker(
     order_booker_id: int,
     db: Session = Depends(get_db)
 ):
-    """Delete an order booker."""
+    """
+    Delete an order booker.
+    
+    Cannot delete if:
+    - Order booker has created shops
+    - Order booker has assigned routes
+    - Order booker has created orders
+    
+    Returns 400 Bad Request with details if deletion is blocked.
+    """
     try:
         OrderBookerService.delete_order_booker(db=db, order_booker_id=order_booker_id)
         return None
     except ValueError as e:
+        # Check if it's a "not found" error or a "cannot delete" error
+        error_msg = str(e)
+        if "not found" in error_msg.lower():
+            status_code = status.HTTP_404_NOT_FOUND
+        else:
+            # It's a constraint violation error
+            status_code = status.HTTP_400_BAD_REQUEST
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
+            status_code=status_code,
+            detail=error_msg
         )
 
 

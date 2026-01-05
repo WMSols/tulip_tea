@@ -149,6 +149,7 @@ class ShopRegister(BaseModel):
     gps_lat: float
     gps_lng: float
     zone_id: Optional[int] = None
+    route_id: Optional[int] = None  # Optional route to assign shop to
     credit_limit: Optional[float] = 0
     legacy_balance: Optional[float] = 0
 
@@ -226,10 +227,65 @@ class ShopUpdate(BaseModel):
     credit_limit: Optional[float] = None
     legacy_balance: Optional[float] = None
     zone_id: Optional[int] = None
+    route_id: Optional[int] = None
 
 
 # Shop Verification Schema
 class ShopVerify(BaseModel):
     registration_status: str  # "approved" or "rejected"
     remarks: Optional[str] = None
+
+
+# Daily Collection Schemas
+class DailyCollectionCreate(BaseModel):
+    shop_id: int
+    amount: float
+    collected_at: Optional[str] = None  # ISO format datetime string
+    remarks: Optional[str] = None
+
+
+class DailyCollectionResponse(BaseModel):
+    id: int
+    shop_id: int
+    shop_name: Optional[str] = None
+    shop_owner: Optional[str] = None
+    collected_by_order_booker: int
+    order_booker_name: Optional[str] = None
+    amount: float
+    status: str
+    reviewed_by_distributor: Optional[int] = None
+    reviewed_at: Optional[str] = None
+    payment_id: Optional[int] = None
+    collected_at: Optional[str] = None
+    remarks: Optional[str] = None
+    created_at: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class DailyCollectionApprove(BaseModel):
+    remarks: Optional[str] = None
+
+
+class DailyCollectionReject(BaseModel):
+    remarks: Optional[str] = None
+
+
+# Payment Schemas
+class PaymentResponse(BaseModel):
+    id: int
+    shop_id: int
+    shop_name: Optional[str] = None
+    daily_collection_id: Optional[int] = None
+    collected_by_order_booker: int
+    order_booker_name: Optional[str] = None
+    approved_by_distributor: int
+    amount: float
+    collected_at: Optional[str] = None
+    remarks: Optional[str] = None
+    created_at: Optional[str] = None
+
+    class Config:
+        from_attributes = True
 

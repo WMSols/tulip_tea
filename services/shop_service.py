@@ -6,6 +6,9 @@ from repositories.shop_repository import ShopRepository
 from repositories.order_booker_repository import OrderBookerRepository
 from repositories.zone_repository import ZoneRepository
 from repositories.credit_limit_request_repository import CreditLimitRequestRepository
+from repositories.route_repository import RouteRepository
+from repositories.route_shop_repository import RouteShopRepository
+from models.route_shop import RouteShop
 from decimal import Decimal
 from typing import Dict, List, Optional
 
@@ -16,7 +19,7 @@ class ShopService:
     @staticmethod
     def register_shop(db: Session, name: str, owner_name: str, owner_phone: str,
                       gps_lat: Decimal, gps_lng: Decimal, order_booker_id: int,
-                      zone_id: int = None, credit_limit: Decimal = None,
+                      zone_id: int = None, route_id: int = None, credit_limit: Decimal = None,
                       legacy_balance: Decimal = None) -> Dict:
         """
         Register a new shop.
@@ -73,6 +76,39 @@ class ShopService:
             zone_id=zone_id,
             registration_status="pending"  # New shop starts as pending
         )
+        
+        # Assign shop to route if route_id is provided
+        if route_id:
+            # Verify route exists
+            route = RouteRepository.get_by_id(db, route_id)
+            if not route:
+                raise ValueError("Route not found")
+            
+            # Verify route is assigned to this order booker
+            if route.order_booker_id != order_booker_id:
+                raise ValueError("Route is not assigned to this order booker")
+            
+            # If zone_id is provided, verify route belongs to that zone
+            if zone_id and route.zone_id != zone_id:
+                raise ValueError(f"Route belongs to zone {route.zone_id}, but shop zone is {zone_id}. They must match.")
+            
+            # If no zone_id provided but route has zone, update shop's zone_id to match route
+            if not zone_id and route.zone_id:
+                shop.zone_id = route.zone_id
+                db.commit()
+                db.refresh(shop)
+            
+            # Get next sequence number for this route
+            existing_assignments = RouteShopRepository.get_shops_by_route(db, route_id)
+            next_sequence = len(existing_assignments) + 1 if existing_assignments else 1
+            
+            # Assign shop to route
+            RouteShopRepository.assign_shop_to_route(
+                db=db,
+                shop_id=shop.id,
+                route_id=route_id,
+                sequence=next_sequence
+            )
         
         # Create credit limit request if credit_limit is provided and > 0
         credit_limit_request_id = None
@@ -138,4 +174,150 @@ class ShopService:
             }
             for shop in shops
         ]
+    
+    @staticmethod
+    def get_all_shops_with_associations(db: Session, distributor_id: int = None, 
+                                       zone_id: int = None, route_id: int = None) -> List[Dict]:
+        """
+        Get all shops with their associated order_booker and route information.
+        
+        FLOW:
+        1. Gets all shops (optionally filtered by distributor's zone, zone_id, or route_id)
+        2. For each shop, finds associated order_booker (via created_by_order_booker)
+        3. For each shop, finds associated routes (via route_shops)
+        4. For each route, finds assigned order_booker and zone info
+        5. Returns formatted list with all associations
+        
+        Args:
+            db: Database session
+            distributor_id: Optional distributor ID to filter by zone
+            zone_id: Optional zone ID to filter shops
+            route_id: Optional route ID to filter shops
+        
+        Returns:
+            List[Dict]: List of shops with order_booker and route info
+        """
+        from models.route_shop import RouteShop
+        from models.route import Route
+        
+        # Get all shops
+        from models.shop import Shop
+        
+        # Apply filters - prioritize explicit zone_id and route_id over distributor_id
+        # distributor_id is kept for potential future use but doesn't filter by default
+        if route_id:
+            # Filter by route
+            shops = ShopRepository.get_by_route(db, route_id)
+        elif zone_id:
+            # Filter by zone
+            shops = ShopRepository.get_by_zone(db, zone_id)
+        else:
+            # Return all shops - let UI filters handle zone/route filtering
+            shops = db.query(Shop).all()
+        
+        result = []
+        for shop in shops:
+            # Get order booker who created the shop
+            order_booker = None
+            order_booker_name = None
+            if shop.created_by_order_booker:
+                order_booker = OrderBookerRepository.get_by_id(db, shop.created_by_order_booker)
+                order_booker_name = order_booker.name if order_booker else None
+            
+            # Get routes this shop belongs to
+            route_shops = db.query(RouteShop).filter(RouteShop.shop_id == shop.id).all()
+            routes_info = []
+            for route_shop in route_shops:
+                route = RouteRepository.get_by_id(db, route_shop.route_id)
+                if route:
+                    route_order_booker = None
+                    route_order_booker_name = None
+                    if route.order_booker_id:
+                        route_order_booker = OrderBookerRepository.get_by_id(db, route.order_booker_id)
+                        route_order_booker_name = route_order_booker.name if route_order_booker else None
+                    
+                    # Get zone name for route
+                    route_zone_name = None
+                    if route.zone_id:
+                        route_zone = ZoneRepository.get_by_id(db, route.zone_id)
+                        route_zone_name = route_zone.name if route_zone else None
+                    
+                    routes_info.append({
+                        "route_id": route.id,
+                        "route_name": route.name,
+                        "route_zone_id": route.zone_id,
+                        "route_zone_name": route_zone_name,
+                        "order_booker_id": route.order_booker_id,
+                        "order_booker_name": route_order_booker_name,
+                        "sequence": route_shop.sequence
+                    })
+            
+            result.append({
+                "id": shop.id,
+                "name": shop.name,
+                "owner_name": shop.owner_name,
+                "owner_phone": shop.owner_phone,
+                "gps_lat": float(shop.gps_lat) if shop.gps_lat else None,
+                "gps_lng": float(shop.gps_lng) if shop.gps_lng else None,
+                "credit_limit": float(shop.credit_limit) if shop.credit_limit else 0,
+                "legacy_balance": float(shop.legacy_balance) if shop.legacy_balance else 0,
+                "is_registered": shop.is_registered,
+                "registration_status": shop.registration_status,
+                "verified_by_distributor": shop.verified_by_distributor,
+                "verified_at": shop.verified_at.isoformat() if shop.verified_at else None,
+                "zone_id": shop.zone_id,
+                "created_by_order_booker": shop.created_by_order_booker,
+                "created_by_order_booker_name": order_booker_name,
+                "routes": routes_info,  # List of routes this shop belongs to
+                "created_at": shop.created_at.isoformat() if shop.created_at else None
+            })
+        
+        return result
+    
+    @staticmethod
+    def update_and_resubmit_shop(db: Session, shop_id: int, route_id: int = None, **update_data):
+        """
+        Update a rejected shop and resubmit it for approval.
+        
+        Args:
+            db: Database session
+            shop_id: Shop ID to update
+            route_id: Optional route ID to assign shop to
+            **update_data: Fields to update
+        
+        Returns:
+            Updated shop instance or None if not found
+        """
+        # Get shop
+        shop = ShopRepository.get_by_id(db, shop_id)
+        if not shop:
+            return None
+        
+        # Update shop fields
+        updated_shop = ShopRepository.update(db=db, shop_id=shop_id, **update_data)
+        if not updated_shop:
+            return None
+        
+        # Handle route assignment if route_id is provided
+        if route_id:
+            # Verify route exists
+            route = RouteRepository.get_by_id(db, route_id)
+            if not route:
+                raise ValueError("Route not found")
+            
+            # Verify route belongs to the order booker (if shop has order booker)
+            if shop.created_by_order_booker:
+                order_booker_routes = RouteRepository.get_by_order_booker(db, shop.created_by_order_booker)
+                if not any(r.id == route_id for r in order_booker_routes):
+                    raise ValueError("Route does not belong to this order booker")
+            
+            # Verify zone matches if both are provided
+            if updated_shop.zone_id and route.zone_id:
+                if updated_shop.zone_id != route.zone_id:
+                    raise ValueError("Route zone does not match shop zone")
+            
+            # Assign shop to route
+            RouteShopRepository.assign_shop_to_route(db, route_id, shop_id)
+        
+        return updated_shop
 

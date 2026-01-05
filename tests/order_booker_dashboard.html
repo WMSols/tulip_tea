@@ -246,6 +246,51 @@
         .api-helper .status-error {
             color: #e74c3c;
         }
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            overflow: auto;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal.active {
+            display: flex;
+        }
+        .modal.hidden {
+            display: none !important;
+        }
+        .modal-content {
+            background-color: white;
+            margin: auto;
+            padding: 30px;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 600px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            position: relative;
+        }
+        .close-button {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            position: absolute;
+            right: 20px;
+            top: 15px;
+            cursor: pointer;
+        }
+        .close-button:hover {
+            color: #000;
+        }
     </style>
 </head>
 <body>
@@ -353,9 +398,17 @@
                         </div>
                         <div class="form-group">
                             <label>Zone (Optional)</label>
-                            <select id="shopZoneId">
+                            <select id="shopZoneId" onchange="updateRoutesOnZoneChange()">
                                 <option value="">Select Zone (Optional)</option>
                             </select>
+                            <small style="color: #666; display: block; margin-top: 5px;">Only zones from your assigned routes are shown</small>
+                        </div>
+                        <div class="form-group">
+                            <label>Route (Optional)</label>
+                            <select id="shopRouteId">
+                                <option value="">Select Route (Optional)</option>
+                            </select>
+                            <small style="color: #666; display: block; margin-top: 5px;">Routes filtered by selected zone</small>
                         </div>
                         <div class="form-group">
                             <label>Credit Limit (Optional)</label>
@@ -419,6 +472,8 @@
         const API_BASE = 'http://localhost:8000';
         let currentToken = null;
         let currentUser = null;
+        let myRoutesData = []; // Store routes assigned to order booker
+        let availableZones = []; // Store zones from assigned routes
 
         /**
          * Show API call information in the helper panel
@@ -511,10 +566,11 @@
                 resultDiv.className = 'result success';
                 resultDiv.textContent = 'Login successful!';
 
-                // Load initial data
-                loadMyRoutes();
+                // Load initial data (routes first, then zones and routes dropdowns)
+                await loadMyRoutes();
+                loadZones(); // Populate zone dropdown from availableZones
+                loadMyRoutesForShopRegistration(); // Populate route dropdown from myRoutesData
                 loadMyShops();
-                loadZones();
                 loadMyCreditLimitRequests();
             } catch (error) {
                 resultDiv.className = 'result error';
@@ -550,6 +606,19 @@
                 );
                 const data = await response.json();
                 
+                // Store routes data
+                myRoutesData = data;
+                
+                // Extract unique zones from routes
+                const zoneIds = [...new Set(data.filter(r => r.zone_id).map(r => r.zone_id))];
+                
+                // Load zone names for these zones
+                if (zoneIds.length > 0) {
+                    await loadZonesForRoutes(zoneIds);
+                } else {
+                    availableZones = [];
+                }
+                
                 const routesDiv = document.getElementById('routesInfo');
                 if (!response.ok) {
                     routesDiv.innerHTML = `<p style="color: red;">Error: ${data.detail || 'Failed to load routes'}</p>`;
@@ -561,19 +630,28 @@
                     return;
                 }
                 
-                routesDiv.innerHTML = data.map(route => `
+                // Get zone names
+                const zoneMap = {};
+                availableZones.forEach(zone => {
+                    zoneMap[zone.id] = zone.name;
+                });
+                
+                routesDiv.innerHTML = data.map(route => {
+                    const zoneName = route.zone_id ? (zoneMap[route.zone_id] || `Zone ${route.zone_id}`) : 'No Zone';
+                    return `
                     <div style="padding: 10px; margin: 5px 0; background: #f0f0f0; border-radius: 5px;">
                         <strong>${route.name}</strong><br>
-                        <small>Zone: ${route.assigned_zone} | ID: ${route.id}</small>
+                        <small>Zone: ${zoneName} | ID: ${route.id}</small>
                     </div>
-                `).join('');
+                `;
+                }).join('');
             } catch (error) {
                 document.getElementById('routesInfo').innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
             }
         }
 
-        // Load Zones for dropdown
-        async function loadZones() {
+        // Load zone names for specific zone IDs
+        async function loadZonesForRoutes(zoneIds) {
             try {
                 const response = await fetch(`${API_BASE}/zones/`, {
                     headers: {
@@ -582,15 +660,70 @@
                 });
                 const data = await response.json();
                 if (response.ok && data.length > 0) {
-                    const zoneSelect = document.getElementById('shopZoneId');
-                    if (zoneSelect) {
-                        zoneSelect.innerHTML = '<option value="">Select Zone (Optional)</option>' + 
-                            data.map(z => `<option value="${z.id}">${z.name}</option>`).join('');
-                    }
+                    // Filter to only zones that are in the routes
+                    availableZones = data.filter(z => zoneIds.includes(z.id));
+                } else {
+                    availableZones = [];
                 }
             } catch (error) {
                 console.error('Error loading zones:', error);
+                availableZones = [];
             }
+        }
+
+        // Load Zones for dropdown - only zones from assigned routes
+        async function loadZones() {
+            // Zones are already loaded in loadMyRoutes, just populate dropdown
+            const zoneSelect = document.getElementById('shopZoneId');
+            if (zoneSelect) {
+                if (availableZones.length > 0) {
+                    zoneSelect.innerHTML = '<option value="">Select Zone (Optional)</option>' + 
+                        availableZones.map(z => `<option value="${z.id}">${z.name}</option>`).join('');
+                } else {
+                    zoneSelect.innerHTML = '<option value="">No zones available (No routes assigned)</option>';
+                }
+            }
+        }
+
+        // Load Routes for shop registration dropdown - filtered by selected zone
+        async function loadMyRoutesForShopRegistration(selectedZoneId = null) {
+            // Routes are already loaded in loadMyRoutes, just populate dropdown
+            const routeSelect = document.getElementById('shopRouteId');
+            if (!routeSelect) return;
+            
+            if (myRoutesData.length === 0) {
+                routeSelect.innerHTML = '<option value="">No routes available</option>';
+                return;
+            }
+            
+            // Filter routes by selected zone if zone is selected
+            let filteredRoutes = myRoutesData;
+            if (selectedZoneId) {
+                filteredRoutes = myRoutesData.filter(r => r.zone_id == selectedZoneId);
+            }
+            
+            if (filteredRoutes.length > 0) {
+                // Get zone names for display
+                const zoneMap = {};
+                availableZones.forEach(zone => {
+                    zoneMap[zone.id] = zone.name;
+                });
+                
+                routeSelect.innerHTML = '<option value="">Select Route (Optional)</option>' + 
+                    filteredRoutes.map(r => {
+                        const zoneName = r.zone_id ? (zoneMap[r.zone_id] || `Zone ${r.zone_id}`) : 'No Zone';
+                        return `<option value="${r.id}">${r.name} (${zoneName})</option>`;
+                    }).join('');
+            } else {
+                routeSelect.innerHTML = '<option value="">No routes available' + 
+                    (selectedZoneId ? ' in selected zone' : '') + '</option>';
+            }
+        }
+
+        // Update route dropdown when zone changes
+        function updateRoutesOnZoneChange() {
+            const selectedZoneId = document.getElementById('shopZoneId')?.value;
+            loadMyRoutesForShopRegistration(selectedZoneId ? parseInt(selectedZoneId) : null);
         }
 
         // Register Shop
@@ -611,6 +744,7 @@
                 gps_lat: parseFloat(document.getElementById('gpsLat').value),
                 gps_lng: parseFloat(document.getElementById('gpsLng').value),
                 zone_id: document.getElementById('shopZoneId').value ? parseInt(document.getElementById('shopZoneId').value) : null,
+                route_id: document.getElementById('shopRouteId').value ? parseInt(document.getElementById('shopRouteId').value) : null,
                 credit_limit: document.getElementById('creditLimit').value ? parseFloat(document.getElementById('creditLimit').value) : 0,
                 legacy_balance: document.getElementById('legacyBalance').value ? parseFloat(document.getElementById('legacyBalance').value) : 0
             };
@@ -687,19 +821,28 @@
                     return;
                 }
 
-                listDiv.innerHTML = data.map(shop => `
-                    <div class="list-item" onclick="selectShopForCreditRequest(${shop.id}, '${shop.name}', ${shop.credit_limit || 0})">
+                listDiv.innerHTML = data.map(shop => {
+                    const statusColor = shop.registration_status === 'approved' ? 'green' : 
+                                      shop.registration_status === 'pending' ? 'orange' : 'red';
+                    const statusText = shop.registration_status || 'pending';
+                    const isRejected = statusText === 'rejected';
+                    
+                    return `
+                    <div class="list-item" ${isRejected ? `onclick="openEditRejectedShopModal(${shop.id}, '${(shop.name || '').replace(/'/g, "\\'")}', '${(shop.owner_name || '').replace(/'/g, "\\'")}', '${(shop.owner_phone || '').replace(/'/g, "\\'")}', ${shop.gps_lat || 0}, ${shop.gps_lng || 0}, ${shop.credit_limit || 0}, ${shop.legacy_balance || 0}, ${shop.zone_id || 'null'})"` : `onclick="selectShopForCreditRequest(${shop.id}, '${shop.name}', ${shop.credit_limit || 0})"`}>
                         <div class="list-item-info">
-                            <strong>${shop.name}</strong><br>
+                            <strong>${shop.name}</strong>
+                            ${isRejected ? '<span style="background: #dc3545; color: white; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-left: 10px;">REJECTED - Click to Edit & Resubmit</span>' : ''}
+                            <br>
                             Owner: ${shop.owner_name || 'N/A'}<br>
                             Phone: ${shop.owner_phone || 'N/A'}<br>
                             GPS: ${shop.gps_lat ? shop.gps_lat.toFixed(6) : 'N/A'}, ${shop.gps_lng ? shop.gps_lng.toFixed(6) : 'N/A'}<br>
                             Credit Limit: Rs. ${(shop.credit_limit || 0).toLocaleString()}<br>
-                            Status: <span style="color: ${shop.registration_status === 'approved' ? 'green' : shop.registration_status === 'pending' ? 'orange' : 'red'}">${shop.registration_status || 'pending'}</span><br>
+                            Status: <span style="color: ${statusColor}">${statusText}</span><br>
                             <small>ID: ${shop.id} | Created: ${new Date(shop.created_at).toLocaleDateString()}</small>
                         </div>
                     </div>
-                `).join('');
+                `;
+                }).join('');
 
                 // Populate shop dropdown for credit limit requests
                 const shopSelect = document.getElementById('requestShopId');
@@ -853,6 +996,149 @@
                 showApiCall('GET', endpoint, 'Load Credit Limit Requests', 'success');
             } catch (error) {
                 listDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+
+        // Open Edit Rejected Shop Modal
+        function openEditRejectedShopModal(shopId, name, ownerName, ownerPhone, gpsLat, gpsLng, creditLimit, legacyBalance, zoneId) {
+            const modal = document.getElementById('editRejectedShopModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('active');
+            
+            document.getElementById('editRejectedShopId').value = shopId;
+            document.getElementById('editRejectedShopName').value = name || '';
+            document.getElementById('editRejectedOwnerName').value = ownerName || '';
+            document.getElementById('editRejectedOwnerPhone').value = ownerPhone || '';
+            document.getElementById('editRejectedGpsLat').value = gpsLat || '';
+            document.getElementById('editRejectedGpsLng').value = gpsLng || '';
+            document.getElementById('editRejectedCreditLimit').value = creditLimit || '';
+            document.getElementById('editRejectedLegacyBalance').value = legacyBalance || '';
+            
+            // Populate zone dropdown
+            const zoneSelect = document.getElementById('editRejectedZoneId');
+            if (availableZones && availableZones.length > 0) {
+                zoneSelect.innerHTML = '<option value="">Select Zone (Optional)</option>' +
+                    availableZones.map(z => `<option value="${z.id}" ${z.id == zoneId ? 'selected' : ''}>${z.name}</option>`).join('');
+            } else {
+                zoneSelect.innerHTML = '<option value="">No zones available</option>';
+            }
+            
+            // Populate route dropdown based on selected zone
+            updateRejectedShopRouteDropdown(zoneId ? parseInt(zoneId) : null);
+        }
+
+        function closeEditRejectedShopModal() {
+            const modal = document.getElementById('editRejectedShopModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('active');
+        }
+
+        // Update route dropdown for rejected shop modal
+        function updateRejectedShopRouteDropdown(selectedZoneId = null) {
+            const routeSelect = document.getElementById('editRejectedRouteId');
+            if (!routeSelect) return;
+            
+            if (myRoutesData.length === 0) {
+                routeSelect.innerHTML = '<option value="">No routes available</option>';
+                return;
+            }
+            
+            // Filter routes by selected zone if zone is selected
+            let filteredRoutes = myRoutesData;
+            if (selectedZoneId) {
+                filteredRoutes = myRoutesData.filter(r => r.zone_id == selectedZoneId);
+            }
+            
+            if (filteredRoutes.length > 0) {
+                // Get zone names for display
+                const zoneMap = {};
+                availableZones.forEach(zone => {
+                    zoneMap[zone.id] = zone.name;
+                });
+                
+                routeSelect.innerHTML = '<option value="">Select Route (Optional)</option>' + 
+                    filteredRoutes.map(r => {
+                        const zoneName = r.zone_id ? (zoneMap[r.zone_id] || `Zone ${r.zone_id}`) : 'No Zone';
+                        return `<option value="${r.id}">${r.name} (${zoneName})</option>`;
+                    }).join('');
+            } else {
+                routeSelect.innerHTML = '<option value="">No routes available' + 
+                    (selectedZoneId ? ' in selected zone' : '') + '</option>';
+            }
+        }
+
+        // Update route dropdown when zone changes in rejected shop modal
+        document.addEventListener('DOMContentLoaded', () => {
+            const rejectedZoneSelect = document.getElementById('editRejectedZoneId');
+            if (rejectedZoneSelect) {
+                rejectedZoneSelect.addEventListener('change', function() {
+                    const selectedZoneId = this.value ? parseInt(this.value) : null;
+                    updateRejectedShopRouteDropdown(selectedZoneId);
+                });
+            }
+        });
+
+        // Resubmit Rejected Shop
+        async function resubmitRejectedShop(event) {
+            event.preventDefault();
+            const resultDiv = document.getElementById('editRejectedShopResult');
+            const shopId = document.getElementById('editRejectedShopId').value;
+            
+            if (!currentUser || !currentUser.id) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Please login first';
+                return;
+            }
+
+            const updateData = {
+                name: document.getElementById('editRejectedShopName').value,
+                owner_name: document.getElementById('editRejectedOwnerName').value,
+                owner_phone: document.getElementById('editRejectedOwnerPhone').value,
+                gps_lat: parseFloat(document.getElementById('editRejectedGpsLat').value),
+                gps_lng: parseFloat(document.getElementById('editRejectedGpsLng').value),
+                zone_id: document.getElementById('editRejectedZoneId').value ? parseInt(document.getElementById('editRejectedZoneId').value) : null,
+                route_id: document.getElementById('editRejectedRouteId').value ? parseInt(document.getElementById('editRejectedRouteId').value) : null,
+                credit_limit: document.getElementById('editRejectedCreditLimit').value ? parseFloat(document.getElementById('editRejectedCreditLimit').value) : 0,
+                legacy_balance: document.getElementById('editRejectedLegacyBalance').value ? parseFloat(document.getElementById('editRejectedLegacyBalance').value) : 0
+            };
+
+            const endpoint = `${API_BASE}/shops/${shopId}/resubmit`;
+            showApiCall('PUT', endpoint, 'Resubmit Rejected Shop', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify(updateData)
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showApiCall('PUT', endpoint, 'Resubmit Rejected Shop', 'error');
+                    throw new Error(data.detail || 'Failed to resubmit shop');
+                }
+
+                resultDiv.className = 'result success';
+                resultDiv.innerHTML = `
+                    <strong>Shop Resubmitted Successfully!</strong><br>
+                    Shop ID: ${data.id}<br>
+                    Name: ${data.name}<br>
+                    Status: <span style="color: orange">${data.registration_status || 'pending'}</span><br>
+                    <small>The shop has been resubmitted for distributor approval.</small>
+                `;
+                showApiCall('PUT', endpoint, 'Resubmit Rejected Shop', 'success');
+
+                setTimeout(() => {
+                    closeEditRejectedShopModal();
+                    loadMyShops();
+                }, 2000);
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
             }
         }
     </script>

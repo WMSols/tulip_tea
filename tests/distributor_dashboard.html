@@ -388,8 +388,8 @@
                     <button class="tab" onclick="switchTab('routes')">Routes</button>
                     <button class="tab" onclick="switchTab('orderBookers')">Order Bookers</button>
                     <button class="tab" onclick="switchTab('deliveryMen')">Delivery Men</button>
-                    <button class="tab" onclick="switchTab('pendingShops')">Pending Shops <span id="pendingShopsBadge" style="background: #e74c3c; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 5px;">0</span></button>
-                    <button class="tab" onclick="switchTab('creditLimitRequests')">Credit Requests <span id="creditRequestsBadge" style="background: #e74c3c; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 5px;">0</span></button>
+                    <button class="tab" onclick="switchTab('shops')">Shops <span id="pendingShopsBadge" style="background: #e74c3c; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 5px;">0</span></button>
+                    <button class="tab" onclick="switchTab('creditLimits')">Credit Limits <span id="creditRequestsBadge" style="background: #e74c3c; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 5px;">0</span></button>
                 </div>
 
                 <!-- Zones Tab -->
@@ -510,19 +510,64 @@
                     <div id="dmList" style="margin-top: 20px;"></div>
                 </div>
 
-                <!-- Pending Shops Tab -->
-                <div id="pendingShopsTab" class="tab-content">
-                    <h2>Pending Shop Registrations</h2>
-                    <p style="color: #666; margin-bottom: 20px;">Review and verify shop registrations submitted by Order Bookers.</p>
-                    <button class="btn btn-success" onclick="loadPendingShops()" style="margin-bottom: 15px;">Refresh List</button>
+                <!-- Shops Tab -->
+                <div id="shopsTab" class="tab-content">
+                    <h2>All Shops</h2>
+                    <p style="color: #666; margin-bottom: 20px;">View all shops categorized by zone and route. Pending approvals are highlighted.</p>
+                    
+                    <div style="margin-bottom: 20px;">
+                        <button class="btn btn-success" onclick="loadAllShops()" style="margin-right: 10px;">Refresh All Shops</button>
+                        <button class="btn btn-primary" onclick="loadPendingShops()">View Pending Approvals Only</button>
+                    </div>
+                    
+                    <!-- Filters -->
+                    <div style="display: flex; gap: 20px; margin-bottom: 20px; flex-wrap: wrap;">
+                        <div class="form-group" style="max-width: 250px;">
+                            <label>Filter by Zone</label>
+                            <select id="shopZoneFilter" onchange="filterShopsByZoneAndRoute()">
+                                <option value="">All Zones</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="max-width: 250px;">
+                            <label>Filter by Route</label>
+                            <select id="shopRouteFilter" onchange="filterShopsByZoneAndRoute()">
+                                <option value="">All Routes</option>
+                            </select>
+                        </div>
+                        <div style="align-self: flex-end;">
+                            <button class="btn btn-primary" onclick="clearShopFilters()">Clear Filters</button>
+                        </div>
+                    </div>
+                    
+                    <div id="shopsList" style="margin-top: 20px;"></div>
+                    
+                    <!-- Pending Shops Section -->
+                    <h2 style="margin-top: 40px; color: #e74c3c;">Pending Shop Approvals <span id="pendingShopsBadgeInline" style="background: #e74c3c; color: white; padding: 2px 8px; border-radius: 10px; font-size: 14px;">0</span></h2>
                     <div id="pendingShopsList" style="margin-top: 20px;"></div>
                 </div>
 
-                <!-- Credit Limit Requests Tab -->
-                <div id="creditLimitRequestsTab" class="tab-content">
-                    <h2>Pending Credit Limit Requests</h2>
-                    <p style="color: #666; margin-bottom: 20px;">Review and approve/reject credit limit change requests.</p>
-                    <button class="btn btn-success" onclick="loadPendingCreditLimitRequests()" style="margin-bottom: 15px;">Refresh List</button>
+                <!-- Credit Limits Tab -->
+                <div id="creditLimitsTab" class="tab-content">
+                    <h2>Credit Limits by Shop</h2>
+                    <p style="color: #666; margin-bottom: 20px;">View all shops with their credit limits. Pending approval requests are highlighted.</p>
+                    
+                    <div style="margin-bottom: 20px;">
+                        <button class="btn btn-success" onclick="loadAllShopsWithCreditLimits()" style="margin-right: 10px;">Refresh All Credit Limits</button>
+                        <button class="btn btn-primary" onclick="loadPendingCreditLimitRequests()">View Pending Requests Only</button>
+                    </div>
+                    
+                    <!-- Filter by Zone -->
+                    <div class="form-group" style="max-width: 300px; margin-bottom: 20px;">
+                        <label>Filter by Zone</label>
+                        <select id="creditZoneFilter" onchange="filterCreditLimitsByZone()">
+                            <option value="">All Zones</option>
+                        </select>
+                    </div>
+                    
+                    <div id="creditLimitsList" style="margin-top: 20px;"></div>
+                    
+                    <!-- Pending Credit Limit Requests Section -->
+                    <h2 style="margin-top: 40px; color: #e74c3c;">Pending Credit Limit Requests <span id="creditRequestsBadgeInline" style="background: #e74c3c; color: white; padding: 2px 8px; border-radius: 10px; font-size: 14px;">0</span></h2>
                     <div id="creditLimitRequestsList" style="margin-top: 20px;"></div>
                 </div>
             </div>
@@ -572,7 +617,10 @@
                     </select>
                 </div>
                 <button type="submit" class="btn btn-primary">Save Changes</button>
-                <button type="button" class="btn btn-success" onclick="verifyShop()">Verify Shop</button>
+                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                    <button type="button" class="btn btn-success" onclick="verifyShop('approved')">Approve Shop</button>
+                    <button type="button" class="btn btn-danger" onclick="verifyShop('rejected')">Reject Shop</button>
+                </div>
             </form>
             <div id="editShopResult" class="result"></div>
         </div>
@@ -661,17 +709,19 @@
             });
 
             // Show selected tab
-            const tabs = ['zones', 'routes', 'orderBookers', 'deliveryMen', 'pendingShops', 'creditLimitRequests'];
+            const tabs = ['zones', 'routes', 'orderBookers', 'deliveryMen', 'shops', 'creditLimits'];
             const tabIndex = tabs.indexOf(tabName);
             if (tabIndex !== -1) {
-                const tabContents = ['zonesTab', 'routesTab', 'orderBookersTab', 'deliveryMenTab', 'pendingShopsTab', 'creditLimitRequestsTab'];
+                const tabContents = ['zonesTab', 'routesTab', 'orderBookersTab', 'deliveryMenTab', 'shopsTab', 'creditLimitsTab'];
                 document.getElementById(tabContents[tabIndex]).classList.add('active');
                 document.querySelectorAll('.tab')[tabIndex].classList.add('active');
                 
                 // Load data when switching to these tabs
-                if (tabName === 'pendingShops') {
+                if (tabName === 'shops') {
+                    loadAllShops();
                     loadPendingShops();
-                } else if (tabName === 'creditLimitRequests') {
+                } else if (tabName === 'creditLimits') {
+                    loadAllShopsWithCreditLimits();
                     loadPendingCreditLimitRequests();
                 }
             }
@@ -729,7 +779,9 @@
                 loadRoutes();
                 loadOrderBookers();
                 loadDeliveryMen();
+                loadAllShops();
                 loadPendingShops();
+                loadAllShopsWithCreditLimits();
                 loadPendingCreditLimitRequests();
             } catch (error) {
                 resultDiv.className = 'result error';
@@ -1055,26 +1107,43 @@
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.detail || 'Failed to load routes');
                 
+                // Store routes data
+                allRoutesData = data;
+                
                 const listDiv = document.getElementById('routesList');
                 if (data.length === 0) {
                     listDiv.innerHTML = '<p>No routes found. Create one above.</p>';
                     return;
                 }
-                listDiv.innerHTML = data.map(route => `
+                // Get zone names
+                const zoneMap = {};
+                allZones.forEach(zone => {
+                    zoneMap[zone.id] = zone.name;
+                });
+                
+                listDiv.innerHTML = data.map(route => {
+                    const zoneName = route.zone_id ? (zoneMap[route.zone_id] || `Zone ${route.zone_id}`) : 'No Zone';
+                    return `
                     <div class="list-item">
                         <div class="list-item-info">
                             <strong>${route.name}</strong><br>
-                            Zone ID: ${route.zone_id}<br>
+                            Zone: ${zoneName}<br>
                             ${route.order_booker_id ? `Assigned to Order Booker ID: ${route.order_booker_id}` : 'Not assigned'}<br>
                             <small>ID: ${route.id} | Created: ${new Date(route.created_at).toLocaleDateString()}</small>
                         </div>
                     </div>
-                `).join('');
+                `;
+                }).join('');
                 
                 // Populate route dropdown for assignment
-                const assignRouteSelect = document.getElementById('assignRouteId');
-                assignRouteSelect.innerHTML = '<option value="">Select Route</option>' + 
-                    data.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
+                populateRouteAssignmentDropdown(data);
+                
+                // Populate zone filter for route assignment
+                const assignRouteZoneFilter = document.getElementById('assignRouteZoneFilter');
+                if (assignRouteZoneFilter && allZones.length > 0) {
+                    assignRouteZoneFilter.innerHTML = '<option value="">All Zones</option>' + 
+                        allZones.map(z => `<option value="${z.id}">${z.name}</option>`).join('');
+                }
             } catch (error) {
                 document.getElementById('routesList').innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
             }
@@ -1108,6 +1177,35 @@
             } catch (error) {
                 resultDiv.className = 'result error';
                 resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // Populate route assignment dropdown
+        function populateRouteAssignmentDropdown(routes, filterZoneId = null) {
+            const assignRouteSelect = document.getElementById('assignRouteId');
+            if (!assignRouteSelect) return;
+            
+            let filteredRoutes = routes;
+            if (filterZoneId) {
+                filteredRoutes = routes.filter(r => r.zone_id == filterZoneId);
+            }
+            
+            const currentValue = assignRouteSelect.value;
+            assignRouteSelect.innerHTML = '<option value="">Select Route</option>' + 
+                filteredRoutes.map(r => {
+                    const zoneName = r.zone_id && allZones.find(z => z.id == r.zone_id) ? 
+                        allZones.find(z => z.id == r.zone_id).name : `Zone ${r.zone_id}`;
+                    return `<option value="${r.id}" ${r.id == currentValue ? 'selected' : ''}>${r.name} (${zoneName})</option>`;
+                }).join('');
+        }
+
+        // Filter routes for assignment by zone
+        function filterRoutesForAssignment() {
+            const zoneId = document.getElementById('assignRouteZoneFilter')?.value;
+            if (allRoutesData && allRoutesData.length > 0) {
+                populateRouteAssignmentDropdown(allRoutesData, zoneId ? parseInt(zoneId) : null);
+            } else {
+                loadRoutes();
             }
         }
 
@@ -1295,12 +1393,12 @@
 
                 if (data.length === 0) {
                     listDiv.innerHTML = '<p>No pending shop registrations.</p>';
-                    document.getElementById('pendingShopsBadge').textContent = '0';
+                    updatePendingShopsBadge(0);
                     showApiCall('GET', endpoint, 'Load Pending Shops', 'success');
                     return;
                 }
 
-                document.getElementById('pendingShopsBadge').textContent = data.length;
+                updatePendingShopsBadge(data.length);
                 listDiv.innerHTML = data.map(shop => {
                     // Escape single quotes in strings to prevent JavaScript errors
                     const shopName = (shop.name || '').replace(/'/g, "\\'");
@@ -1350,12 +1448,12 @@
 
                 if (data.length === 0) {
                     listDiv.innerHTML = '<p>No pending credit limit requests.</p>';
-                    document.getElementById('creditRequestsBadge').textContent = '0';
+                    updateCreditRequestsBadge(0);
                     showApiCall('GET', endpoint, 'Load Pending Credit Limit Requests', 'success');
                     return;
                 }
 
-                document.getElementById('creditRequestsBadge').textContent = data.length;
+                updateCreditRequestsBadge(data.length);
                 listDiv.innerHTML = data.map(req => {
                     // Escape single quotes in strings to prevent JavaScript errors
                     const shopName = (req.shop_name || 'N/A').replace(/'/g, "\\'");
@@ -1381,7 +1479,7 @@
         }
 
         // Open Edit Shop Modal
-        function openEditShopModal(shopId, name, ownerName, ownerPhone, gpsLat, gpsLng, creditLimit, legacyBalance, zoneId, status, createdAt) {
+        async function openEditShopModal(shopId, name, ownerName, ownerPhone, gpsLat, gpsLng, creditLimit, legacyBalance, zoneId, status, createdAt) {
             const modal = document.getElementById('editShopModal');
             modal.classList.remove('hidden');
             modal.style.display = 'flex';
@@ -1408,6 +1506,34 @@
                 loadZonesForShopModal();
             }
             
+            // Fetch shop details to get route information
+            let routesInfo = '';
+            try {
+                const response = await fetch(`${API_BASE}/shops/all?distributor_id=${currentDistributorId}`, {
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+                if (response.ok) {
+                    const shops = await response.json();
+                    const shop = shops.find(s => s.id == shopId);
+                    if (shop && shop.routes && shop.routes.length > 0) {
+                        routesInfo = '<br><strong>Assigned Routes:</strong><br>';
+                        shop.routes.forEach(route => {
+                            const zoneName = route.route_zone_name || `Zone ${route.route_zone_id || 'N/A'}`;
+                            routesInfo += `• ${route.route_name} (${zoneName})`;
+                            if (route.order_booker_name) {
+                                routesInfo += ` - Order Booker: ${route.order_booker_name}`;
+                            }
+                            routesInfo += '<br>';
+                        });
+                    } else {
+                        routesInfo = '<br><strong>Assigned Routes:</strong> None<br>';
+                    }
+                }
+            } catch (error) {
+                console.error('Error fetching shop routes:', error);
+                routesInfo = '<br><strong>Assigned Routes:</strong> Unable to load<br>';
+            }
+            
             // Show additional info
             const resultDiv = document.getElementById('editShopResult');
             resultDiv.className = 'result info';
@@ -1415,6 +1541,7 @@
                 <strong>Shop Details:</strong><br>
                 Status: <span style="color: ${status === 'approved' ? 'green' : 'orange'}">${status || 'pending'}</span><br>
                 ${createdAt ? `Created: ${new Date(createdAt).toLocaleString()}<br>` : ''}
+                ${routesInfo}
                 <small>Click "Verify Shop" to approve or reject this registration</small>
             `;
         }
@@ -1495,21 +1622,24 @@
             }
         }
 
-        // Verify Shop
-        async function verifyShop() {
+        // Verify Shop (Approve or Reject)
+        async function verifyShop(status) {
             const resultDiv = document.getElementById('editShopResult');
             const shopId = document.getElementById('editShopId').value;
             
-            if (!confirm('Do you want to APPROVE this shop registration?\n\nClick OK to approve, Cancel to reject.')) {
-                // User clicked Cancel - reject
-                const remarks = prompt('Enter reason for rejection (optional):') || null;
+            if (status === 'approved') {
+                if (!confirm('Do you want to APPROVE this shop registration?')) {
+                    return;
+                }
+                const remarks = prompt('Enter remarks (optional):') || null;
+                await processShopVerification(shopId, 'approved', remarks, resultDiv);
+            } else if (status === 'rejected') {
+                if (!confirm('Do you want to REJECT this shop registration?')) {
+                    return;
+                }
+                const remarks = prompt('Enter reason for rejection (required):') || 'Rejected by distributor';
                 await processShopVerification(shopId, 'rejected', remarks, resultDiv);
-                return;
             }
-            
-            // User clicked OK - approve
-            const remarks = prompt('Enter remarks (optional):') || null;
-            await processShopVerification(shopId, 'approved', remarks, resultDiv);
         }
         
         // Process shop verification
@@ -1742,6 +1872,519 @@
             } catch (error) {
                 alert(`Error: ${error.message}`);
             }
+        }
+
+        // Store shops data for filtering
+        let allShopsData = [];
+        let allRoutesData = [];
+
+        // Load All Shops with Zone/Route categorization
+        async function loadAllShops() {
+            const listDiv = document.getElementById('shopsList');
+            if (!currentDistributorId) {
+                listDiv.innerHTML = '<p>Please login first</p>';
+                return;
+            }
+
+            const endpoint = `${API_BASE}/shops/all?distributor_id=${currentDistributorId}`;
+            showApiCall('GET', endpoint, 'Load All Shops', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    showApiCall('GET', endpoint, 'Load All Shops', 'error');
+                    throw new Error(data.detail || 'Failed to load shops');
+                }
+
+                showApiCall('GET', endpoint, 'Load All Shops', 'success');
+
+                // Store data for filtering
+                allShopsData = data;
+
+                if (data.length === 0) {
+                    listDiv.innerHTML = '<p>No shops found.</p>';
+                    return;
+                }
+
+                // Load routes for route filter
+                await loadRoutesForFilter();
+
+                // Apply filters if selected
+                const selectedZoneId = document.getElementById('shopZoneFilter')?.value;
+                const selectedRouteId = document.getElementById('shopRouteFilter')?.value;
+                
+                // Initialize route filter state (will disable if no zone selected)
+                updateRouteFilterDropdown();
+                
+                // Clear route filter if "All Zones" is selected
+                if (!selectedZoneId && selectedRouteId) {
+                    document.getElementById('shopRouteFilter').value = '';
+                }
+                
+                displayShops(data, selectedZoneId, (!selectedZoneId ? null : selectedRouteId));
+
+                // Populate zone filter
+                const zoneFilter = document.getElementById('shopZoneFilter');
+                if (zoneFilter && allZones.length > 0) {
+                    const currentValue = zoneFilter.value;
+                    zoneFilter.innerHTML = '<option value="">All Zones</option>' + 
+                        allZones.map(z => `<option value="${z.id}" ${z.id == currentValue ? 'selected' : ''}>${z.name}</option>`).join('');
+                }
+            } catch (error) {
+                listDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+
+        // Load routes for filter dropdown
+        async function loadRoutesForFilter() {
+            if (!currentDistributorId) return;
+            
+            try {
+                const response = await fetch(`${API_BASE}/routes/distributor/${currentDistributorId}`, {
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    allRoutesData = data;
+                    updateRouteFilterDropdown();
+                }
+            } catch (error) {
+                console.error('Error loading routes:', error);
+            }
+        }
+
+        // Update route filter dropdown based on selected zone
+        function updateRouteFilterDropdown() {
+            const routeFilter = document.getElementById('shopRouteFilter');
+            const selectedZoneId = document.getElementById('shopZoneFilter')?.value;
+            const currentRouteValue = routeFilter?.value;
+            
+            if (!routeFilter) return;
+            
+            // If "All Zones" is selected, disable route filter
+            if (!selectedZoneId) {
+                routeFilter.disabled = true;
+                routeFilter.innerHTML = '<option value="">Select a zone first</option>';
+                return;
+            }
+            
+            // Enable route filter when a zone is selected
+            routeFilter.disabled = false;
+            
+            // Filter routes by selected zone
+            const filteredRoutes = allRoutesData.filter(r => r.zone_id == selectedZoneId);
+            
+            routeFilter.innerHTML = '<option value="">All Routes</option>' + 
+                filteredRoutes.map(r => `<option value="${r.id}" ${r.id == currentRouteValue ? 'selected' : ''}>${r.name}</option>`).join('');
+        }
+
+        // Display shops with optional zone and route filters
+        function displayShops(data, filterZoneId = null, filterRouteId = null) {
+            const listDiv = document.getElementById('shopsList');
+            
+            // Group shops by zone → route
+            // Use a Set to track which shops we've already added to prevent duplicates
+            const shopsByZoneAndRoute = {};
+            const shopsAddedToZones = {}; // Track shop IDs added to each zone
+            
+            data.forEach(shop => {
+                // Apply zone filter if specified
+                if (filterZoneId && shop.zone_id != filterZoneId) {
+                    return; // Skip this shop
+                }
+                
+                // Apply route filter if specified
+                if (filterRouteId) {
+                    // Check if shop has the selected route
+                    const hasRoute = shop.routes && shop.routes.some(r => r.route_id == filterRouteId);
+                    if (!hasRoute) {
+                        return; // Skip this shop - doesn't have the selected route
+                    }
+                    
+                    // If zone is also selected, verify the route belongs to that zone
+                    if (filterZoneId) {
+                        const routeInZone = shop.routes.find(r => 
+                            r.route_id == filterRouteId && 
+                            (r.route_zone_id == filterZoneId || r.route_zone_id == null)
+                        );
+                        if (!routeInZone) {
+                            return; // Skip this shop - route doesn't match selected zone
+                        }
+                    }
+                }
+                
+                // Group by shop's zone_id (not route zone) to ensure shop appears only in its own zone
+                const zoneKey = shop.zone_id || 'no-zone';
+                if (!shopsByZoneAndRoute[zoneKey]) {
+                    shopsByZoneAndRoute[zoneKey] = {};
+                    shopsAddedToZones[zoneKey] = new Set();
+                }
+                
+                // Skip if this shop was already added to this zone (prevent duplicates)
+                if (shopsAddedToZones[zoneKey].has(shop.id)) {
+                    return;
+                }
+                
+                // Mark this shop as added to this zone
+                shopsAddedToZones[zoneKey].add(shop.id);
+                
+                // Group by route within zone
+                // Show ALL routes for the shop, but group them by the route's zone
+                if (shop.routes && shop.routes.length > 0) {
+                    // Track which routes we've added this shop to
+                    const addedToRoutes = new Set();
+                    shop.routes.forEach(route => {
+                        const routeKey = route.route_id || 'no-route';
+                        
+                        // Determine which zone to display this route under
+                        // If route has a zone, use that; otherwise use shop's zone
+                        const displayZoneId = route.route_zone_id !== undefined && route.route_zone_id !== null 
+                            ? route.route_zone_id 
+                            : shop.zone_id;
+                        const displayZoneKey = displayZoneId || 'no-zone';
+                        
+                        // Only add shop to route if we're displaying in the current zone
+                        // OR if no zone filter is applied
+                        if (!filterZoneId || displayZoneKey == zoneKey) {
+                            // Initialize zone if needed
+                            if (!shopsByZoneAndRoute[displayZoneKey]) {
+                                shopsByZoneAndRoute[displayZoneKey] = {};
+                                shopsAddedToZones[displayZoneKey] = new Set();
+                            }
+                            
+                            // Initialize route group if needed
+                            if (!shopsByZoneAndRoute[displayZoneKey][routeKey]) {
+                                shopsByZoneAndRoute[displayZoneKey][routeKey] = {
+                                    route_info: route,
+                                    shops: []
+                                };
+                            }
+                            
+                            // Only add shop once per route
+                            if (!addedToRoutes.has(`${displayZoneKey}-${routeKey}`)) {
+                                shopsByZoneAndRoute[displayZoneKey][routeKey].shops.push(shop);
+                                addedToRoutes.add(`${displayZoneKey}-${routeKey}`);
+                            }
+                        }
+                    });
+                    
+                    // If shop has routes but none matched the current zone (and zone filter is active)
+                    // OR if shop has no routes in the current zone context, add to "no-route"
+                    if (addedToRoutes.size === 0 || (!filterZoneId && shop.routes.length === 0)) {
+                        const routeKey = 'no-route';
+                        if (!shopsByZoneAndRoute[zoneKey][routeKey]) {
+                            shopsByZoneAndRoute[zoneKey][routeKey] = {
+                                route_info: null,
+                                shops: []
+                            };
+                        }
+                        // Only add if not already added
+                        if (!shopsAddedToZones[zoneKey].has(shop.id)) {
+                            shopsByZoneAndRoute[zoneKey][routeKey].shops.push(shop);
+                        }
+                    }
+                } else {
+                    // Shop has no route
+                    const routeKey = 'no-route';
+                    if (!shopsByZoneAndRoute[zoneKey][routeKey]) {
+                        shopsByZoneAndRoute[zoneKey][routeKey] = {
+                            route_info: null,
+                            shops: []
+                        };
+                    }
+                    shopsByZoneAndRoute[zoneKey][routeKey].shops.push(shop);
+                }
+            });
+
+            if (Object.keys(shopsByZoneAndRoute).length === 0) {
+                listDiv.innerHTML = '<p>No shops found matching the selected filters.</p>';
+                return;
+            }
+
+            // Get zone names
+            const zoneMap = {};
+            allZones.forEach(zone => {
+                zoneMap[zone.id] = zone.name;
+            });
+
+            // Build HTML - Zone → Route → Shops hierarchy
+            let html = '';
+            Object.keys(shopsByZoneAndRoute).sort().forEach(zoneKey => {
+                const zoneId = zoneKey === 'no-zone' ? null : parseInt(zoneKey);
+                const zoneName = zoneId ? (zoneMap[zoneId] || `Zone ${zoneId}`) : 'No Zone Assigned';
+                const routesInZone = shopsByZoneAndRoute[zoneKey];
+                
+                // Count total shops in zone
+                let totalShopsInZone = 0;
+                Object.values(routesInZone).forEach(routeGroup => {
+                    totalShopsInZone += routeGroup.shops.length;
+                });
+
+                html += `
+                    <div style="margin-bottom: 30px; border: 2px solid #667eea; border-radius: 8px; padding: 20px; background: #f8f9fa;">
+                        <h3 style="color: #667eea; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #667eea;">
+                            ${zoneName} (${totalShopsInZone} shop${totalShopsInZone !== 1 ? 's' : ''})
+                        </h3>
+                `;
+
+                // Display routes within zone
+                Object.keys(routesInZone).sort().forEach(routeKey => {
+                    const routeGroup = routesInZone[routeKey];
+                    const route = routeGroup.route_info;
+                    const routeShops = routeGroup.shops;
+                    const routeName = route ? route.route_name : 'No Route Assigned';
+                    const routeZoneName = route && route.route_zone_name ? ` (${route.route_zone_name})` : '';
+
+                    html += `
+                        <div style="margin-left: 20px; margin-bottom: 20px; padding: 15px; background: white; border-left: 3px solid #28a745; border-radius: 5px;">
+                            <h4 style="color: #28a745; margin-bottom: 10px;">
+                                ${routeName}${routeZoneName} ${route && route.order_booker_name ? `(Order Booker: ${route.order_booker_name})` : ''} (${routeShops.length} shop${routeShops.length !== 1 ? 's' : ''})
+                            </h4>
+                    `;
+
+                    routeShops.forEach(shop => {
+                        const statusColor = shop.registration_status === 'approved' ? 'green' : 
+                                          shop.registration_status === 'rejected' ? 'red' : 'orange';
+                        const statusText = shop.registration_status || 'pending';
+                        
+                        // Show route information for this shop
+                        let routeInfo = '';
+                        if (shop.routes && shop.routes.length > 0) {
+                            const routeNames = shop.routes.map(r => r.route_name).join(', ');
+                            routeInfo = `<br>Routes: ${routeNames}`;
+                        } else {
+                            routeInfo = '<br>Routes: None assigned';
+                        }
+                        
+                        html += `
+                            <div class="list-item" onclick="openEditShopModal(${shop.id}, '${(shop.name || '').replace(/'/g, "\\'")}', '${(shop.owner_name || '').replace(/'/g, "\\'")}', '${(shop.owner_phone || '').replace(/'/g, "\\'")}', ${shop.gps_lat || 0}, ${shop.gps_lng || 0}, ${shop.credit_limit || 0}, ${shop.legacy_balance || 0}, ${shop.zone_id || 'null'}, '${statusText}', '${(shop.created_at || '').replace(/'/g, "\\'")}')" style="margin-bottom: 10px;">
+                                <div class="list-item-info">
+                                    <strong>${shop.name}</strong> 
+                                    ${statusText === 'pending' ? '<span style="background: #ffc107; color: #000; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-left: 10px;">PENDING</span>' : ''}
+                                    <br>
+                                    Owner: ${shop.owner_name || 'N/A'}<br>
+                                    Phone: ${shop.owner_phone || 'N/A'}<br>
+                                    Credit Limit: Rs. ${(shop.credit_limit || 0).toLocaleString()}<br>
+                                    Status: <span style="color: ${statusColor}">${statusText}</span>${routeInfo}<br>
+                                    Created By: ${shop.created_by_order_booker_name || 'N/A'}<br>
+                                    <small>ID: ${shop.id} | Created: ${new Date(shop.created_at).toLocaleString()}</small>
+                                </div>
+                            </div>
+                        `;
+                    });
+
+                    html += `</div>`;
+                });
+
+                html += `</div>`;
+            });
+
+            listDiv.innerHTML = html;
+        }
+
+        // Filter shops by zone and route
+        function filterShopsByZoneAndRoute() {
+            const zoneId = document.getElementById('shopZoneFilter')?.value;
+            const routeId = document.getElementById('shopRouteFilter')?.value;
+            
+            // Update route filter dropdown based on selected zone
+            updateRouteFilterDropdown();
+            
+            // Clear route filter if "All Zones" is selected
+            if (!zoneId && routeId) {
+                document.getElementById('shopRouteFilter').value = '';
+            }
+            
+            if (allShopsData.length > 0) {
+                displayShops(
+                    allShopsData, 
+                    zoneId ? parseInt(zoneId) : null,
+                    (!zoneId ? null : (routeId ? parseInt(routeId) : null)) // Only use route filter if zone is selected
+                );
+            } else {
+                loadAllShops();
+            }
+        }
+
+        // Clear all shop filters
+        function clearShopFilters() {
+            document.getElementById('shopZoneFilter').value = '';
+            document.getElementById('shopRouteFilter').value = '';
+            updateRouteFilterDropdown(); // This will disable route filter
+            if (allShopsData.length > 0) {
+                displayShops(allShopsData, null, null);
+            } else {
+                loadAllShops();
+            }
+        }
+
+        // Store credit limits data for filtering
+        let allCreditLimitsData = [];
+
+        // Load All Shops with Credit Limits
+        async function loadAllShopsWithCreditLimits() {
+            const listDiv = document.getElementById('creditLimitsList');
+            if (!currentDistributorId) {
+                listDiv.innerHTML = '<p>Please login first</p>';
+                return;
+            }
+
+            const endpoint = `${API_BASE}/shops/all?distributor_id=${currentDistributorId}`;
+            showApiCall('GET', endpoint, 'Load All Credit Limits', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    showApiCall('GET', endpoint, 'Load All Credit Limits', 'error');
+                    throw new Error(data.detail || 'Failed to load shops');
+                }
+
+                showApiCall('GET', endpoint, 'Load All Credit Limits', 'success');
+
+                // Store data for filtering
+                allCreditLimitsData = data;
+
+                if (data.length === 0) {
+                    listDiv.innerHTML = '<p>No shops found.</p>';
+                    return;
+                }
+
+                // Apply zone filter if selected
+                const selectedZoneId = document.getElementById('creditZoneFilter')?.value;
+                displayCreditLimits(data, selectedZoneId);
+
+                // Populate zone filter
+                const zoneFilter = document.getElementById('creditZoneFilter');
+                if (zoneFilter && allZones.length > 0) {
+                    const currentValue = zoneFilter.value;
+                    zoneFilter.innerHTML = '<option value="">All Zones</option>' + 
+                        allZones.map(z => `<option value="${z.id}" ${z.id == currentValue ? 'selected' : ''}>${z.name}</option>`).join('');
+                }
+            } catch (error) {
+                listDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+
+        // Display credit limits with optional zone filter
+        function displayCreditLimits(data, filterZoneId = null) {
+            const listDiv = document.getElementById('creditLimitsList');
+            
+            // Group shops by zone - use Set to prevent duplicates
+            const shopsByZone = {};
+            const shopIdsInZones = {}; // Track which shops we've added to which zones
+            
+            data.forEach(shop => {
+                // Apply zone filter if specified
+                if (filterZoneId && shop.zone_id != filterZoneId) {
+                    return; // Skip this shop
+                }
+                
+                const zoneKey = shop.zone_id || 'no-zone';
+                
+                // Initialize zone array if needed
+                if (!shopsByZone[zoneKey]) {
+                    shopsByZone[zoneKey] = [];
+                    shopIdsInZones[zoneKey] = new Set();
+                }
+                
+                // Only add shop if not already in this zone (prevent duplicates)
+                if (!shopIdsInZones[zoneKey].has(shop.id)) {
+                    shopsByZone[zoneKey].push(shop);
+                    shopIdsInZones[zoneKey].add(shop.id);
+                }
+            });
+
+            if (Object.keys(shopsByZone).length === 0) {
+                listDiv.innerHTML = '<p>No shops found in selected zone.</p>';
+                return;
+            }
+
+            // Get zone names
+            const zoneMap = {};
+            allZones.forEach(zone => {
+                zoneMap[zone.id] = zone.name;
+            });
+
+            // Build HTML
+            let html = '';
+            Object.keys(shopsByZone).sort().forEach(zoneKey => {
+                const zoneId = zoneKey === 'no-zone' ? null : parseInt(zoneKey);
+                const zoneName = zoneId ? (zoneMap[zoneId] || `Zone ${zoneId}`) : 'No Zone Assigned';
+                const shops = shopsByZone[zoneKey];
+
+                html += `
+                    <div style="margin-bottom: 30px; border: 2px solid #667eea; border-radius: 8px; padding: 20px; background: #f8f9fa;">
+                        <h3 style="color: #667eea; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #667eea;">
+                            ${zoneName} (${shops.length} shop${shops.length !== 1 ? 's' : ''})
+                        </h3>
+                `;
+
+                shops.forEach(shop => {
+                    const creditLimit = shop.credit_limit || 0;
+                    const creditLimitColor = creditLimit > 0 ? '#28a745' : '#6c757d';
+                    
+                    html += `
+                        <div class="list-item" style="margin-bottom: 10px;">
+                            <div class="list-item-info">
+                                <strong>${shop.name}</strong><br>
+                                Owner: ${shop.owner_name || 'N/A'}<br>
+                                Phone: ${shop.owner_phone || 'N/A'}<br>
+                                <strong style="color: ${creditLimitColor}; font-size: 1.1em;">
+                                    Credit Limit: Rs. ${creditLimit.toLocaleString()}
+                                </strong><br>
+                                Legacy Balance: Rs. ${(shop.legacy_balance || 0).toLocaleString()}<br>
+                                Status: <span style="color: ${shop.registration_status === 'approved' ? 'green' : 'orange'}">${shop.registration_status || 'pending'}</span><br>
+                                Created By: ${shop.created_by_order_booker_name || 'N/A'}<br>
+                                <small>ID: ${shop.id} | Created: ${new Date(shop.created_at).toLocaleString()}</small>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                html += `</div>`;
+            });
+
+            listDiv.innerHTML = html;
+        }
+
+        // Filter credit limits by zone
+        function filterCreditLimitsByZone() {
+            const zoneId = document.getElementById('creditZoneFilter').value;
+            
+            if (!zoneId) {
+                // Show all shops
+                if (allCreditLimitsData.length > 0) {
+                    displayCreditLimits(allCreditLimitsData, null);
+                } else {
+                    loadAllShopsWithCreditLimits();
+                }
+                return;
+            }
+            
+            // Filter using stored data
+            if (allCreditLimitsData.length > 0) {
+                displayCreditLimits(allCreditLimitsData, parseInt(zoneId));
+            } else {
+                loadAllShopsWithCreditLimits();
+            }
+        }
+
+        // Update pending shops badge
+        function updatePendingShopsBadge(count) {
+            document.getElementById('pendingShopsBadge').textContent = count;
+            document.getElementById('pendingShopsBadgeInline').textContent = count;
+        }
+
+        // Update credit requests badge
+        function updateCreditRequestsBadge(count) {
+            document.getElementById('creditRequestsBadge').textContent = count;
+            document.getElementById('creditRequestsBadgeInline').textContent = count;
         }
 
         // Close modal when clicking outside

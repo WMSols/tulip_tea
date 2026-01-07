@@ -113,3 +113,6 @@ class Payment(Base):
     - This is when the collection was approved and payment was created
     """
 
+
+
+

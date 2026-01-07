@@ -63,6 +63,8 @@ class ShopService:
             raise ValueError("GPS coordinates are required")
         
         # Create shop with pending status
+        # Note: assigned_to_order_booker is automatically set to order_booker_id
+        # in ShopRepository.create() to match created_by_order_booker initially
         shop = ShopRepository.create(
             db=db,
             name=name,
@@ -124,6 +126,37 @@ class ShopService:
             )
             credit_limit_request_id = request.id
         
+        # Get assigned order booker name (initially same as creator)
+        assigned_order_booker_name = order_booker.name if order_booker else None
+        
+        # Get routes this shop belongs to (should include the route we just assigned)
+        route_shops = db.query(RouteShop).filter(RouteShop.shop_id == shop.id).all()
+        routes_info = []
+        for route_shop in route_shops:
+            route = RouteRepository.get_by_id(db, route_shop.route_id)
+            if route:
+                route_order_booker = None
+                route_order_booker_name = None
+                if route.order_booker_id:
+                    route_order_booker = OrderBookerRepository.get_by_id(db, route.order_booker_id)
+                    route_order_booker_name = route_order_booker.name if route_order_booker else None
+                
+                # Get zone name for route
+                route_zone_name = None
+                if route.zone_id:
+                    route_zone = ZoneRepository.get_by_id(db, route.zone_id)
+                    route_zone_name = route_zone.name if route_zone else None
+                
+                routes_info.append({
+                    "route_id": route.id,
+                    "route_name": route.name,
+                    "route_zone_id": route.zone_id,
+                    "route_zone_name": route_zone_name,
+                    "order_booker_id": route.order_booker_id,
+                    "order_booker_name": route_order_booker_name,
+                    "sequence": route_shop.sequence
+                })
+        
         return {
             "id": shop.id,
             "name": shop.name,
@@ -139,14 +172,22 @@ class ShopService:
             "verified_at": shop.verified_at.isoformat() if shop.verified_at else None,
             "zone_id": shop.zone_id,
             "created_by_order_booker": shop.created_by_order_booker,
-            "created_by_order_booker_name": order_booker.name,  # Include order booker name
+            "created_by_order_booker_name": order_booker.name,  # Historical creator name
+            "assigned_to_order_booker": shop.assigned_to_order_booker,  # Current assignee
+            "assigned_to_order_booker_name": assigned_order_booker_name,  # Current assignee name
+            "routes": routes_info,  # List of routes this shop belongs to
             "credit_limit_request_id": credit_limit_request_id,  # Include request ID if created
             "created_at": shop.created_at.isoformat() if shop.created_at else None
         }
     
     @staticmethod
     def get_shops_by_order_booker(db: Session, order_booker_id: int) -> List[Dict]:
-        """Get all shops registered by an order booker."""
+        """
+        Get all shops registered by an order booker (historical).
+        
+        Note: This returns shops based on created_by_order_booker.
+        For shops currently assigned to an order booker, use get_shops_assigned_to_order_booker().
+        """
         shops = ShopRepository.get_by_order_booker(db, order_booker_id)
         
         # Get order booker name once
@@ -170,6 +211,47 @@ class ShopService:
                 "zone_id": shop.zone_id,
                 "created_by_order_booker": shop.created_by_order_booker,
                 "created_by_order_booker_name": order_booker_name,
+                "assigned_to_order_booker": shop.assigned_to_order_booker,
+                "assigned_to_order_booker_name": OrderBookerRepository.get_by_id(db, shop.assigned_to_order_booker).name if shop.assigned_to_order_booker else None,
+                "created_at": shop.created_at.isoformat() if shop.created_at else None
+            }
+            for shop in shops
+        ]
+    
+    @staticmethod
+    def get_shops_assigned_to_order_booker(db: Session, order_booker_id: int) -> List[Dict]:
+        """
+        Get all shops currently assigned to an order booker.
+        
+        This returns shops based on assigned_to_order_booker, which represents
+        the current responsibility. This is different from get_shops_by_order_booker()
+        which returns shops based on who originally created them.
+        """
+        shops = ShopRepository.get_by_assigned_order_booker(db, order_booker_id)
+        
+        # Get order booker name once
+        order_booker = OrderBookerRepository.get_by_id(db, order_booker_id)
+        order_booker_name = order_booker.name if order_booker else None
+        
+        return [
+            {
+                "id": shop.id,
+                "name": shop.name,
+                "owner_name": shop.owner_name,
+                "owner_phone": shop.owner_phone,
+                "gps_lat": float(shop.gps_lat) if shop.gps_lat else None,
+                "gps_lng": float(shop.gps_lng) if shop.gps_lng else None,
+                "credit_limit": float(shop.credit_limit) if shop.credit_limit else 0,
+                "legacy_balance": float(shop.legacy_balance) if shop.legacy_balance else 0,
+                "is_registered": shop.is_registered,
+                "registration_status": shop.registration_status,
+                "verified_by_distributor": shop.verified_by_distributor,
+                "verified_at": shop.verified_at.isoformat() if shop.verified_at else None,
+                "zone_id": shop.zone_id,
+                "created_by_order_booker": shop.created_by_order_booker,
+                "created_by_order_booker_name": OrderBookerRepository.get_by_id(db, shop.created_by_order_booker).name if shop.created_by_order_booker else None,
+                "assigned_to_order_booker": shop.assigned_to_order_booker,
+                "assigned_to_order_booker_name": order_booker_name,
                 "created_at": shop.created_at.isoformat() if shop.created_at else None
             }
             for shop in shops
@@ -182,7 +264,7 @@ class ShopService:
         Get all shops with their associated order_booker and route information.
         
         FLOW:
-        1. Gets all shops (optionally filtered by distributor's zone, zone_id, or route_id)
+        1. Gets all shops (optionally filtered by zone_id or route_id)
         2. For each shop, finds associated order_booker (via created_by_order_booker)
         3. For each shop, finds associated routes (via route_shops)
         4. For each route, finds assigned order_booker and zone info
@@ -190,12 +272,15 @@ class ShopService:
         
         Args:
             db: Database session
-            distributor_id: Optional distributor ID to filter by zone
+            distributor_id: Optional distributor ID (currently not used for filtering)
             zone_id: Optional zone ID to filter shops
             route_id: Optional route ID to filter shops
         
         Returns:
             List[Dict]: List of shops with order_booker and route info
+        
+        Note: Distributors are not assigned to zones, so distributor_id is not used for filtering.
+        Use zone_id or route_id for filtering instead.
         """
         from models.route_shop import RouteShop
         from models.route import Route
@@ -217,12 +302,19 @@ class ShopService:
         
         result = []
         for shop in shops:
-            # Get order booker who created the shop
-            order_booker = None
-            order_booker_name = None
+            # Get order booker who created the shop (historical)
+            created_order_booker = None
+            created_order_booker_name = None
             if shop.created_by_order_booker:
-                order_booker = OrderBookerRepository.get_by_id(db, shop.created_by_order_booker)
-                order_booker_name = order_booker.name if order_booker else None
+                created_order_booker = OrderBookerRepository.get_by_id(db, shop.created_by_order_booker)
+                created_order_booker_name = created_order_booker.name if created_order_booker else None
+            
+            # Get order booker currently assigned to the shop
+            assigned_order_booker = None
+            assigned_order_booker_name = None
+            if shop.assigned_to_order_booker:
+                assigned_order_booker = OrderBookerRepository.get_by_id(db, shop.assigned_to_order_booker)
+                assigned_order_booker_name = assigned_order_booker.name if assigned_order_booker else None
             
             # Get routes this shop belongs to
             route_shops = db.query(RouteShop).filter(RouteShop.shop_id == shop.id).all()
@@ -267,7 +359,9 @@ class ShopService:
                 "verified_at": shop.verified_at.isoformat() if shop.verified_at else None,
                 "zone_id": shop.zone_id,
                 "created_by_order_booker": shop.created_by_order_booker,
-                "created_by_order_booker_name": order_booker_name,
+                "created_by_order_booker_name": created_order_booker_name,  # Historical creator
+                "assigned_to_order_booker": shop.assigned_to_order_booker,  # Current assignee
+                "assigned_to_order_booker_name": assigned_order_booker_name,  # Current assignee name
                 "routes": routes_info,  # List of routes this shop belongs to
                 "created_at": shop.created_at.isoformat() if shop.created_at else None
             })

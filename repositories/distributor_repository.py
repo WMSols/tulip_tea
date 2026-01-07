@@ -33,7 +33,7 @@ class DistributorRepository:
     
     @staticmethod
     def create(db: Session, name: str, email: str, phone: str, 
-              password_hash: str, zone_id: int = None) -> Distributor:
+              password_hash: str) -> Distributor:
         """
         Create a new distributor record in the database.
         
@@ -50,7 +50,6 @@ class DistributorRepository:
             email: Distributor email (unique)
             phone: Distributor phone number (unique)
             password_hash: Hashed password (from AuthService.get_password_hash())
-            zone_id: Optional zone ID (foreign key to zones table)
         
         Returns:
             Distributor: Created distributor model instance with ID and timestamps
@@ -58,14 +57,16 @@ class DistributorRepository:
         Note:
             - Password should already be hashed (Service layer responsibility)
             - Email and phone uniqueness should be checked before calling this
+            - Distributors are NOT assigned to zones - they create zones but are not assigned to them
+            - Zones are assigned to Order Bookers and Delivery Men
         """
         # Create model instance (maps to distributors table)
+        # Note: Distributors do not have zone_id - they create zones but are not assigned to them
         distributor = Distributor(
             name=name,
             email=email,
             phone=phone,
-            password_hash=password_hash,
-            zone_id=zone_id
+            password_hash=password_hash
         )
         # Add to session (staged, not yet saved)
         db.add(distributor)

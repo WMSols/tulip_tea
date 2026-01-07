@@ -126,23 +126,24 @@ class CreditLimitRequestRepository:
         FLOW:
         1. Queries credit_limit_requests table
         2. Filters by status = "pending"
-        3. Optionally filters by distributor (if provided)
-        4. Returns list of pending requests
+        3. Returns list of pending requests
         
         Args:
             db: SQLAlchemy database session
-            distributor_id: Optional distributor ID to filter by zone
+            distributor_id: Optional distributor ID (currently not used for filtering)
         
         Returns:
             List[CreditLimitRequest]: List of pending request instances
+        
+        Note: Distributors are not assigned to zones, so distributor_id is not used for filtering.
+        All pending requests are returned regardless of distributor.
         """
-        query = db.query(CreditLimitRequest).filter(CreditLimitRequest.status == "pending")
-        
-        # If distributor_id provided, filter by shops in distributor's zone
-        # (This would require a join, simplified here)
-        # For now, return all pending requests
-        
-        return query.order_by(CreditLimitRequest.created_at.asc()).all()
+        # Return all pending requests
+        # Note: Distributors are not assigned to zones, so we return all pending requests
+        # If zone filtering is needed, filter by shop.zone_id at the service layer instead
+        return db.query(CreditLimitRequest).filter(
+            CreditLimitRequest.status == "pending"
+        ).order_by(CreditLimitRequest.created_at.asc()).all()
     
     @staticmethod
     def update(db: Session, request_id: int, **kwargs) -> Optional[CreditLimitRequest]:

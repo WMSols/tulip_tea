@@ -1,0 +1,200 @@
+"""
+Shop Visit Router
+=================
+Handles API endpoints for shop visit operations.
+
+API ENDPOINTS:
+- POST /shop-visits/order-booker/{order_booker_id} - Register a visit (Order Booker)
+- GET /shop-visits/order-booker/{order_booker_id} - List visits by order booker
+- GET /shop-visits/shop/{shop_id} - List visits to a shop
+
+FLOW:
+1. Order Booker visits a shop
+2. Captures GPS coordinates (from device)
+3. Optionally takes photo
+4. Registers visit via API
+5. Visit is stored with timestamp and location
+"""
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+from sqlalchemy.orm import Session
+from typing import List, Optional
+from config.database import get_db
+from models.schemas import ShopVisitCreate, ShopVisitResponse
+from services.shop_visit_service import ShopVisitService
+
+router = APIRouter(prefix="/shop-visits", tags=["Shop Visits"])
+
+
+@router.post("/order-booker/{order_booker_id}", response_model=ShopVisitResponse, status_code=status.HTTP_201_CREATED)
+async def register_visit(
+    order_booker_id: int,
+    visit: ShopVisitCreate,
+    db: Session = Depends(get_db)
+):
+    """
+    Register a shop visit (by Order Booker).
+    
+    API: POST /shop-visits/order-booker/{order_booker_id}
+    
+    FLOW:
+    1. Order Booker visits a shop
+    2. Captures GPS coordinates (from device)
+    3. Optionally takes photo
+    4. Fills visit form with details
+    5. Service creates visit record
+    6. Returns visit data
+    
+    Request Body:
+        {
+            "shop_id": 1,  // Optional
+            "visit_type": "order_booking",  // Optional: "order_booking", "delivery", "collection", "inspection", "other"
+            "gps_lat": 33.6844,  // Optional
+            "gps_lng": 73.0479,  // Optional
+            "visit_time": "2026-01-07T10:30:00",  // Optional (ISO format)
+            "photo": "data:image/jpeg;base64,...",  // Optional (base64 or URL)
+            "reason": "Regular order booking visit"  // Optional
+        }
+    
+    Response (201):
+        Visit data with ID and timestamps
+    """
+    try:
+        result = ShopVisitService.register_visit(
+            db=db,
+            shop_id=visit.shop_id,
+            order_booker_id=order_booker_id,
+            delivery_man_id=None,  # Order booker visits only
+            visit_type=visit.visit_type,
+            gps_lat=visit.gps_lat,
+            gps_lng=visit.gps_lng,
+            visit_time=visit.visit_time,
+            photo=visit.photo,
+            reason=visit.reason
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error registering visit: {str(e)}"
+        )
+
+
+@router.get("/order-booker/{order_booker_id}", response_model=List[ShopVisitResponse])
+async def list_visits_by_order_booker(
+    order_booker_id: int,
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(100, ge=1, le=1000, description="Maximum number of records to return"),
+    db: Session = Depends(get_db)
+):
+    """
+    List all visits made by an order booker.
+    
+    API: GET /shop-visits/order-booker/{order_booker_id}?skip=0&limit=100
+    
+    FLOW:
+    1. Order Booker views their visit history
+    2. Service gets all visits for this order booker
+    3. Returns list with shop information
+    
+    Query Parameters:
+        skip: Number of records to skip (for pagination, default: 0)
+        limit: Maximum number of records to return (default: 100, max: 1000)
+    
+    Response (200):
+        List of visits with shop and order booker info
+    """
+    try:
+        visits = ShopVisitService.get_visits_by_order_booker(
+            db=db,
+            order_booker_id=order_booker_id,
+            skip=skip,
+            limit=limit
+        )
+        return visits
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching visits: {str(e)}"
+        )
+
+
+@router.get("/shop/{shop_id}", response_model=List[ShopVisitResponse])
+async def list_visits_by_shop(
+    shop_id: int,
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(100, ge=1, le=1000, description="Maximum number of records to return"),
+    db: Session = Depends(get_db)
+):
+    """
+    List all visits to a specific shop.
+    
+    API: GET /shop-visits/shop/{shop_id}?skip=0&limit=100
+    
+    FLOW:
+    1. View visit history for a specific shop
+    2. Service gets all visits to this shop
+    3. Returns list with visitor information
+    
+    Query Parameters:
+        skip: Number of records to skip (for pagination, default: 0)
+        limit: Maximum number of records to return (default: 100, max: 1000)
+    
+    Response (200):
+        List of visits with shop and visitor info
+    """
+    try:
+        visits = ShopVisitService.get_visits_by_shop(
+            db=db,
+            shop_id=shop_id,
+            skip=skip,
+            limit=limit
+        )
+        return visits
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching visits: {str(e)}"
+        )
+
+
+@router.get("/all", response_model=List[ShopVisitResponse])
+async def list_all_visits(
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(1000, ge=1, le=5000, description="Maximum number of records to return"),
+    db: Session = Depends(get_db)
+):
+    """
+    List all shop visits (for distributor view).
+    
+    API: GET /shop-visits/all?skip=0&limit=1000
+    
+    FLOW:
+    1. Distributor views all visits across all shops
+    2. Service gets all visits with shop and visitor information
+    3. Returns list categorized by zone (frontend handles grouping)
+    
+    Query Parameters:
+        skip: Number of records to skip (for pagination, default: 0)
+        limit: Maximum number of records to return (default: 1000, max: 5000)
+    
+    Response (200):
+        List of all visits with shop, visitor, and zone info
+    """
+    try:
+        visits = ShopVisitService.get_all_visits(
+            db=db,
+            skip=skip,
+            limit=limit
+        )
+        return visits
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching visits: {str(e)}"
+        )
+

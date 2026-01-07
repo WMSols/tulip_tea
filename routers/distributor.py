@@ -17,7 +17,11 @@ router = APIRouter(prefix="/distributors", tags=["Distributors"])
 async def create_distributor(distributor: DistributorCreate, db: Session = Depends(get_db)):
     """
     Create a new distributor.
-    Note: In production, this should be restricted to Super Admin only.
+    
+    Note: 
+    - In production, this should be restricted to Super Admin only.
+    - Distributors are NOT assigned to zones - they create zones but are not assigned to them.
+    - Zones are assigned to Order Bookers and Delivery Men.
     """
     try:
         result = DistributorService.create_distributor(
@@ -25,8 +29,7 @@ async def create_distributor(distributor: DistributorCreate, db: Session = Depen
             name=distributor.name,
             email=distributor.email,
             phone=distributor.phone,
-            password=distributor.password,
-            zone_id=distributor.zone_id
+            password=distributor.password
         )
         return result
     except ValueError as e:
@@ -46,7 +49,6 @@ async def list_distributors(skip: int = 0, limit: int = 100, db: Session = Depen
             "name": d.name,
             "email": d.email,
             "phone": d.phone,
-            "zone_id": d.zone_id,
             "created_at": d.created_at.isoformat() if d.created_at else None
         }
         for d in distributors
@@ -67,7 +69,6 @@ async def get_distributor(distributor_id: int, db: Session = Depends(get_db)):
         "name": distributor.name,
         "email": distributor.email,
         "phone": distributor.phone,
-        "zone_id": distributor.zone_id,
         "created_at": distributor.created_at.isoformat() if distributor.created_at else None
     }
 

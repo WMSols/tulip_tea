@@ -98,16 +98,18 @@ class CreditLimitRequestService:
         
         FLOW:
         1. Gets all pending requests from repository
-        2. Optionally filters by distributor's zone
-        3. Includes shop information
-        4. Returns formatted list
+        2. Includes shop information
+        3. Returns formatted list
         
         Args:
             db: Database session
-            distributor_id: Optional distributor ID to filter by zone
+            distributor_id: Optional distributor ID (currently not used for filtering)
         
         Returns:
             List[Dict]: List of pending requests with shop info
+        
+        Note: Distributors are not assigned to zones, so distributor_id is not used for filtering.
+        All pending requests are returned regardless of distributor.
         """
         requests = CreditLimitRequestRepository.get_pending(db, distributor_id)
         

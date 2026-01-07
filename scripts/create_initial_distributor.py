@@ -53,9 +53,9 @@ def create_initial_distributor():
             db=db,
             name="faraz",
             email="faraz@tuliptea.com",
-            phone="03001234567",
-            password="faraz12",
-            zone_id=None  # Can be set later after creating zones
+            phone="321",
+            password="12",
+              # Can be set later after creating zones
         )
         
         # Print success message with created distributor details

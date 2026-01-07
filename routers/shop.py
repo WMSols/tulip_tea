@@ -111,11 +111,17 @@ async def list_pending_shops(db: Session = Depends(get_db)):
         shops = ShopRepository.get_by_registration_status(db=db, status="pending")
         result = []
         for shop in shops:
-            # Get order booker name if exists
+            # Get order booker name who created the shop (historical)
             created_by_name = None
             if shop.created_by_order_booker:
                 order_booker = OrderBookerRepository.get_by_id(db, shop.created_by_order_booker)
                 created_by_name = order_booker.name if order_booker else None
+            
+            # Get order booker name currently assigned to the shop
+            assigned_to_name = None
+            if shop.assigned_to_order_booker:
+                assigned_order_booker = OrderBookerRepository.get_by_id(db, shop.assigned_to_order_booker)
+                assigned_to_name = assigned_order_booker.name if assigned_order_booker else None
             
             result.append({
                 "id": shop.id,
@@ -130,7 +136,9 @@ async def list_pending_shops(db: Session = Depends(get_db)):
                 "registration_status": shop.registration_status,
                 "zone_id": shop.zone_id,
                 "created_by_order_booker": shop.created_by_order_booker,
-                "created_by_order_booker_name": created_by_name,
+                "created_by_order_booker_name": created_by_name,  # Historical creator
+                "assigned_to_order_booker": shop.assigned_to_order_booker,  # Current assignee
+                "assigned_to_order_booker_name": assigned_to_name,  # Current assignee name
                 "created_at": shop.created_at.isoformat() if shop.created_at else None
             })
         return result
@@ -235,11 +243,17 @@ async def update_shop(
         if not updated_shop:
             raise ValueError("Shop not found")
         
-        # Get order booker name if exists
+        # Get order booker name who created the shop (historical)
         created_by_name = None
         if updated_shop.created_by_order_booker:
             order_booker = OrderBookerRepository.get_by_id(db, updated_shop.created_by_order_booker)
             created_by_name = order_booker.name if order_booker else None
+        
+        # Get order booker name currently assigned to the shop
+        assigned_to_name = None
+        if updated_shop.assigned_to_order_booker:
+            assigned_order_booker = OrderBookerRepository.get_by_id(db, updated_shop.assigned_to_order_booker)
+            assigned_to_name = assigned_order_booker.name if assigned_order_booker else None
         
         return {
             "id": updated_shop.id,
@@ -256,7 +270,9 @@ async def update_shop(
             "verified_at": updated_shop.verified_at.isoformat() if updated_shop.verified_at else None,
             "zone_id": updated_shop.zone_id,
             "created_by_order_booker": updated_shop.created_by_order_booker,
-            "created_by_order_booker_name": created_by_name,
+            "created_by_order_booker_name": created_by_name,  # Historical creator
+            "assigned_to_order_booker": updated_shop.assigned_to_order_booker,  # Current assignee
+            "assigned_to_order_booker_name": assigned_to_name,  # Current assignee name
             "created_at": updated_shop.created_at.isoformat() if updated_shop.created_at else None
         }
     except ValueError as e:
@@ -346,11 +362,17 @@ async def resubmit_rejected_shop(
         if not updated_shop:
             raise ValueError("Failed to update shop")
         
-        # Get order booker name if exists
+        # Get order booker name who created the shop (historical)
         created_by_name = None
         if updated_shop.created_by_order_booker:
             order_booker = OrderBookerRepository.get_by_id(db, updated_shop.created_by_order_booker)
             created_by_name = order_booker.name if order_booker else None
+        
+        # Get order booker name currently assigned to the shop
+        assigned_to_name = None
+        if updated_shop.assigned_to_order_booker:
+            assigned_order_booker = OrderBookerRepository.get_by_id(db, updated_shop.assigned_to_order_booker)
+            assigned_to_name = assigned_order_booker.name if assigned_order_booker else None
         
         return {
             "id": updated_shop.id,
@@ -367,7 +389,9 @@ async def resubmit_rejected_shop(
             "verified_at": updated_shop.verified_at.isoformat() if updated_shop.verified_at else None,
             "zone_id": updated_shop.zone_id,
             "created_by_order_booker": updated_shop.created_by_order_booker,
-            "created_by_order_booker_name": created_by_name,
+            "created_by_order_booker_name": created_by_name,  # Historical creator
+            "assigned_to_order_booker": updated_shop.assigned_to_order_booker,  # Current assignee
+            "assigned_to_order_booker_name": assigned_to_name,  # Current assignee name
             "created_at": updated_shop.created_at.isoformat() if updated_shop.created_at else None
         }
     except ValueError as e:
@@ -415,11 +439,17 @@ async def verify_shop(
         if not verified_shop:
             raise ValueError("Shop not found")
         
-        # Get order booker name if exists
+        # Get order booker name who created the shop (historical)
         created_by_name = None
         if verified_shop.created_by_order_booker:
             order_booker = OrderBookerRepository.get_by_id(db, verified_shop.created_by_order_booker)
             created_by_name = order_booker.name if order_booker else None
+        
+        # Get order booker name currently assigned to the shop
+        assigned_to_name = None
+        if verified_shop.assigned_to_order_booker:
+            assigned_order_booker = OrderBookerRepository.get_by_id(db, verified_shop.assigned_to_order_booker)
+            assigned_to_name = assigned_order_booker.name if assigned_order_booker else None
         
         return {
             "id": verified_shop.id,
@@ -436,8 +466,92 @@ async def verify_shop(
             "verified_at": verified_shop.verified_at.isoformat() if verified_shop.verified_at else None,
             "zone_id": verified_shop.zone_id,
             "created_by_order_booker": verified_shop.created_by_order_booker,
-            "created_by_order_booker_name": created_by_name,
+            "created_by_order_booker_name": created_by_name,  # Historical creator
+            "assigned_to_order_booker": verified_shop.assigned_to_order_booker,  # Current assignee
+            "assigned_to_order_booker_name": assigned_to_name,  # Current assignee name
             "created_at": verified_shop.created_at.isoformat() if verified_shop.created_at else None
+        }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+
+@router.put("/{shop_id}/reassign", response_model=ShopResponse)
+async def reassign_shop_to_order_booker(
+    shop_id: int,
+    new_order_booker_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Manually reassign a shop to a different order booker.
+    
+    API: PUT /shops/{shop_id}/reassign?new_order_booker_id={id}
+    
+    FLOW:
+    1. Distributor wants to reassign a shop to another order booker
+    2. Updates assigned_to_order_booker field
+    3. created_by_order_booker remains unchanged (for audit trail)
+    4. Returns updated shop data
+    
+    Query Parameters:
+        new_order_booker_id: Order booker ID to reassign shop to
+    
+    Response (200):
+        Updated shop data with new assigned_to_order_booker
+    
+    Note: This is useful when shops need to be reassigned without deleting
+    the original order booker, or for administrative reassignments.
+    """
+    try:
+        # Verify shop exists
+        shop = ShopRepository.get_by_id(db, shop_id)
+        if not shop:
+            raise ValueError("Shop not found")
+        
+        # Verify new order booker exists
+        new_order_booker = OrderBookerRepository.get_by_id(db, new_order_booker_id)
+        if not new_order_booker:
+            raise ValueError("Order Booker not found")
+        
+        # Update assigned_to_order_booker (created_by_order_booker remains unchanged)
+        updated_shop = ShopRepository.update(
+            db=db,
+            shop_id=shop_id,
+            assigned_to_order_booker=new_order_booker_id
+        )
+        
+        if not updated_shop:
+            raise ValueError("Failed to update shop")
+        
+        # Get order booker names for response
+        created_by_name = None
+        if updated_shop.created_by_order_booker:
+            created_order_booker = OrderBookerRepository.get_by_id(db, updated_shop.created_by_order_booker)
+            created_by_name = created_order_booker.name if created_order_booker else None
+        
+        assigned_to_name = new_order_booker.name
+        
+        return {
+            "id": updated_shop.id,
+            "name": updated_shop.name,
+            "owner_name": updated_shop.owner_name,
+            "owner_phone": updated_shop.owner_phone,
+            "gps_lat": float(updated_shop.gps_lat) if updated_shop.gps_lat else None,
+            "gps_lng": float(updated_shop.gps_lng) if updated_shop.gps_lng else None,
+            "credit_limit": float(updated_shop.credit_limit) if updated_shop.credit_limit else 0,
+            "legacy_balance": float(updated_shop.legacy_balance) if updated_shop.legacy_balance else 0,
+            "is_registered": updated_shop.is_registered,
+            "registration_status": updated_shop.registration_status,
+            "verified_by_distributor": updated_shop.verified_by_distributor,
+            "verified_at": updated_shop.verified_at.isoformat() if updated_shop.verified_at else None,
+            "zone_id": updated_shop.zone_id,
+            "created_by_order_booker": updated_shop.created_by_order_booker,
+            "created_by_order_booker_name": created_by_name,  # Historical creator (unchanged)
+            "assigned_to_order_booker": updated_shop.assigned_to_order_booker,  # Updated to new order booker
+            "assigned_to_order_booker_name": assigned_to_name,  # New assignee name
+            "created_at": updated_shop.created_at.isoformat() if updated_shop.created_at else None
         }
     except ValueError as e:
         raise HTTPException(

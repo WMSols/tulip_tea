@@ -54,31 +54,24 @@ class DailyCollectionRepository:
         """
         Get all pending daily collections.
         
+        Note: Since distributors are not assigned to zones, this method returns
+        all pending collections. If zone filtering is needed, it should be done
+        at the service layer based on order booker or delivery man zones.
+        
         Args:
             db: Database session
-            distributor_id: Optional distributor ID to filter by zone
+            distributor_id: Optional distributor ID (currently not used for filtering)
         
         Returns:
             List of pending collections
         """
-        query = db.query(DailyCollection).filter(DailyCollection.status == "pending")
-        
-        # If distributor_id provided, filter by distributor's zone
-        if distributor_id:
-            from repositories.distributor_repository import DistributorRepository
-            from repositories.shop_repository import ShopRepository
-            
-            distributor = DistributorRepository.get_by_id(db, distributor_id)
-            if distributor and distributor.zone_id:
-                # Get shops in distributor's zone
-                shops = ShopRepository.get_by_zone(db, distributor.zone_id)
-                shop_ids = [shop.id for shop in shops]
-                if shop_ids:
-                    query = query.filter(DailyCollection.shop_id.in_(shop_ids))
-                else:
-                    return []  # No shops in zone
-        
-        return query.order_by(DailyCollection.created_at.desc()).all()
+        # Return all pending collections
+        # Note: Distributors are not assigned to zones, so we return all pending collections
+        # If zone filtering is needed, filter by order_booker.zone_id or delivery_man.zone_id
+        # at the service layer instead
+        return db.query(DailyCollection).filter(
+            DailyCollection.status == "pending"
+        ).order_by(DailyCollection.created_at.desc()).all()
     
     @staticmethod
     def get_by_order_booker(db: Session, order_booker_id: int) -> List[DailyCollection]:

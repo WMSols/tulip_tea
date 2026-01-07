@@ -9,9 +9,9 @@ to organize distributors, order bookers, delivery men, routes, and shops
 by geographic location.
 
 USAGE:
-- Distributors are assigned to zones
-- Order Bookers work in specific zones
-- Delivery Men operate in specific zones
+- Distributors CREATE zones (but are not assigned to them)
+- Order Bookers are assigned to zones
+- Delivery Men are assigned to zones
 - Routes are created within zones
 - Shops are registered in zones
 
@@ -22,11 +22,16 @@ EXAMPLES:
 - "Lahore"
 
 RELATIONSHIPS:
-- Has many Distributors (via distributors.zone_id)
+- Created by Distributors (distributors create zones but are not assigned to them)
 - Has many Order Bookers (via order_bookers.zone_id)
 - Has many Delivery Men (via delivery_men.zone_id)
 - Has many Routes (via routes.zone_id)
 - Has many Shops (via shops.zone_id)
+
+IMPORTANT:
+- Distributors can CREATE zones but are NOT assigned to zones
+- Zones are assigned to Order Bookers and Delivery Men
+- This allows distributors to manage multiple zones
 
 DATABASE TABLE: zones
 """
@@ -49,7 +54,8 @@ class Zone(Base):
     """
     Primary key: Unique identifier for the zone.
     Auto-incremented by database.
-    Used as foreign key in: distributors, order_bookers, delivery_men, routes, shops
+    Used as foreign key in: order_bookers, delivery_men, routes, shops
+    Note: Distributors are NOT assigned to zones - they create zones but are not assigned to them
     """
 
     # Basic Information

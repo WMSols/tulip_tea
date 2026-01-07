@@ -2,9 +2,9 @@
 Order Booker router.
 Handles order booker CRUD operations.
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from config.database import get_db
 from models.schemas import OrderBookerCreate, OrderBookerResponse, OrderBookerUpdate
 from services.order_booker_service import OrderBookerService
@@ -22,6 +22,35 @@ async def list_order_bookers_by_distributor(
     try:
         order_bookers = OrderBookerService.get_order_bookers_by_distributor(
             db=db,
+            distributor_id=distributor_id
+        )
+        return order_bookers
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching order bookers: {str(e)}"
+        )
+
+
+@router.get("/zone/{zone_id}", response_model=List[OrderBookerResponse])
+async def list_order_bookers_by_zone(
+    zone_id: int,
+    distributor_id: Optional[int] = Query(None, description="Optional distributor ID to filter order bookers"),
+    db: Session = Depends(get_db)
+):
+    """
+    List all order bookers assigned to a specific zone.
+    
+    Query Parameters:
+        distributor_id: Optional - Filter order bookers by distributor
+    
+    This endpoint is useful when assigning routes to order bookers,
+    as routes and order bookers must be in the same zone.
+    """
+    try:
+        order_bookers = OrderBookerService.get_order_bookers_by_zone(
+            db=db,
+            zone_id=zone_id,
             distributor_id=distributor_id
         )
         return order_bookers
@@ -61,20 +90,45 @@ async def update_order_booker(
 @router.delete("/{order_booker_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_order_booker(
     order_booker_id: int,
+    reassign_shops_to: int = None,
+    reassign_routes_to: int = None,
     db: Session = Depends(get_db)
 ):
     """
-    Delete an order booker.
+    Delete an order booker with optional reassignment of shops and routes.
     
-    Cannot delete if:
-    - Order booker has created shops
-    - Order booker has assigned routes
-    - Order booker has created orders
+    This endpoint allows deleting an order booker while preserving data integrity.
+    Shops and routes can be automatically reassigned to another order booker.
     
-    Returns 400 Bad Request with details if deletion is blocked.
+    QUERY PARAMETERS:
+        reassign_shops_to: Optional - Order booker ID to reassign shops to
+        reassign_routes_to: Optional - Order booker ID to reassign routes to
+    
+    BEHAVIOR:
+    - If shops exist and reassign_shops_to is provided:
+      * All shops' assigned_to_order_booker is updated to new order booker
+      * created_by_order_booker remains unchanged (for audit trail)
+    - If routes exist and reassign_routes_to is provided:
+      * All routes' order_booker_id is updated to new order booker
+    - If shops/routes exist but no reassignment is provided:
+      * Returns 400 Bad Request with error message
+    
+    EXAMPLE USAGE:
+        DELETE /order-bookers/1?reassign_shops_to=2&reassign_routes_to=2
+        This will delete order booker 1 and reassign all shops and routes to order booker 2.
+    
+    Returns:
+        204 No Content on success
+        400 Bad Request if shops/routes exist without reassignment
+        404 Not Found if order booker doesn't exist
     """
     try:
-        OrderBookerService.delete_order_booker(db=db, order_booker_id=order_booker_id)
+        OrderBookerService.delete_order_booker(
+            db=db, 
+            order_booker_id=order_booker_id,
+            reassign_shops_to=reassign_shops_to,
+            reassign_routes_to=reassign_routes_to
+        )
         return None
     except ValueError as e:
         # Check if it's a "not found" error or a "cannot delete" error
@@ -82,7 +136,7 @@ async def delete_order_booker(
         if "not found" in error_msg.lower():
             status_code = status.HTTP_404_NOT_FOUND
         else:
-            # It's a constraint violation error
+            # It's a constraint violation or reassignment error
             status_code = status.HTTP_400_BAD_REQUEST
         raise HTTPException(
             status_code=status_code,

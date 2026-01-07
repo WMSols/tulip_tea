@@ -5,7 +5,7 @@ SQLAlchemy ORM model for the 'distributors' table.
 
 PURPOSE:
 Represents a Distributor user in the system. Distributors are regional managers
-who can create and manage Order Bookers and Delivery Men within their assigned zone.
+who can create and manage Order Bookers, Delivery Men, and Zones.
 
 HIERARCHY:
 Super Admin → Distributor → Order Booker / Delivery Man
@@ -13,8 +13,13 @@ Super Admin → Distributor → Order Booker / Delivery Man
 RELATIONSHIPS:
 - Has many Order Bookers (via order_bookers.distributor_id)
 - Has many Delivery Men (via delivery_men.distributor_id)
-- Belongs to a Zone (via zone_id foreign key)
+- Can create Zones (via zones - distributors create zones but are not assigned to them)
 - Can create Routes (via routes.created_by_distributor)
+
+IMPORTANT:
+- Distributors are NOT assigned to zones - they can create and manage zones
+- Order Bookers and Delivery Men are assigned to zones
+- Distributors oversee operations across all zones they create
 
 AUTHENTICATION:
 - Uses phone number + password for login
@@ -33,8 +38,8 @@ class Distributor(Base):
     Distributor table model.
     
     Maps to the 'distributors' table in PostgreSQL.
-    Each distributor represents a regional manager who oversees operations
-    in their assigned zone.
+    Each distributor represents a regional manager who can create and manage
+    zones, order bookers, delivery men, and routes.
     """
     __tablename__ = "distributors"
 
@@ -84,14 +89,9 @@ class Distributor(Base):
     """
 
     # Relationships
-    zone_id = Column(BigInteger, ForeignKey("zones.id"), nullable=True)
-    """
-    Foreign key to zones table.
-    - Links distributor to their assigned geographic zone
-    - Nullable: Distributor can exist without zone assignment initially
-    - Used for filtering distributors by zone
-    - Example: Zone "Islamabad" has zone_id = 1
-    """
+    # Note: Distributors are NOT assigned to zones
+    # They can create zones, but zones are assigned to Order Bookers and Delivery Men
+    # This allows distributors to manage multiple zones
 
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())

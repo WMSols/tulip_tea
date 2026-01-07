@@ -117,8 +117,10 @@ async def list_pending_collections(
     FLOW:
     1. Distributor views pending collections
     2. Service gets all collections with status="pending"
-    3. Optionally filters by distributor's zone
-    4. Returns list for review
+    3. Returns list for review
+    
+    Note: Distributors are not assigned to zones, so distributor_id is accepted
+    but doesn't filter results. All pending collections are returned.
     
     Response (200):
         List of pending collections awaiting approval

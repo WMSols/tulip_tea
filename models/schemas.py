@@ -2,7 +2,7 @@
 Pydantic schemas for request/response validation.
 """
 from pydantic import BaseModel, EmailStr
-from typing import Optional
+from typing import Optional, List
 
 
 # Distributor Schemas
@@ -11,7 +11,7 @@ class DistributorCreate(BaseModel):
     email: Optional[EmailStr] = None
     phone: str
     password: str
-    zone_id: Optional[int] = None
+    # Note: Distributors are NOT assigned to zones - they create zones but are not assigned to them
 
 
 class DistributorLogin(BaseModel):
@@ -24,7 +24,7 @@ class DistributorResponse(BaseModel):
     name: str
     email: Optional[str]
     phone: str
-    zone_id: Optional[int] = None
+    # Note: Distributors are NOT assigned to zones - they create zones but are not assigned to them
     created_at: Optional[str]
 
     class Config:
@@ -141,6 +141,17 @@ class RouteAssign(BaseModel):
     order_booker_id: int
 
 
+class RouteInfo(BaseModel):
+    """Route information for shops - represents a route a shop belongs to."""
+    route_id: int
+    route_name: str
+    route_zone_id: Optional[int] = None
+    route_zone_name: Optional[str] = None
+    order_booker_id: Optional[int] = None
+    order_booker_name: Optional[str] = None
+    sequence: Optional[int] = None  # Visit order on this route
+
+
 # Shop Schemas
 class ShopRegister(BaseModel):
     name: str
@@ -168,8 +179,11 @@ class ShopResponse(BaseModel):
     verified_by_distributor: Optional[int] = None
     verified_at: Optional[str] = None
     zone_id: Optional[int]
-    created_by_order_booker: Optional[int]
+    created_by_order_booker: Optional[int]  # Historical: who originally created the shop
     created_by_order_booker_name: Optional[str] = None
+    assigned_to_order_booker: Optional[int] = None  # Current: who is currently responsible
+    assigned_to_order_booker_name: Optional[str] = None
+    routes: Optional[List[RouteInfo]] = []  # List of routes this shop belongs to (from route_shops junction table)
     created_at: Optional[str]
 
     class Config:
@@ -283,6 +297,38 @@ class PaymentResponse(BaseModel):
     approved_by_distributor: int
     amount: float
     collected_at: Optional[str] = None
+
+
+# Shop Visit Schemas
+class ShopVisitCreate(BaseModel):
+    shop_id: Optional[int] = None
+    visit_type: Optional[str] = None  # e.g., "order_booking", "delivery", "collection", "inspection", "other"
+    gps_lat: Optional[float] = None
+    gps_lng: Optional[float] = None
+    visit_time: Optional[str] = None  # ISO format string (e.g., "2026-01-07T10:30:00")
+    photo: Optional[str] = None  # Base64 string or URL
+    reason: Optional[str] = None
+
+
+class ShopVisitResponse(BaseModel):
+    id: int
+    shop_id: Optional[int] = None
+    shop_name: Optional[str] = None
+    shop_zone_id: Optional[int] = None  # Zone ID of the shop
+    order_booker_id: Optional[int] = None
+    order_booker_name: Optional[str] = None
+    delivery_man_id: Optional[int] = None
+    delivery_man_name: Optional[str] = None  # Delivery man name
+    visit_type: Optional[str] = None
+    gps_lat: Optional[float] = None
+    gps_lng: Optional[float] = None
+    visit_time: Optional[str] = None
+    photo: Optional[str] = None
+    reason: Optional[str] = None
+    # Note: created_at is not in the database schema, visit_time serves as the timestamp
+
+    class Config:
+        from_attributes = True
     remarks: Optional[str] = None
     created_at: Optional[str] = None
 

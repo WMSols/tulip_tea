@@ -46,6 +46,24 @@ class OrderBookerRepository:
         ).offset(skip).limit(limit).all()
     
     @staticmethod
+    def get_by_zone(db: Session, zone_id: int, distributor_id: int = None) -> List[OrderBooker]:
+        """
+        Get all order bookers assigned to a specific zone.
+        
+        Args:
+            db: Database session
+            zone_id: Zone ID to filter by
+            distributor_id: Optional distributor ID to further filter
+        
+        Returns:
+            List of order bookers in the specified zone
+        """
+        query = db.query(OrderBooker).filter(OrderBooker.zone_id == zone_id)
+        if distributor_id:
+            query = query.filter(OrderBooker.distributor_id == distributor_id)
+        return query.all()
+    
+    @staticmethod
     def update(db: Session, order_booker_id: int, name: str = None, 
               phone: str = None, email: str = None, zone_id: int = None,
               password_hash: str = None) -> Optional[OrderBooker]:

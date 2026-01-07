@@ -96,8 +96,10 @@ async def get_pending_requests(
     FLOW:
     1. Distributor views dashboard
     2. Service gets all pending requests
-    3. Optionally filters by distributor's zone
-    4. Returns list with shop information
+    3. Returns list with shop information
+    
+    Note: Distributors are not assigned to zones, so distributor_id is accepted
+    but doesn't filter results. All pending requests are returned.
     
     Response (200):
         [

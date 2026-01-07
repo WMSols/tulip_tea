@@ -12,9 +12,12 @@ class DistributorService:
     
     @staticmethod
     def create_distributor(db: Session, name: str, email: str, phone: str,
-                          password: str, zone_id: int = None) -> Dict:
+                          password: str) -> Dict:
         """
         Create a new distributor.
+        
+        Note: Distributors are NOT assigned to zones. They can create zones,
+        but zones are assigned to Order Bookers and Delivery Men.
         
         Returns:
             Dictionary with distributor data and success status
@@ -33,14 +36,13 @@ class DistributorService:
         # Hash password
         password_hash = get_password_hash(password)
         
-        # Create distributor
+        # Create distributor (no zone_id - distributors create zones but are not assigned to them)
         distributor = DistributorRepository.create(
             db=db,
             name=name,
             email=email,
             phone=phone,
-            password_hash=password_hash,
-            zone_id=zone_id
+            password_hash=password_hash
         )
         
         return {
@@ -48,7 +50,6 @@ class DistributorService:
             "name": distributor.name,
             "email": distributor.email,
             "phone": distributor.phone,
-            "zone_id": distributor.zone_id,
             "created_at": distributor.created_at.isoformat() if distributor.created_at else None
         }
     
@@ -85,7 +86,6 @@ class DistributorService:
                 "name": distributor.name,
                 "email": distributor.email,
                 "phone": distributor.phone,
-                "zone_id": distributor.zone_id,
                 "role": "distributor"
             }
         }

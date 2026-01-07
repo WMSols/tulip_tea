@@ -291,6 +291,45 @@
         .close-button:hover {
             color: #000;
         }
+        /* Tab Styles */
+        .tabs {
+            display: flex;
+            border-bottom: 2px solid #ddd;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .tab {
+            padding: 15px 30px;
+            cursor: pointer;
+            background: #f8f9fa;
+            border: none;
+            font-size: 16px;
+            font-weight: 600;
+            color: #666;
+            transition: all 0.3s;
+            position: relative;
+        }
+        .tab:hover {
+            background: #e9ecef;
+        }
+        .tab.active {
+            background: white;
+            color: #667eea;
+            border-bottom: 3px solid #667eea;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+        .btn-success:hover {
+            background: #218838;
+        }
     </style>
 </head>
 <body>
@@ -334,47 +373,61 @@
             <div id="dashboardSection" class="section hidden">
                 <h2>Welcome, <span id="welcomeName"></span>!</h2>
                 
-                <!-- User Information Card -->
-                <div class="info-card">
-                    <h3>📊 Your Information</h3>
-                    <div class="info-row">
-                        <span class="info-label">Name:</span>
-                        <span class="info-value" id="infoName"></span>
+                <!-- Tabs Navigation -->
+                <div class="tabs">
+                    <button class="tab active" onclick="switchTab('dashboard')">📊 Dashboard</button>
+                    <button class="tab" onclick="switchTab('registerShop')">🏪 Register Shop</button>
+                    <button class="tab" onclick="switchTab('myShops')">📋 My Shops</button>
+                    <button class="tab" onclick="switchTab('creditLimit')">💰 Credit Limits</button>
+                    <button class="tab" onclick="switchTab('registerVisit')">📍 Register Visit</button>
+                    <button class="tab" onclick="switchTab('visitHistory')">📊 Visit History</button>
+                </div>
+
+                <!-- Dashboard Tab -->
+                <div id="dashboardTab" class="tab-content active">
+                    <!-- User Information Card -->
+                    <div class="info-card">
+                        <h3>📊 Your Information</h3>
+                        <div class="info-row">
+                            <span class="info-label">Name:</span>
+                            <span class="info-value" id="infoName"></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Phone:</span>
+                            <span class="info-value" id="infoPhone"></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Email:</span>
+                            <span class="info-value" id="infoEmail"></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Assigned Zone:</span>
+                            <span class="info-value" id="infoZone"></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Distributor ID:</span>
+                            <span class="info-value" id="infoDistributorId"></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Account Created:</span>
+                            <span class="info-value" id="infoCreatedAt"></span>
+                        </div>
                     </div>
-                    <div class="info-row">
-                        <span class="info-label">Phone:</span>
-                        <span class="info-value" id="infoPhone"></span>
-                    </div>
-                    <div class="info-row">
-                        <span class="info-label">Email:</span>
-                        <span class="info-value" id="infoEmail"></span>
-                    </div>
-                    <div class="info-row">
-                        <span class="info-label">Assigned Zone:</span>
-                        <span class="info-value" id="infoZone"></span>
-                    </div>
-                    <div class="info-row">
-                        <span class="info-label">Distributor ID:</span>
-                        <span class="info-value" id="infoDistributorId"></span>
-                    </div>
-                    <div class="info-row">
-                        <span class="info-label">Account Created:</span>
-                        <span class="info-value" id="infoCreatedAt"></span>
+
+                    <!-- Assigned Routes Card -->
+                    <div class="info-card">
+                        <h3>🗺️ Your Assigned Routes</h3>
+                        <div id="routesInfo">
+                            <p style="color: #666;">Loading routes...</p>
+                        </div>
+                        <button class="btn btn-primary" onclick="loadMyRoutes()" style="margin-top: 10px;">Refresh Routes</button>
                     </div>
                 </div>
 
-                <!-- Assigned Routes Card -->
-                <div class="info-card">
-                    <h3>🗺️ Your Assigned Routes</h3>
-                    <div id="routesInfo">
-                        <p style="color: #666;">Loading routes...</p>
-                    </div>
-                    <button class="btn btn-primary" onclick="loadMyRoutes()" style="margin-top: 10px;">Refresh Routes</button>
-                </div>
-
-                <!-- Shop Registration Section -->
-                <div class="info-card">
-                    <h3>🏪 Register New Shop</h3>
+                <!-- Register Shop Tab -->
+                <div id="registerShopTab" class="tab-content">
+                    <div class="info-card">
+                        <h3>🏪 Register New Shop</h3>
                     <form id="shopRegistrationForm" onsubmit="registerShop(event)">
                         <div class="form-group">
                             <label>Shop Name *</label>
@@ -420,19 +473,24 @@
                         </div>
                         <button type="submit" class="btn btn-primary">Register Shop</button>
                     </form>
-                    <div id="shopResult" class="result"></div>
+                        <div id="shopResult" class="result"></div>
+                    </div>
                 </div>
 
-                <!-- My Registered Shops -->
-                <div class="info-card">
-                    <h3>📋 My Registered Shops</h3>
-                    <button class="btn btn-success" onclick="loadMyShops()" style="margin-bottom: 15px;">Refresh List</button>
-                    <div id="shopsList"></div>
+                <!-- My Shops Tab -->
+                <div id="myShopsTab" class="tab-content">
+                    <div class="info-card">
+                        <h3>📋 My Registered Shops</h3>
+                        <button class="btn btn-success" onclick="loadMyShops()" style="margin-bottom: 15px;">Refresh List</button>
+                        <div id="shopsList"></div>
+                    </div>
                 </div>
 
-                <!-- Request Credit Limit Change -->
-                <div class="info-card">
-                    <h3>💰 Request Credit Limit Change</h3>
+                <!-- Credit Limit Tab -->
+                <div id="creditLimitTab" class="tab-content">
+                    <!-- Request Credit Limit Change -->
+                    <div class="info-card">
+                        <h3>💰 Request Credit Limit Change</h3>
                     <p style="color: #666; margin-bottom: 15px;">Select an existing shop and request to increase or decrease its credit limit.</p>
                     <form id="creditLimitRequestForm" onsubmit="requestCreditLimitChange(event)">
                         <div class="form-group">
@@ -455,14 +513,87 @@
                         </div>
                         <button type="submit" class="btn btn-primary">Submit Request</button>
                     </form>
-                    <div id="creditLimitRequestResult" class="result"></div>
+                        <div id="creditLimitRequestResult" class="result"></div>
+                    </div>
+
+                    <!-- My Credit Limit Requests -->
+                    <div class="info-card" style="margin-top: 30px;">
+                        <h3>📝 My Credit Limit Requests</h3>
+                        <button class="btn btn-success" onclick="loadMyCreditLimitRequests()" style="margin-bottom: 15px;">Refresh List</button>
+                        <div id="creditLimitRequestsList"></div>
+                    </div>
                 </div>
 
-                <!-- My Credit Limit Requests -->
-                <div class="info-card">
-                    <h3>📝 My Credit Limit Requests</h3>
-                    <button class="btn btn-success" onclick="loadMyCreditLimitRequests()" style="margin-bottom: 15px;">Refresh List</button>
-                    <div id="creditLimitRequestsList"></div>
+                <!-- Register Visit Tab -->
+                <div id="registerVisitTab" class="tab-content">
+                    <div class="info-card">
+                        <h3>📍 Register Shop Visit</h3>
+                    <p style="color: #666; margin-bottom: 15px;">Record your visit to a shop. GPS coordinates can be captured automatically from your device.</p>
+                    <form id="visitRegistrationForm" onsubmit="registerVisit(event)">
+                        <div class="form-group">
+                            <label>Select Shop (Optional)</label>
+                            <select id="visitShopId">
+                                <option value="">Select Shop (Optional)</option>
+                            </select>
+                            <small style="color: #666; display: block; margin-top: 5px;">Leave empty if visiting a new/unregistered shop</small>
+                        </div>
+                        <div class="form-group">
+                            <label>Visit Type (Optional)</label>
+                            <select id="visitType">
+                                <option value="">Select Visit Type (Optional)</option>
+                                <option value="order_booking">Order Booking</option>
+                                <option value="delivery">Delivery</option>
+                                <option value="collection">Collection</option>
+                                <option value="inspection">Inspection</option>
+                                <option value="other">Other</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>GPS Coordinates (Optional)</label>
+                            <div style="display: flex; gap: 10px; align-items: flex-end;">
+                                <div style="flex: 1;">
+                                    <label style="font-size: 12px; color: #666;">Latitude</label>
+                                    <input type="number" id="visitGpsLat" step="any" placeholder="e.g., 33.6844">
+                                </div>
+                                <div style="flex: 1;">
+                                    <label style="font-size: 12px; color: #666;">Longitude</label>
+                                    <input type="number" id="visitGpsLng" step="any" placeholder="e.g., 73.0479">
+                                </div>
+                                <button type="button" class="btn btn-primary" onclick="getCurrentLocation('both')" style="padding: 12px 20px; font-size: 14px;">📍 Get Current Location</button>
+                            </div>
+                            <small style="color: #666; display: block; margin-top: 5px;">Click the button to automatically capture your current GPS coordinates</small>
+                        </div>
+                        <div class="form-group">
+                            <label>Visit Time (Optional)</label>
+                            <input type="datetime-local" id="visitTime">
+                            <small style="color: #666; display: block; margin-top: 5px;">Leave empty to use current time</small>
+                        </div>
+                        <div class="form-group">
+                            <label>Photo (Optional)</label>
+                            <input type="file" id="visitPhoto" accept="image/*" onchange="handlePhotoUpload(event)">
+                            <small style="color: #666; display: block; margin-top: 5px;">Upload a photo as proof of visit</small>
+                            <div id="photoPreview" style="margin-top: 10px; display: none;">
+                                <img id="photoPreviewImg" src="" alt="Photo Preview" style="max-width: 200px; max-height: 200px; border-radius: 5px;">
+                                <button type="button" class="btn btn-danger" onclick="clearPhoto()" style="margin-left: 10px; padding: 5px 10px; font-size: 12px;">Remove</button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Reason/Notes (Optional)</label>
+                            <textarea id="visitReason" rows="3" placeholder="Reason for visit or additional notes"></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Register Visit</button>
+                    </form>
+                        <div id="visitResult" class="result"></div>
+                    </div>
+                </div>
+
+                <!-- Visit History Tab -->
+                <div id="visitHistoryTab" class="tab-content">
+                    <div class="info-card">
+                        <h3>📊 My Visit History</h3>
+                        <button class="btn btn-success" onclick="loadMyVisits()" style="margin-bottom: 15px;">Refresh List</button>
+                        <div id="visitsList"></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -572,6 +703,7 @@
                 loadMyRoutesForShopRegistration(); // Populate route dropdown from myRoutesData
                 loadMyShops();
                 loadMyCreditLimitRequests();
+                loadMyVisits(); // Load visit history
             } catch (error) {
                 resultDiv.className = 'result error';
                 resultDiv.textContent = `Error: ${error.message}`;
@@ -589,6 +721,38 @@
             document.getElementById('loginResult').textContent = '';
             document.getElementById('loginPhone').value = '';
             document.getElementById('loginPassword').value = '';
+        }
+
+        // Tab switching function
+        function switchTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+
+            // Show selected tab
+            const tabs = ['dashboard', 'registerShop', 'myShops', 'creditLimit', 'registerVisit', 'visitHistory'];
+            const tabIndex = tabs.indexOf(tabName);
+            if (tabIndex !== -1) {
+                const tabContents = ['dashboardTab', 'registerShopTab', 'myShopsTab', 'creditLimitTab', 'registerVisitTab', 'visitHistoryTab'];
+                document.getElementById(tabContents[tabIndex]).classList.add('active');
+                document.querySelectorAll('.tab')[tabIndex].classList.add('active');
+                
+                // Load data when switching to specific tabs
+                if (tabName === 'myShops') {
+                    loadMyShops();
+                } else if (tabName === 'creditLimit') {
+                    loadMyCreditLimitRequests();
+                } else if (tabName === 'registerVisit') {
+                    // Load shops for visit registration dropdown
+                    loadShopsForVisitRegistration();
+                } else if (tabName === 'visitHistory') {
+                    loadMyVisits();
+                }
+            }
         }
 
         // Load My Routes
@@ -1139,6 +1303,211 @@
             } catch (error) {
                 resultDiv.className = 'result error';
                 resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // Store photo as base64
+        let visitPhotoBase64 = null;
+
+        // Handle photo upload and convert to base64
+        function handlePhotoUpload(event) {
+            const file = event.target.files[0];
+            if (!file) {
+                visitPhotoBase64 = null;
+                document.getElementById('photoPreview').style.display = 'none';
+                return;
+            }
+
+            if (file.size > 5 * 1024 * 1024) { // 5MB limit
+                alert('Photo size must be less than 5MB');
+                event.target.value = '';
+                visitPhotoBase64 = null;
+                document.getElementById('photoPreview').style.display = 'none';
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                visitPhotoBase64 = e.target.result; // Base64 string
+                document.getElementById('photoPreviewImg').src = visitPhotoBase64;
+                document.getElementById('photoPreview').style.display = 'block';
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // Clear photo
+        function clearPhoto() {
+            visitPhotoBase64 = null;
+            document.getElementById('visitPhoto').value = '';
+            document.getElementById('photoPreview').style.display = 'none';
+        }
+
+        // Get current GPS location
+        function getCurrentLocation(type) {
+            if (!navigator.geolocation) {
+                alert('Geolocation is not supported by your browser');
+                return;
+            }
+
+            navigator.geolocation.getCurrentPosition(
+                function(position) {
+                    if (type === 'lat') {
+                        document.getElementById('visitGpsLat').value = position.coords.latitude.toFixed(6);
+                    } else if (type === 'lng') {
+                        document.getElementById('visitGpsLng').value = position.coords.longitude.toFixed(6);
+                    } else {
+                        // Get both
+                        document.getElementById('visitGpsLat').value = position.coords.latitude.toFixed(6);
+                        document.getElementById('visitGpsLng').value = position.coords.longitude.toFixed(6);
+                    }
+                },
+                function(error) {
+                    alert('Error getting location: ' + error.message);
+                }
+            );
+        }
+
+        // Register Shop Visit
+        async function registerVisit(event) {
+            event.preventDefault();
+            const resultDiv = document.getElementById('visitResult');
+            
+            if (!currentUser || !currentUser.id) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Please login first';
+                return;
+            }
+
+            const visitData = {
+                shop_id: document.getElementById('visitShopId').value ? parseInt(document.getElementById('visitShopId').value) : null,
+                visit_type: document.getElementById('visitType').value || null,
+                gps_lat: document.getElementById('visitGpsLat').value ? parseFloat(document.getElementById('visitGpsLat').value) : null,
+                gps_lng: document.getElementById('visitGpsLng').value ? parseFloat(document.getElementById('visitGpsLng').value) : null,
+                visit_time: document.getElementById('visitTime').value ? new Date(document.getElementById('visitTime').value).toISOString() : null,
+                photo: visitPhotoBase64,
+                reason: document.getElementById('visitReason').value || null
+            };
+
+            const endpoint = `${API_BASE}/shop-visits/order-booker/${currentUser.id}`;
+            showApiCall('POST', endpoint, 'Register Shop Visit', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify(visitData)
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showApiCall('POST', endpoint, 'Register Shop Visit', 'error');
+                    throw new Error(data.detail || 'Failed to register visit');
+                }
+
+                resultDiv.className = 'result success';
+                resultDiv.innerHTML = `
+                    <strong>Visit Registered Successfully!</strong><br>
+                    Visit ID: ${data.id}<br>
+                    ${data.shop_name ? `Shop: ${data.shop_name}<br>` : ''}
+                    Visit Type: ${data.visit_type || 'Not specified'}<br>
+                    ${data.gps_lat && data.gps_lng ? `Location: ${data.gps_lat}, ${data.gps_lng}<br>` : ''}
+                    Visit Time: ${data.visit_time ? new Date(data.visit_time).toLocaleString() : 'Current time'}<br>
+                    <small>Visit ID: ${data.id}</small>
+                `;
+                showApiCall('POST', endpoint, 'Register Shop Visit', 'success');
+
+                document.getElementById('visitRegistrationForm').reset();
+                clearPhoto();
+                loadMyVisits();
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // Load shops for visit registration dropdown
+        async function loadShopsForVisitRegistration() {
+            if (!currentUser || !currentUser.id) return;
+            
+            const visitShopSelect = document.getElementById('visitShopId');
+            if (!visitShopSelect) return;
+            
+            try {
+                const shopsResponse = await fetch(`${API_BASE}/shops/order-booker/${currentUser.id}`, {
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+                if (shopsResponse.ok) {
+                    const shops = await shopsResponse.json();
+                    visitShopSelect.innerHTML = '<option value="">Select Shop (Optional)</option>' +
+                        shops.map(shop => `<option value="${shop.id}">${shop.name}${shop.owner_name ? ' - ' + shop.owner_name : ''}</option>`).join('');
+                }
+            } catch (error) {
+                console.error('Error loading shops for visit registration:', error);
+            }
+        }
+
+        // Load My Visits
+        async function loadMyVisits() {
+            if (!currentUser || !currentUser.id) return;
+            
+            const listDiv = document.getElementById('visitsList');
+            
+            const endpoint = `${API_BASE}/shop-visits/order-booker/${currentUser.id}?limit=50`;
+            showApiCall('GET', endpoint, 'Load My Visits', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showApiCall('GET', endpoint, 'Load My Visits', 'error');
+                    throw new Error(data.detail || 'Failed to load visits');
+                }
+                
+                showApiCall('GET', endpoint, 'Load My Visits', 'success');
+
+                if (data.length === 0) {
+                    listDiv.innerHTML = '<p>No visits recorded yet. Register a visit in the "Register Visit" tab.</p>';
+                    return;
+                }
+
+                listDiv.innerHTML = data.map(visit => {
+                    const visitTypeColors = {
+                        'order_booking': '#3498db',
+                        'delivery': '#27ae60',
+                        'collection': '#f39c12',
+                        'inspection': '#9b59b6',
+                        'other': '#95a5a6'
+                    };
+                    const visitTypeColor = visitTypeColors[visit.visit_type] || '#95a5a6';
+                    const visitTypeLabel = visit.visit_type ? visit.visit_type.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Not specified';
+                    
+                    return `
+                    <div class="list-item">
+                        <div class="list-item-info">
+                            <strong>${visit.shop_name || 'Unregistered Shop'}</strong>
+                            ${visit.visit_type ? `<span style="background: ${visitTypeColor}; color: white; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-left: 10px;">${visitTypeLabel}</span>` : ''}
+                            <br>
+                            ${visit.gps_lat && visit.gps_lng ? `📍 Location: ${visit.gps_lat.toFixed(6)}, ${visit.gps_lng.toFixed(6)}<br>` : ''}
+                            🕐 Visit Time: ${visit.visit_time ? new Date(visit.visit_time).toLocaleString() : 'Not recorded'}<br>
+                            ${visit.reason ? `📝 Reason: ${visit.reason}<br>` : ''}
+                            ${visit.photo ? `📷 Photo: <a href="${visit.photo}" target="_blank" style="color: #667eea;">View Photo</a><br>` : ''}
+                            <small>Visit ID: ${visit.id}${visit.visit_time ? ' | Visit Time: ' + new Date(visit.visit_time).toLocaleString() : ''}</small>
+                        </div>
+                    </div>
+                `;
+                }).join('');
+            } catch (error) {
+                listDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
             }
         }
     </script>

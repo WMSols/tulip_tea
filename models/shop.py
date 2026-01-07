@@ -17,11 +17,18 @@ REGISTRATION WORKFLOW:
 
 RELATIONSHIPS:
 - Belongs to a Zone (via zone_id foreign key)
-- Registered by an Order Booker (via created_by_order_booker foreign key)
+- Registered by an Order Booker (via created_by_order_booker foreign key) - Historical/Immutable
+- Currently assigned to an Order Booker (via assigned_to_order_booker foreign key) - Mutable
 - Can belong to Routes (via route_shops junction table)
 - Has Orders (via orders.shop_id)
 - Has Payments (via payments.shop_id)
 - Has Daily Collections (via daily_collections.shop_id)
+
+IMPORTANT: 
+- created_by_order_booker: Tracks who originally registered the shop (never changes)
+- assigned_to_order_booker: Tracks current responsibility (can be reassigned)
+- When shop is created, both fields are set to the same order booker
+- When order booker is deleted, shops can be reassigned by updating assigned_to_order_booker
 
 GPS VALIDATION:
 - GPS coordinates are required for shop registration
@@ -174,12 +181,28 @@ class Shop(Base):
     created_by_order_booker = Column(BigInteger, ForeignKey("order_bookers.id"), nullable=True)
     """
     Foreign key to order_bookers table.
-    - Links shop to the order booker who registered it
+    - Links shop to the order booker who originally registered it
     - Nullable: For flexibility (could be created by admin)
+    - IMMUTABLE: This field should never change once set (for audit trail)
     - Used for:
-      * Tracking who registered the shop
-      * Filtering shops by order booker
-      * Assigning responsibility
+      * Historical tracking of who registered the shop
+      * Audit purposes and reporting
+      * Preserving original creator information
+    Note: This is different from assigned_to_order_booker which tracks current responsibility
+    """
+
+    assigned_to_order_booker = Column(BigInteger, ForeignKey("order_bookers.id"), nullable=True)
+    """
+    Foreign key to order_bookers table.
+    - Links shop to the order booker currently responsible for it
+    - Nullable: Shop can exist without current assignment
+    - MUTABLE: Can be updated when shop is reassigned to another order booker
+    - Used for:
+      * Tracking current responsibility for the shop
+      * Filtering shops by current order booker
+      * Reassigning shops when order booker is deleted
+      * Operational queries (who should handle this shop now)
+    Note: Initially set to same as created_by_order_booker, but can be changed independently
     """
 
     zone_id = Column(BigInteger, ForeignKey("zones.id"), nullable=True)

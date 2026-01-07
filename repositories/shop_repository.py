@@ -19,8 +19,14 @@ class ShopRepository:
         """
         Create a new shop.
         
+        IMPORTANT: When a shop is created, assigned_to_order_booker is automatically
+        set to the same value as created_by_order_booker. This ensures the shop is
+        initially assigned to its creator, but can be reassigned later without losing
+        the historical record of who originally created it.
+        
         Args:
             registration_status: Status of registration ("pending", "approved", "rejected")
+            created_by_order_booker: Order booker who is registering the shop
         """
         shop = Shop(
             name=name,
@@ -33,6 +39,7 @@ class ShopRepository:
             is_registered=False,  # Start as not registered
             registration_status=registration_status,  # New field
             created_by_order_booker=created_by_order_booker,
+            assigned_to_order_booker=created_by_order_booker,  # Initially same as creator
             zone_id=zone_id
         )
         db.add(shop)
@@ -47,8 +54,58 @@ class ShopRepository:
     
     @staticmethod
     def get_by_order_booker(db: Session, order_booker_id: int) -> List[Shop]:
-        """Get all shops created by an order booker."""
+        """
+        Get all shops created by an order booker.
+        
+        Note: This returns shops based on created_by_order_booker (historical).
+        For current assignments, use get_by_assigned_order_booker().
+        """
         return db.query(Shop).filter(Shop.created_by_order_booker == order_booker_id).all()
+    
+    @staticmethod
+    def get_by_assigned_order_booker(db: Session, order_booker_id: int) -> List[Shop]:
+        """
+        Get all shops currently assigned to an order booker.
+        
+        This method returns shops based on assigned_to_order_booker, which represents
+        the current responsibility. This is different from get_by_order_booker() which
+        returns shops based on who originally created them.
+        
+        Args:
+            db: Database session
+            order_booker_id: Order booker ID to filter by
+        
+        Returns:
+            List of shops currently assigned to this order booker
+        """
+        return db.query(Shop).filter(Shop.assigned_to_order_booker == order_booker_id).all()
+    
+    @staticmethod
+    def reassign_shops_to_order_booker(db: Session, from_order_booker_id: int, 
+                                      to_order_booker_id: int) -> int:
+        """
+        Reassign all shops from one order booker to another.
+        
+        This updates assigned_to_order_booker for all shops currently assigned
+        to from_order_booker_id, changing them to to_order_booker_id.
+        The created_by_order_booker field remains unchanged for audit purposes.
+        
+        Args:
+            db: Database session
+            from_order_booker_id: Current order booker ID
+            to_order_booker_id: New order booker ID to reassign to
+        
+        Returns:
+            Number of shops reassigned
+        """
+        shops = db.query(Shop).filter(Shop.assigned_to_order_booker == from_order_booker_id).all()
+        count = len(shops)
+        
+        for shop in shops:
+            shop.assigned_to_order_booker = to_order_booker_id
+        
+        db.commit()
+        return count
     
     @staticmethod
     def get_by_zone(db: Session, zone_id: int) -> List[Shop]:

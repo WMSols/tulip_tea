@@ -111,7 +111,37 @@ class OrderBookerService:
                 })
             return result
         except Exception as e:
-            raise ValueError(f"Error retrieving order bookers: {str(e)}")
+            raise ValueError(f"Error fetching order bookers: {str(e)}")
+    
+    @staticmethod
+    def get_order_bookers_by_zone(db: Session, zone_id: int, distributor_id: int = None) -> List[Dict]:
+        """
+        Get all order bookers assigned to a specific zone.
+        
+        Args:
+            db: Database session
+            zone_id: Zone ID to filter by
+            distributor_id: Optional distributor ID to further filter
+        
+        Returns:
+            List of order bookers in the specified zone
+        """
+        try:
+            order_bookers = OrderBookerRepository.get_by_zone(db, zone_id, distributor_id)
+            result = []
+            for ob in order_bookers:
+                result.append({
+                    "id": ob.id,
+                    "name": ob.name,
+                    "email": ob.email if ob.email else None,
+                    "phone": ob.phone,
+                    "zone_id": ob.zone_id,
+                    "distributor_id": ob.distributor_id,
+                    "created_at": ob.created_at.isoformat() if ob.created_at else None
+                })
+            return result
+        except Exception as e:
+            raise ValueError(f"Error fetching order bookers: {str(e)}")
     
     @staticmethod
     def update_order_booker(db: Session, order_booker_id: int, name: str = None,
@@ -150,38 +180,101 @@ class OrderBookerService:
         }
     
     @staticmethod
-    def delete_order_booker(db: Session, order_booker_id: int) -> bool:
+    def delete_order_booker(db: Session, order_booker_id: int, 
+                           reassign_shops_to: int = None, 
+                           reassign_routes_to: int = None) -> bool:
         """
-        Delete an order booker.
+        Delete an order booker with optional reassignment of shops and routes.
         
-        Checks for foreign key references before deletion:
-        - Shops created by this order booker
-        - Routes assigned to this order booker
+        This method handles the deletion of an order booker while preserving data integrity.
+        It supports reassigning shops and routes to another order booker before deletion.
         
-        Raises ValueError if order booker cannot be deleted due to references.
+        FLOW:
+        1. Verify order booker exists
+        2. Check for shops created by this order booker
+           - If reassign_shops_to is provided: Reassign all shops to new order booker
+           - If not provided: Raise error with count of shops
+        3. Check for routes assigned to this order booker
+           - If reassign_routes_to is provided: Reassign all routes to new order booker
+           - If not provided: Raise error with count of routes
+        4. Delete the order booker
+        
+        IMPORTANT NOTES:
+        - When shops are reassigned, only assigned_to_order_booker is updated
+        - created_by_order_booker remains unchanged for audit trail
+        - Routes are fully reassigned (order_booker_id is updated)
+        
+        Args:
+            db: Database session
+            order_booker_id: ID of order booker to delete
+            reassign_shops_to: Optional - New order booker ID to reassign shops to
+            reassign_routes_to: Optional - New order booker ID to reassign routes to
+        
+        Returns:
+            bool: True if successful
+        
+        Raises:
+            ValueError: If order booker not found, or if shops/routes exist without reassignment
         """
         from models.shop import Shop
         from models.route import Route
+        from repositories.shop_repository import ShopRepository
         
         order_booker = OrderBookerRepository.get_by_id(db, order_booker_id)
         if not order_booker:
             raise ValueError("Order Booker not found")
         
         # Check for shops created by this order booker
-        shops_count = db.query(Shop).filter(Shop.created_by_order_booker == order_booker_id).count()
+        shops = db.query(Shop).filter(Shop.created_by_order_booker == order_booker_id).all()
+        shops_count = len(shops)
+        
         if shops_count > 0:
-            raise ValueError(
-                f"Cannot delete order booker: {shops_count} shop(s) were created by this order booker. "
-                "Please reassign or delete the shops first."
-            )
+            if reassign_shops_to:
+                # Verify new order booker exists
+                new_order_booker = OrderBookerRepository.get_by_id(db, reassign_shops_to)
+                if not new_order_booker:
+                    raise ValueError(f"Reassignment order booker (ID: {reassign_shops_to}) not found")
+                
+                # Reassign shops: Update assigned_to_order_booker, keep created_by_order_booker for audit
+                reassigned_count = ShopRepository.reassign_shops_to_order_booker(
+                    db=db,
+                    from_order_booker_id=order_booker_id,
+                    to_order_booker_id=reassign_shops_to
+                )
+                
+                # Verify all shops were reassigned
+                if reassigned_count != shops_count:
+                    raise ValueError(
+                        f"Reassignment incomplete: Expected {shops_count} shops, "
+                        f"but only {reassigned_count} were reassigned."
+                    )
+            else:
+                raise ValueError(
+                    f"Cannot delete order booker: {shops_count} shop(s) were created by this order booker. "
+                    "Please provide 'reassign_shops_to' parameter to reassign shops, or delete shops first."
+                )
         
         # Check for routes assigned to this order booker
-        routes_count = db.query(Route).filter(Route.order_booker_id == order_booker_id).count()
-        if routes_count > 0:
-            raise ValueError(
-                f"Cannot delete order booker: {routes_count} route(s) are assigned to this order booker. "
-                "Please reassign the routes first."
-            )
+        routes = db.query(Route).filter(Route.order_booker_id == order_booker_id).all()
+        routes_count = len(routes)
         
+        if routes_count > 0:
+            if reassign_routes_to:
+                # Verify new order booker exists
+                new_order_booker = OrderBookerRepository.get_by_id(db, reassign_routes_to)
+                if not new_order_booker:
+                    raise ValueError(f"Reassignment order booker (ID: {reassign_routes_to}) not found")
+                
+                # Reassign routes: Update order_booker_id for all routes
+                for route in routes:
+                    route.order_booker_id = reassign_routes_to
+                db.commit()
+            else:
+                raise ValueError(
+                    f"Cannot delete order booker: {routes_count} route(s) are assigned to this order booker. "
+                    "Please provide 'reassign_routes_to' parameter to reassign routes, or reassign routes first."
+                )
+        
+        # Now safe to delete the order booker
         return OrderBookerRepository.delete(db, order_booker_id)
 

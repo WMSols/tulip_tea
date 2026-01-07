@@ -78,16 +78,48 @@ class RouteService:
     
     @staticmethod
     def assign_route_to_order_booker(db: Session, route_id: int, order_booker_id: int) -> Dict:
-        """Assign a route to an order booker."""
+        """
+        Assign a route to an order booker.
+        
+        Validates that the order booker's zone matches the route's zone.
+        """
+        # Verify route exists
+        route = RouteRepository.get_by_id(db, route_id)
+        if not route:
+            raise ValueError("Route not found")
+        
         # Verify order booker exists
         order_booker = OrderBookerRepository.get_by_id(db, order_booker_id)
         if not order_booker:
             raise ValueError("Order Booker not found")
         
+        # Validate zone matching: order booker's zone must match route's zone
+        if route.zone_id and order_booker.zone_id:
+            if route.zone_id != order_booker.zone_id:
+                raise ValueError(
+                    f"Cannot assign route: Route belongs to zone {route.zone_id}, "
+                    f"but order booker is assigned to zone {order_booker.zone_id}. "
+                    f"They must be in the same zone."
+                )
+        elif route.zone_id and not order_booker.zone_id:
+            raise ValueError(
+                f"Cannot assign route: Route belongs to zone {route.zone_id}, "
+                f"but order booker has no zone assigned. "
+                f"Please assign the order booker to zone {route.zone_id} first."
+            )
+        elif not route.zone_id and order_booker.zone_id:
+            raise ValueError(
+                f"Cannot assign route: Route has no zone assigned, "
+                f"but order booker is assigned to zone {order_booker.zone_id}. "
+                f"Please assign the route to a zone first."
+            )
+        # If both are None, allow assignment (though this is unusual)
+        
         success = RouteRepository.assign_to_order_booker(db, route_id, order_booker_id)
         if not success:
-            raise ValueError("Route not found")
+            raise ValueError("Failed to assign route")
         
+        # Refresh route to get updated order_booker_id
         route = RouteRepository.get_by_id(db, route_id)
         return {
             "id": route.id,

@@ -20,7 +20,8 @@ class ShopService:
     def register_shop(db: Session, name: str, owner_name: str, owner_phone: str,
                       gps_lat: Decimal, gps_lng: Decimal, order_booker_id: int,
                       zone_id: int = None, route_id: int = None, credit_limit: Decimal = None,
-                      legacy_balance: Decimal = None) -> Dict:
+                      legacy_balance: Decimal = None, owner_cnic_front_photo: str = None,
+                      owner_cnic_back_photo: str = None) -> Dict:
         """
         Register a new shop.
         
@@ -78,6 +79,51 @@ class ShopService:
             zone_id=zone_id,
             registration_status="pending"  # New shop starts as pending
         )
+        
+        # Upload CNIC photos to Supabase Storage if provided
+        from services.image_service import ImageService
+        cnic_front_url = None
+        cnic_back_url = None
+        
+        if owner_cnic_front_photo:
+            print(f"INFO: Attempting to upload CNIC front photo for shop {shop.id}")
+            try:
+                cnic_front_url = ImageService.upload_shop_cnic_front(
+                    shop_id=shop.id,
+                    order_booker_id=order_booker_id,
+                    base64_image=owner_cnic_front_photo
+                )
+                if cnic_front_url:
+                    print(f"SUCCESS: CNIC front photo uploaded: {cnic_front_url}")
+                    shop.owner_cnic_front_photo = cnic_front_url
+                    db.commit()
+                    db.refresh(shop)
+                else:
+                    print(f"ERROR: Failed to upload CNIC front photo for shop {shop.id}")
+            except Exception as e:
+                print(f"ERROR: Exception uploading CNIC front photo for shop {shop.id}: {type(e).__name__}: {str(e)}")
+                import traceback
+                traceback.print_exc()
+        
+        if owner_cnic_back_photo:
+            print(f"INFO: Attempting to upload CNIC back photo for shop {shop.id}")
+            try:
+                cnic_back_url = ImageService.upload_shop_cnic_back(
+                    shop_id=shop.id,
+                    order_booker_id=order_booker_id,
+                    base64_image=owner_cnic_back_photo
+                )
+                if cnic_back_url:
+                    print(f"SUCCESS: CNIC back photo uploaded: {cnic_back_url}")
+                    shop.owner_cnic_back_photo = cnic_back_url
+                    db.commit()
+                    db.refresh(shop)
+                else:
+                    print(f"ERROR: Failed to upload CNIC back photo for shop {shop.id}")
+            except Exception as e:
+                print(f"ERROR: Exception uploading CNIC back photo for shop {shop.id}: {type(e).__name__}: {str(e)}")
+                import traceback
+                traceback.print_exc()
         
         # Assign shop to route if route_id is provided
         if route_id:
@@ -176,19 +222,32 @@ class ShopService:
             "assigned_to_order_booker": shop.assigned_to_order_booker,  # Current assignee
             "assigned_to_order_booker_name": assigned_order_booker_name,  # Current assignee name
             "routes": routes_info,  # List of routes this shop belongs to
+            "owner_cnic_front_photo": shop.owner_cnic_front_photo,  # URL to CNIC front photo
+            "owner_cnic_back_photo": shop.owner_cnic_back_photo,  # URL to CNIC back photo
+            "shop_exterior_photo": shop.shop_exterior_photo,
+            "owner_photo": shop.owner_photo,
             "credit_limit_request_id": credit_limit_request_id,  # Include request ID if created
             "created_at": shop.created_at.isoformat() if shop.created_at else None
         }
     
     @staticmethod
-    def get_shops_by_order_booker(db: Session, order_booker_id: int) -> List[Dict]:
+    def get_shops_by_order_booker(db: Session, order_booker_id: int, approved_only: bool = False) -> List[Dict]:
         """
         Get all shops registered by an order booker (historical).
         
         Note: This returns shops based on created_by_order_booker.
         For shops currently assigned to an order booker, use get_shops_assigned_to_order_booker().
+        
+        Args:
+            db: Database session
+            order_booker_id: Order booker ID
+            approved_only: If True, only return shops with registration_status="approved"
         """
         shops = ShopRepository.get_by_order_booker(db, order_booker_id)
+        
+        # Filter to approved shops only if requested
+        if approved_only:
+            shops = [shop for shop in shops if shop.registration_status == "approved"]
         
         # Get order booker name once
         order_booker = OrderBookerRepository.get_by_id(db, order_booker_id)
@@ -219,15 +278,24 @@ class ShopService:
         ]
     
     @staticmethod
-    def get_shops_assigned_to_order_booker(db: Session, order_booker_id: int) -> List[Dict]:
+    def get_shops_assigned_to_order_booker(db: Session, order_booker_id: int, approved_only: bool = False) -> List[Dict]:
         """
         Get all shops currently assigned to an order booker.
         
         This returns shops based on assigned_to_order_booker, which represents
         the current responsibility. This is different from get_shops_by_order_booker()
         which returns shops based on who originally created them.
+        
+        Args:
+            db: Database session
+            order_booker_id: Order booker ID
+            approved_only: If True, only return shops with registration_status="approved"
         """
         shops = ShopRepository.get_by_assigned_order_booker(db, order_booker_id)
+        
+        # Filter to approved shops only if requested
+        if approved_only:
+            shops = [shop for shop in shops if shop.registration_status == "approved"]
         
         # Get order booker name once
         order_booker = OrderBookerRepository.get_by_id(db, order_booker_id)
@@ -252,6 +320,10 @@ class ShopService:
                 "created_by_order_booker_name": OrderBookerRepository.get_by_id(db, shop.created_by_order_booker).name if shop.created_by_order_booker else None,
                 "assigned_to_order_booker": shop.assigned_to_order_booker,
                 "assigned_to_order_booker_name": order_booker_name,
+                "owner_cnic_front_photo": shop.owner_cnic_front_photo,
+                "owner_cnic_back_photo": shop.owner_cnic_back_photo,
+                "shop_exterior_photo": shop.shop_exterior_photo,
+                "owner_photo": shop.owner_photo,
                 "created_at": shop.created_at.isoformat() if shop.created_at else None
             }
             for shop in shops
@@ -363,6 +435,10 @@ class ShopService:
                 "assigned_to_order_booker": shop.assigned_to_order_booker,  # Current assignee
                 "assigned_to_order_booker_name": assigned_order_booker_name,  # Current assignee name
                 "routes": routes_info,  # List of routes this shop belongs to
+                "owner_cnic_front_photo": shop.owner_cnic_front_photo,
+                "owner_cnic_back_photo": shop.owner_cnic_back_photo,
+                "shop_exterior_photo": shop.shop_exterior_photo,
+                "owner_photo": shop.owner_photo,
                 "created_at": shop.created_at.isoformat() if shop.created_at else None
             })
         

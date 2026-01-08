@@ -369,6 +369,72 @@
             flex: 2;
             text-align: right;
         }
+        /* Tooltip Styles - Black/White Theme */
+        .api-tooltip {
+            position: absolute;
+            background: #ffffff;
+            color: #000000;
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-family: 'Courier New', monospace;
+            max-width: 400px;
+            z-index: 10000;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            border: 2px solid #000000;
+            pointer-events: none;
+            display: none;
+            line-height: 1.6;
+        }
+        .api-tooltip.active {
+            display: block;
+        }
+        .api-tooltip .tooltip-method {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-weight: bold;
+            margin-right: 8px;
+            font-size: 11px;
+            border: 1px solid #000000;
+        }
+        .api-tooltip .method-POST {
+            background: #000000;
+            color: #ffffff;
+        }
+        .api-tooltip .method-GET {
+            background: #000000;
+            color: #ffffff;
+        }
+        .api-tooltip .method-PUT {
+            background: #000000;
+            color: #ffffff;
+        }
+        .api-tooltip .method-DELETE {
+            background: #000000;
+            color: #ffffff;
+        }
+        .api-tooltip .tooltip-endpoint {
+            color: #000000;
+            word-break: break-all;
+            margin: 5px 0;
+            font-weight: bold;
+        }
+        .api-tooltip .tooltip-description {
+            color: #333333;
+            margin: 8px 0;
+            font-style: italic;
+        }
+        .api-tooltip .tooltip-function {
+            color: #000000;
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid #000000;
+            font-size: 11px;
+        }
+        .btn, .tab {
+            position: relative;
+        }
     </style>
 </head>
 <body>
@@ -379,6 +445,14 @@
         <div id="apiEndpoint" class="api-endpoint"></div>
         <div id="apiOperation" class="api-endpoint" style="color: #95a5a6; font-style: italic;"></div>
         <div id="apiStatus" class="api-status"></div>
+    </div>
+
+    <!-- API Tooltip (Shown on hover) -->
+    <div id="apiTooltip" class="api-tooltip">
+        <div id="tooltipMethod" class="tooltip-method"></div>
+        <div id="tooltipEndpoint" class="tooltip-endpoint"></div>
+        <div id="tooltipDescription" class="tooltip-description"></div>
+        <div id="tooltipFunction" class="tooltip-function"></div>
     </div>
 
     <div class="container">
@@ -718,23 +792,286 @@
         </div>
     </div>
 
-    <!-- CNIC Photos Modal -->
-    <div id="cnicPhotosModal" class="modal hidden">
-        <div class="modal-content">
-            <span class="close-button" onclick="closeCnicPhotosModal()">&times;</span>
-            <h2>Owner CNIC Photos</h2>
-            <div id="cnicPhotosContent">
-                <!-- CNIC photos will be populated here -->
-            </div>
-        </div>
-    </div>
-
     <script>
         const API_BASE = 'http://localhost:8000';
         let currentToken = null;
         let currentUser = null;
         let currentDistributorId = null;
         let allZones = [];
+
+        // API Information Mapping for Tooltips
+        const API_INFO = {
+            'login': {
+                method: 'POST',
+                endpoint: '/auth/login/distributor',
+                description: 'Authenticate distributor and get access token',
+                function: 'routers.auth.login_distributor() → services.auth_service.authenticate_distributor()'
+            },
+            'logout': {
+                method: 'N/A',
+                endpoint: 'Client-side only',
+                description: 'Clear session and return to login screen',
+                function: 'Client-side function (no API call)'
+            },
+            'createZone': {
+                method: 'POST',
+                endpoint: '/zones/',
+                description: 'Create a new zone',
+                function: 'routers.zone.create_zone() → services.zone_service.create_zone()'
+            },
+            'loadZones': {
+                method: 'GET',
+                endpoint: '/zones/',
+                description: 'Get all zones',
+                function: 'routers.zone.list_zones() → services.zone_service.get_all_zones()'
+            },
+            'createRoute': {
+                method: 'POST',
+                endpoint: '/routes/{distributor_id}',
+                description: 'Create a new route in a zone',
+                function: 'routers.route.create_route() → services.route_service.create_route()'
+            },
+            'loadRoutes': {
+                method: 'GET',
+                endpoint: '/routes/distributor/{distributor_id}',
+                description: 'Get all routes for the distributor',
+                function: 'routers.route.get_routes_by_distributor() → services.route_service.get_routes_by_distributor()'
+            },
+            'assignRoute': {
+                method: 'POST',
+                endpoint: '/routes/{route_id}/assign',
+                description: 'Assign a route to an order booker',
+                function: 'routers.route.assign_route() → services.route_service.assign_route_to_order_booker()'
+            },
+            'createOrderBooker': {
+                method: 'POST',
+                endpoint: '/order-bookers/{distributor_id}',
+                description: 'Create a new order booker account',
+                function: 'routers.order_booker.create_order_booker() → services.order_booker_service.create_order_booker()'
+            },
+            'loadOrderBookers': {
+                method: 'GET',
+                endpoint: '/order-bookers/distributor/{distributor_id}',
+                description: 'Get all order bookers for the distributor',
+                function: 'routers.order_booker.list_order_bookers_by_distributor() → services.order_booker_service.get_order_bookers_by_distributor()'
+            },
+            'createDeliveryMan': {
+                method: 'POST',
+                endpoint: '/delivery-men/{distributor_id}',
+                description: 'Create a new delivery man account',
+                function: 'routers.delivery_man.create_delivery_man() → services.delivery_man_service.create_delivery_man()'
+            },
+            'loadDeliveryMen': {
+                method: 'GET',
+                endpoint: '/delivery-men/distributor/{distributor_id}',
+                description: 'Get all delivery men for the distributor',
+                function: 'routers.delivery_man.list_delivery_men_by_distributor() → services.delivery_man_service.get_delivery_men_by_distributor()'
+            },
+            'loadAllShops': {
+                method: 'GET',
+                endpoint: '/shops/all?distributor_id={distributor_id}',
+                description: 'Get all shops with zone and route information',
+                function: 'routers.shop.list_all_shops() → services.shop_service.get_all_shops_with_associations()'
+            },
+            'loadPendingShops': {
+                method: 'GET',
+                endpoint: '/shops/pending',
+                description: 'Get all shops pending distributor approval',
+                function: 'routers.shop.list_pending_shops() → services.shop_service.get_pending_shops()'
+            },
+            'saveShopEdit': {
+                method: 'PUT',
+                endpoint: '/shops/{shop_id}',
+                description: 'Update shop information',
+                function: 'routers.shop.update_shop() → services.shop_service.update_shop()'
+            },
+            'verifyShop': {
+                method: 'POST',
+                endpoint: '/shops/{shop_id}/verify?distributor_id={distributor_id}',
+                description: 'Approve or reject a shop registration',
+                function: 'routers.shop.verify_shop() → services.shop_service.verify_shop()'
+            },
+            'loadAllShopsWithCreditLimits': {
+                method: 'GET',
+                endpoint: '/shops/all?distributor_id={distributor_id}',
+                description: 'Get all shops with credit limit information',
+                function: 'routers.shop.list_all_shops() → services.shop_service.get_all_shops_with_associations()'
+            },
+            'loadPendingCreditLimitRequests': {
+                method: 'GET',
+                endpoint: '/credit-limit-requests/pending?distributor_id={distributor_id}',
+                description: 'Get all pending credit limit requests',
+                function: 'routers.credit_limit_request.list_pending() → services.credit_limit_request_service.get_pending_requests()'
+            },
+            'approveCreditRequest': {
+                method: 'POST',
+                endpoint: '/credit-limit-requests/{request_id}/approve?distributor_id={distributor_id}',
+                description: 'Approve a credit limit request and update shop credit limit',
+                function: 'routers.credit_limit_request.approve_request() → services.credit_limit_request_service.approve_request()'
+            },
+            'rejectCreditRequest': {
+                method: 'POST',
+                endpoint: '/credit-limit-requests/{request_id}/reject?distributor_id={distributor_id}',
+                description: 'Reject a credit limit request',
+                function: 'routers.credit_limit_request.reject_request() → services.credit_limit_request_service.reject_request()'
+            },
+            'loadAllVisits': {
+                method: 'GET',
+                endpoint: '/shop-visits/all?limit=1000',
+                description: 'Get all shop visits across all zones',
+                function: 'routers.shop_visit.list_all_visits() → services.shop_visit_service.get_all_visits()'
+            },
+            'saveEdit': {
+                method: 'PUT',
+                endpoint: '/order-bookers/{id} or /delivery-men/{id}',
+                description: 'Update order booker or delivery man information',
+                function: 'routers.order_booker.update_order_booker() or routers.delivery_man.update_delivery_man()'
+            },
+            'deleteUser': {
+                method: 'DELETE',
+                endpoint: '/order-bookers/{id} or /delivery-men/{id}',
+                description: 'Delete an order booker or delivery man (with reassignment)',
+                function: 'routers.order_booker.delete_order_booker() → services.order_booker_service.delete_order_booker()'
+            },
+            'updateOrderBookersForRoute': {
+                method: 'GET',
+                endpoint: '/order-bookers/zone/{zone_id}?distributor_id={distributor_id}',
+                description: 'Get order bookers filtered by zone for route assignment',
+                function: 'routers.order_booker.list_order_bookers_by_zone() → services.order_booker_service.get_order_bookers_by_zone()'
+            },
+            'clearShopFilters': {
+                method: 'N/A',
+                endpoint: 'Client-side only',
+                description: 'Clear zone and route filters to show all shops',
+                function: 'Client-side function (no API call)'
+            },
+            'switchTab': {
+                method: 'N/A',
+                endpoint: 'Client-side only',
+                description: 'Switch between dashboard tabs (may trigger API calls)',
+                function: 'Client-side function (may call load functions)'
+            }
+        };
+
+        // Show tooltip on hover
+        function showTooltip(event, functionName) {
+            const tooltip = document.getElementById('apiTooltip');
+            const info = API_INFO[functionName];
+            
+            if (!info) return;
+            
+            const methodEl = document.getElementById('tooltipMethod');
+            const endpointEl = document.getElementById('tooltipEndpoint');
+            const descEl = document.getElementById('tooltipDescription');
+            const funcEl = document.getElementById('tooltipFunction');
+            
+            if (info.method !== 'N/A') {
+                methodEl.textContent = info.method;
+                methodEl.className = `tooltip-method method-${info.method}`;
+            } else {
+                methodEl.textContent = '';
+                methodEl.className = '';
+            }
+            
+            endpointEl.textContent = info.endpoint;
+            descEl.textContent = info.description;
+            funcEl.textContent = `Backend: ${info.function}`;
+            
+            // Position tooltip
+            const rect = event.target.getBoundingClientRect();
+            tooltip.style.left = (rect.left + rect.width / 2 - 200) + 'px';
+            tooltip.style.top = (rect.bottom + 10) + 'px';
+            
+            tooltip.classList.add('active');
+        }
+
+        // Hide tooltip
+        function hideTooltip() {
+            const tooltip = document.getElementById('apiTooltip');
+            tooltip.classList.remove('active');
+        }
+
+        // Attach tooltip handlers to buttons and tabs
+        document.addEventListener('DOMContentLoaded', function() {
+            // Map onclick/onsubmit handlers to function names
+            const buttonMap = {
+                'login': 'login',
+                'logout': 'logout',
+                'createZone': 'createZone',
+                'loadZones': 'loadZones',
+                'createRoute': 'createRoute',
+                'loadRoutes': 'loadRoutes',
+                'assignRoute': 'assignRoute',
+                'createOrderBooker': 'createOrderBooker',
+                'loadOrderBookers': 'loadOrderBookers',
+                'createDeliveryMan': 'createDeliveryMan',
+                'loadDeliveryMen': 'loadDeliveryMen',
+                'loadAllShops': 'loadAllShops',
+                'loadPendingShops': 'loadPendingShops',
+                'saveShopEdit': 'saveShopEdit',
+                'verifyShop': 'verifyShop',
+                'loadAllShopsWithCreditLimits': 'loadAllShopsWithCreditLimits',
+                'loadPendingCreditLimitRequests': 'loadPendingCreditLimitRequests',
+                'approveCreditRequest': 'approveCreditRequest',
+                'rejectCreditRequest': 'rejectCreditRequest',
+                'loadAllVisits': 'loadAllVisits',
+                'saveEdit': 'saveEdit',
+                'deleteUser': 'deleteUser',
+                'clearShopFilters': 'clearShopFilters',
+                'switchTab': 'switchTab'
+            };
+            
+            // Add hover handlers to buttons
+            Object.keys(buttonMap).forEach(funcName => {
+                const buttons = document.querySelectorAll(`[onclick*="${funcName}"]`);
+                buttons.forEach(btn => {
+                    btn.addEventListener('mouseenter', (e) => showTooltip(e, buttonMap[funcName]));
+                    btn.addEventListener('mouseleave', hideTooltip);
+                });
+            });
+            
+            // Add hover handlers to tabs
+            const tabs = document.querySelectorAll('.tab');
+            tabs.forEach(tab => {
+                tab.addEventListener('mouseenter', (e) => {
+                    const tabText = tab.textContent.trim();
+                    if (tabText.includes('Zones')) {
+                        showTooltip(e, 'loadZones');
+                    } else if (tabText.includes('Routes')) {
+                        showTooltip(e, 'loadRoutes');
+                    } else if (tabText.includes('Order Bookers')) {
+                        showTooltip(e, 'loadOrderBookers');
+                    } else if (tabText.includes('Delivery Men')) {
+                        showTooltip(e, 'loadDeliveryMen');
+                    } else if (tabText.includes('Shops')) {
+                        showTooltip(e, 'loadAllShops');
+                    } else if (tabText.includes('Credit Limits')) {
+                        showTooltip(e, 'loadAllShopsWithCreditLimits');
+                    } else if (tabText.includes('Visits')) {
+                        showTooltip(e, 'loadAllVisits');
+                    } else {
+                        showTooltip(e, 'switchTab');
+                    }
+                });
+                tab.addEventListener('mouseleave', hideTooltip);
+            });
+            
+            // Add hover handlers to form submit buttons
+            const forms = document.querySelectorAll('form');
+            forms.forEach(form => {
+                const onSubmit = form.getAttribute('onsubmit');
+                if (onSubmit) {
+                    const match = onSubmit.match(/(\w+)\(/);
+                    if (match && buttonMap[match[1]]) {
+                        const submitBtn = form.querySelector('button[type="submit"]');
+                        if (submitBtn) {
+                            submitBtn.addEventListener('mouseenter', (e) => showTooltip(e, buttonMap[match[1]]));
+                            submitBtn.addEventListener('mouseleave', hideTooltip);
+                        }
+                    }
+                }
+            });
+        });
 
         /**
          * Show API call information in the helper panel
@@ -1533,34 +1870,14 @@
                     return;
                 }
 
-                // Debug: Log first shop to check if photos are in the response
-                if (data.length > 0) {
-                    console.log('Sample pending shop data:', {
-                        id: data[0].id,
-                        name: data[0].name,
-                        hasFrontPhoto: !!data[0].owner_cnic_front_photo,
-                        hasBackPhoto: !!data[0].owner_cnic_back_photo,
-                        frontPhoto: data[0].owner_cnic_front_photo,
-                        backPhoto: data[0].owner_cnic_back_photo
-                    });
-                }
-
                 updatePendingShopsBadge(data.length);
                 listDiv.innerHTML = data.map(shop => {
                     // Escape single quotes in strings to prevent JavaScript errors
                     const shopName = (shop.name || '').replace(/'/g, "\\'");
                     const ownerName = (shop.owner_name || '').replace(/'/g, "\\'");
                     const ownerPhone = (shop.owner_phone || '').replace(/'/g, "\\'");
-                    const cnicFrontPhoto = (shop.owner_cnic_front_photo || '').replace(/'/g, "\\'");
-                    const cnicBackPhoto = (shop.owner_cnic_back_photo || '').replace(/'/g, "\\'");
-                    
-                    // Check if photos exist (not empty strings and not null/undefined)
-                    const hasFrontPhoto = shop.owner_cnic_front_photo && shop.owner_cnic_front_photo.trim() !== '' && shop.owner_cnic_front_photo !== 'null';
-                    const hasBackPhoto = shop.owner_cnic_back_photo && shop.owner_cnic_back_photo.trim() !== '' && shop.owner_cnic_back_photo !== 'null';
-                    const hasCnicPhotos = hasFrontPhoto || hasBackPhoto;
-                    
                     return `
-                    <div class="list-item" onclick="openEditShopModal(${shop.id}, '${shopName}', '${ownerName}', '${ownerPhone}', ${shop.gps_lat || 0}, ${shop.gps_lng || 0}, ${shop.credit_limit || 0}, ${shop.legacy_balance || 0}, ${shop.zone_id || 'null'}, '${shop.registration_status || 'pending'}', '${(shop.created_at || '').replace(/'/g, "\\'")}', '${cnicFrontPhoto}', '${cnicBackPhoto}')">
+                    <div class="list-item" onclick="openEditShopModal(${shop.id}, '${shopName}', '${ownerName}', '${ownerPhone}', ${shop.gps_lat || 0}, ${shop.gps_lng || 0}, ${shop.credit_limit || 0}, ${shop.legacy_balance || 0}, ${shop.zone_id || 'null'}, '${shop.registration_status || 'pending'}', '${(shop.created_at || '').replace(/'/g, "\\'")}')">
                         <div class="list-item-info">
                             <strong>${shop.name}</strong><br>
                             Owner: ${shop.owner_name || 'N/A'}<br>
@@ -1568,7 +1885,6 @@
                             GPS: ${shop.gps_lat ? shop.gps_lat.toFixed(6) : 'N/A'}, ${shop.gps_lng ? shop.gps_lng.toFixed(6) : 'N/A'}<br>
                             Credit Limit: Rs. ${(shop.credit_limit || 0).toLocaleString()}<br>
                             Status: <span style="color: ${shop.registration_status === 'approved' ? 'green' : 'orange'}">${shop.registration_status || 'pending'}</span><br>
-                            ${hasCnicPhotos ? '<span style="color: #667eea; font-weight: bold; background: #e3f2fd; padding: 4px 8px; border-radius: 5px; display: inline-block; margin-top: 5px;">📷 CNIC Photos Available</span><br>' : ''}
                             <small>ID: ${shop.id} | Created: ${new Date(shop.created_at).toLocaleString()}</small>
                         </div>
                     </div>
@@ -1635,7 +1951,7 @@
         }
 
         // Open Edit Shop Modal
-        async function openEditShopModal(shopId, name, ownerName, ownerPhone, gpsLat, gpsLng, creditLimit, legacyBalance, zoneId, status, createdAt, cnicFrontPhoto, cnicBackPhoto) {
+        async function openEditShopModal(shopId, name, ownerName, ownerPhone, gpsLat, gpsLng, creditLimit, legacyBalance, zoneId, status, createdAt) {
             const modal = document.getElementById('editShopModal');
             modal.classList.remove('hidden');
             modal.style.display = 'flex';
@@ -1662,11 +1978,8 @@
                 loadZonesForShopModal();
             }
             
-            // Fetch shop details to get route information and photos (fresh data)
+            // Fetch shop details to get route information
             let routesInfo = '';
-            let actualCnicFrontPhoto = cnicFrontPhoto || '';
-            let actualCnicBackPhoto = cnicBackPhoto || '';
-            
             try {
                 const response = await fetch(`${API_BASE}/shops/all?distributor_id=${currentDistributorId}`, {
                     headers: { 'Authorization': `Bearer ${currentToken}` }
@@ -1674,32 +1987,18 @@
                 if (response.ok) {
                     const shops = await response.json();
                     const shop = shops.find(s => s.id == shopId);
-                    if (shop) {
-                        // Get fresh photo URLs from the API response
-                        actualCnicFrontPhoto = shop.owner_cnic_front_photo || '';
-                        actualCnicBackPhoto = shop.owner_cnic_back_photo || '';
-                        
-                        // Debug: Log photo URLs
-                        console.log('Shop photo URLs:', {
-                            shopId: shop.id,
-                            frontPhoto: actualCnicFrontPhoto,
-                            backPhoto: actualCnicBackPhoto
+                    if (shop && shop.routes && shop.routes.length > 0) {
+                        routesInfo = '<br><strong>Assigned Routes:</strong><br>';
+                        shop.routes.forEach(route => {
+                            const zoneName = route.route_zone_name || `Zone ${route.route_zone_id || 'N/A'}`;
+                            routesInfo += `• ${route.route_name} (${zoneName})`;
+                            if (route.order_booker_name) {
+                                routesInfo += ` - Order Booker: ${route.order_booker_name}`;
+                            }
+                            routesInfo += '<br>';
                         });
-                        
-                        // Get route information
-                        if (shop.routes && shop.routes.length > 0) {
-                            routesInfo = '<br><strong>Assigned Routes:</strong><br>';
-                            shop.routes.forEach(route => {
-                                const zoneName = route.route_zone_name || `Zone ${route.route_zone_id || 'N/A'}`;
-                                routesInfo += `• ${route.route_name} (${zoneName})`;
-                                if (route.order_booker_name) {
-                                    routesInfo += ` - Order Booker: ${route.order_booker_name}`;
-                                }
-                                routesInfo += '<br>';
-                            });
-                        } else {
-                            routesInfo = '<br><strong>Assigned Routes:</strong> None<br>';
-                        }
+                    } else {
+                        routesInfo = '<br><strong>Assigned Routes:</strong> None<br>';
                     }
                 }
             } catch (error) {
@@ -1707,28 +2006,15 @@
                 routesInfo = '<br><strong>Assigned Routes:</strong> Unable to load<br>';
             }
             
-            // Show additional info with CNIC photos button
+            // Show additional info
             const resultDiv = document.getElementById('editShopResult');
             resultDiv.className = 'result info';
-            let cnicPhotosButton = '';
-            
-            // Check if photos exist (not empty strings and not null/undefined)
-            const hasFrontPhoto = actualCnicFrontPhoto && actualCnicFrontPhoto.trim() !== '' && actualCnicFrontPhoto !== 'null' && actualCnicFrontPhoto !== 'undefined';
-            const hasBackPhoto = actualCnicBackPhoto && actualCnicBackPhoto.trim() !== '' && actualCnicBackPhoto !== 'null' && actualCnicBackPhoto !== 'undefined';
-            
-            if (hasFrontPhoto || hasBackPhoto) {
-                const safeFrontPhoto = (actualCnicFrontPhoto || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
-                const safeBackPhoto = (actualCnicBackPhoto || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
-                cnicPhotosButton = `<button type="button" class="btn btn-primary" onclick="openCnicPhotosModal('${safeFrontPhoto}', '${safeBackPhoto}')" style="margin-top: 10px; margin-bottom: 10px;">📷 View CNIC Photos</button>`;
-            }
-            
             resultDiv.innerHTML = `
                 <strong>Shop Details:</strong><br>
                 Status: <span style="color: ${status === 'approved' ? 'green' : 'orange'}">${status || 'pending'}</span><br>
                 ${createdAt ? `Created: ${new Date(createdAt).toLocaleString()}<br>` : ''}
                 ${routesInfo}
-                ${cnicPhotosButton}
-                <br><small>Click "Verify Shop" to approve or reject this registration</small>
+                <small>Click "Verify Shop" to approve or reject this registration</small>
             `;
         }
         
@@ -2345,11 +2631,8 @@
                             routeInfo = '<br>Routes: None assigned';
                         }
                         
-                        const cnicFrontPhoto = (shop.owner_cnic_front_photo || '').replace(/'/g, "\\'");
-                        const cnicBackPhoto = (shop.owner_cnic_back_photo || '').replace(/'/g, "\\'");
-                        const hasCnicPhotos = shop.owner_cnic_front_photo || shop.owner_cnic_back_photo;
                         html += `
-                            <div class="list-item" onclick="openEditShopModal(${shop.id}, '${(shop.name || '').replace(/'/g, "\\'")}', '${(shop.owner_name || '').replace(/'/g, "\\'")}', '${(shop.owner_phone || '').replace(/'/g, "\\'")}', ${shop.gps_lat || 0}, ${shop.gps_lng || 0}, ${shop.credit_limit || 0}, ${shop.legacy_balance || 0}, ${shop.zone_id || 'null'}, '${statusText}', '${(shop.created_at || '').replace(/'/g, "\\'")}', '${cnicFrontPhoto}', '${cnicBackPhoto}')" style="margin-bottom: 10px;">
+                            <div class="list-item" onclick="openEditShopModal(${shop.id}, '${(shop.name || '').replace(/'/g, "\\'")}', '${(shop.owner_name || '').replace(/'/g, "\\'")}', '${(shop.owner_phone || '').replace(/'/g, "\\'")}', ${shop.gps_lat || 0}, ${shop.gps_lng || 0}, ${shop.credit_limit || 0}, ${shop.legacy_balance || 0}, ${shop.zone_id || 'null'}, '${statusText}', '${(shop.created_at || '').replace(/'/g, "\\'")}')" style="margin-bottom: 10px;">
                                 <div class="list-item-info">
                                     <strong>${shop.name}</strong> 
                                     ${statusText === 'pending' ? '<span style="background: #ffc107; color: #000; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-left: 10px;">PENDING</span>' : ''}
@@ -2358,7 +2641,6 @@
                                     Phone: ${shop.owner_phone || 'N/A'}<br>
                                     Credit Limit: Rs. ${(shop.credit_limit || 0).toLocaleString()}<br>
                                     Status: <span style="color: ${statusColor}">${statusText}</span>${routeInfo}<br>
-                                    ${hasCnicPhotos ? '<span style="color: #667eea; font-weight: bold;">📷 CNIC Photos Available</span><br>' : ''}
                                     Created By: ${shop.created_by_order_booker_name || 'N/A'}<br>
                                     <small>ID: ${shop.id} | Created: ${new Date(shop.created_at).toLocaleString()}</small>
                                 </div>
@@ -2704,10 +2986,9 @@
                     // Escape quotes for onclick
                     const shopName = (visit.shop_name || 'Unregistered Shop').replace(/'/g, "\\'");
                     const reason = (visit.reason || '').replace(/'/g, "\\'");
-                    const photoUrl = (visit.photo || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
                     
                     html += `
-                        <div class="list-item" onclick="openViewVisitModal(${visit.id}, '${shopName}', ${visit.shop_id || 'null'}, ${visit.shop_zone_id || 'null'}, '${visit.order_booker_name || ''}', ${visit.order_booker_id || 'null'}, '${visit.delivery_man_name || ''}', ${visit.delivery_man_id || 'null'}, '${visit.visit_type || ''}', ${visit.gps_lat || 'null'}, ${visit.gps_lng || 'null'}, '${visit.visit_time || ''}', '${photoUrl}', '${reason}')" style="margin-bottom: 10px; cursor: pointer;">
+                        <div class="list-item" onclick="openViewVisitModal(${visit.id}, '${shopName}', ${visit.shop_id || 'null'}, ${visit.shop_zone_id || 'null'}, '${visit.order_booker_name || ''}', ${visit.order_booker_id || 'null'}, '${visit.delivery_man_name || ''}', ${visit.delivery_man_id || 'null'}, '${visit.visit_type || ''}', ${visit.gps_lat || 'null'}, ${visit.gps_lng || 'null'}, '${visit.visit_time || ''}', '${visit.photo || ''}', '${reason}')" style="margin-bottom: 10px; cursor: pointer;">
                             <div class="list-item-info">
                                 <strong>${visit.shop_name || 'Unregistered Shop'}</strong>
                                 ${visit.visit_type ? `<span style="background: ${visitTypeColor}; color: white; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-left: 10px;">${visitTypeLabel}</span>` : ''}
@@ -2842,13 +3123,13 @@
                 </div>
                 ` : ''}
                 
-                ${photo && photo.trim() !== '' && photo !== 'null' && photo !== 'undefined' ? `
+                ${photo ? `
                 <div class="info-card" style="margin-bottom: 20px;">
                     <h3 style="color: #667eea; margin-bottom: 15px;">Photo Proof</h3>
                     <div style="text-align: center;">
-                        <img src="${photo}" alt="Visit Photo" style="max-width: 100%; max-height: 400px; border-radius: 5px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);" onerror="this.onerror=null; this.src='data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'400\\' height=\\'300\\'%3E%3Ctext x=\\'50%25\\' y=\\'50%25\\' text-anchor=\\'middle\\' dy=\\'.3em\\' fill=\\'%23999\\'%3EImage not found%3C/text%3E%3C/svg%3E';">
+                        <img src="${photo}" alt="Visit Photo" style="max-width: 100%; max-height: 400px; border-radius: 5px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
                         <br><br>
-                        <a href="${photo}" target="_blank" style="color: #667eea; text-decoration: none;">🔗 Open Full Size</a>
+                        <a href="${photo}" target="_blank" style="color: #667eea;">Open Full Size</a>
                     </div>
                 </div>
                 ` : ''}
@@ -2857,69 +3138,6 @@
 
         function closeViewVisitModal() {
             const modal = document.getElementById('viewVisitModal');
-            modal.classList.add('hidden');
-            modal.style.display = 'none';
-        }
-
-        // Open CNIC Photos Modal
-        function openCnicPhotosModal(cnicFrontPhoto, cnicBackPhoto) {
-            const modal = document.getElementById('cnicPhotosModal');
-            modal.classList.remove('hidden');
-            modal.style.display = 'flex';
-            
-            // Clean and validate photo URLs
-            const frontPhoto = (cnicFrontPhoto && cnicFrontPhoto.trim() !== '' && cnicFrontPhoto !== 'null' && cnicFrontPhoto !== 'undefined') ? cnicFrontPhoto.trim() : null;
-            const backPhoto = (cnicBackPhoto && cnicBackPhoto.trim() !== '' && cnicBackPhoto !== 'null' && cnicBackPhoto !== 'undefined') ? cnicBackPhoto.trim() : null;
-            
-            const contentDiv = document.getElementById('cnicPhotosContent');
-            let html = '<div style="display: flex; flex-direction: column; gap: 20px;">';
-            
-            if (frontPhoto) {
-                html += `
-                    <div class="info-card">
-                        <h3 style="color: #667eea; margin-bottom: 15px;">CNIC Front Side</h3>
-                        <div style="text-align: center;">
-                            <img src="${frontPhoto}" alt="CNIC Front" style="max-width: 100%; max-height: 400px; border-radius: 5px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);" onerror="this.onerror=null; this.src='data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'400\\' height=\\'300\\'%3E%3Ctext x=\\'50%25\\' y=\\'50%25\\' text-anchor=\\'middle\\' dy=\\'.3em\\' fill=\\'%23999\\'%3EImage not found%3C/text%3E%3C/svg%3E';">
-                            <br><br>
-                            <a href="${frontPhoto}" target="_blank" style="color: #667eea; text-decoration: none;">🔗 Open Full Size</a>
-                        </div>
-                    </div>
-                `;
-            } else {
-                html += `
-                    <div class="info-card">
-                        <h3 style="color: #667eea; margin-bottom: 15px;">CNIC Front Side</h3>
-                        <p style="color: #999; text-align: center; padding: 20px;">No front photo available</p>
-                    </div>
-                `;
-            }
-            
-            if (backPhoto) {
-                html += `
-                    <div class="info-card">
-                        <h3 style="color: #667eea; margin-bottom: 15px;">CNIC Back Side</h3>
-                        <div style="text-align: center;">
-                            <img src="${backPhoto}" alt="CNIC Back" style="max-width: 100%; max-height: 400px; border-radius: 5px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);" onerror="this.onerror=null; this.src='data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'400\\' height=\\'300\\'%3E%3Ctext x=\\'50%25\\' y=\\'50%25\\' text-anchor=\\'middle\\' dy=\\'.3em\\' fill=\\'%23999\\'%3EImage not found%3C/text%3E%3C/svg%3E';">
-                            <br><br>
-                            <a href="${backPhoto}" target="_blank" style="color: #667eea; text-decoration: none;">🔗 Open Full Size</a>
-                        </div>
-                    </div>
-                `;
-            } else {
-                html += `
-                    <div class="info-card">
-                        <h3 style="color: #667eea; margin-bottom: 15px;">CNIC Back Side</h3>
-                        <p style="color: #999; text-align: center; padding: 20px;">No back photo available</p>
-                    </div>
-                `;
-            }
-            
-            html += '</div>';
-            contentDiv.innerHTML = html;
-        }
-
-        function closeCnicPhotosModal() {
-            const modal = document.getElementById('cnicPhotosModal');
             modal.classList.add('hidden');
             modal.style.display = 'none';
         }
@@ -2933,10 +3151,6 @@
             const visitModal = document.getElementById('viewVisitModal');
             if (event.target === visitModal) {
                 closeViewVisitModal();
-            }
-            const cnicPhotosModal = document.getElementById('cnicPhotosModal');
-            if (event.target === cnicPhotosModal) {
-                closeCnicPhotosModal();
             }
         }
     </script>

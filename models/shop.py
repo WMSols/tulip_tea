@@ -216,6 +216,39 @@ class Shop(Base):
       * Zone-based reporting
     """
 
+    # Photo URLs (stored in Supabase Storage)
+    owner_cnic_front_photo = Column(String, nullable=True)
+    """
+    URL to owner CNIC front side photo.
+    - Stored in Supabase Storage bucket: shop-registrations
+    - Path: cnic/front/shop_{id}_cnic_front_{timestamp}_{uuid}.jpg
+    - Nullable: Optional field
+    """
+
+    owner_cnic_back_photo = Column(String, nullable=True)
+    """
+    URL to owner CNIC back side photo.
+    - Stored in Supabase Storage bucket: shop-registrations
+    - Path: cnic/back/shop_{id}_cnic_back_{timestamp}_{uuid}.jpg
+    - Nullable: Optional field
+    """
+
+    shop_exterior_photo = Column(String, nullable=True)
+    """
+    URL to shop exterior/facade photo.
+    - Stored in Supabase Storage bucket: shop-registrations
+    - Path: exterior/shop_{id}_exterior_{timestamp}_{uuid}.jpg
+    - Nullable: Optional field
+    """
+
+    owner_photo = Column(String, nullable=True)
+    """
+    URL to shop owner photo.
+    - Stored in Supabase Storage bucket: shop-registrations
+    - Path: owner/shop_{id}_owner_{timestamp}_{uuid}.jpg
+    - Nullable: Optional field
+    """
+
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     """

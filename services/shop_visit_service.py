@@ -24,6 +24,7 @@ from repositories.shop_visit_repository import ShopVisitRepository
 from repositories.shop_repository import ShopRepository
 from repositories.order_booker_repository import OrderBookerRepository
 from repositories.delivery_man_repository import DeliveryManRepository
+from services.image_service import ImageService
 from decimal import Decimal
 from typing import Dict, List, Optional
 from datetime import datetime
@@ -72,11 +73,14 @@ class ShopVisitService:
         if not order_booker_id and not delivery_man_id:
             raise ValueError("Either order_booker_id or delivery_man_id must be provided")
         
-        # Validate shop exists if shop_id provided
+        # Validate shop exists and is approved if shop_id provided
         if shop_id:
             shop = ShopRepository.get_by_id(db, shop_id)
             if not shop:
                 raise ValueError("Shop not found")
+            # Only approved shops can have visits registered
+            if shop.registration_status != "approved":
+                raise ValueError(f"Visits can only be registered for approved shops. This shop status is: {shop.registration_status}")
         
         # Validate order booker exists if order_booker_id provided
         if order_booker_id:
@@ -97,7 +101,19 @@ class ShopVisitService:
             except (ValueError, AttributeError):
                 raise ValueError("Invalid visit_time format. Use ISO format (e.g., 2026-01-07T10:30:00)")
         
-        # Create visit
+        # Store original photo (base64) temporarily - we'll upload it after creating the visit
+        photo_base64 = photo
+        photo_url = None
+        
+        # Create visit (initially without photo URL if it's base64)
+        # If photo is already a URL (not base64), use it directly
+        if photo and not photo.startswith('data:image'):
+            # Photo is already a URL
+            photo_url = photo
+        else:
+            # Photo is base64, will upload after visit creation
+            photo_url = None
+        
         visit = ShopVisitRepository.create(
             db=db,
             shop_id=shop_id,
@@ -107,9 +123,34 @@ class ShopVisitService:
             gps_lat=gps_lat_decimal,
             gps_lng=gps_lng_decimal,
             visit_time=visit_time_datetime,
-            photo=photo,
+            photo=photo_url,  # Will be None if base64, URL if already uploaded
             reason=reason
         )
+        
+        # Upload photo to Supabase Storage if it's base64
+        if photo_base64 and photo_base64.startswith('data:image'):
+            try:
+                # Upload to Supabase Storage
+                uploaded_url = ImageService.upload_shop_visit_photo(
+                    visit_id=visit.id,
+                    order_booker_id=order_booker_id,
+                    delivery_man_id=delivery_man_id,
+                    base64_image=photo_base64
+                )
+                
+                if uploaded_url:
+                    # Update visit with photo URL
+                    visit.photo = uploaded_url
+                    db.commit()
+                    db.refresh(visit)
+                    photo_url = uploaded_url
+                else:
+                    # Upload failed, but visit was created - log warning
+                    print(f"Warning: Failed to upload visit photo for visit ID {visit.id}")
+            except Exception as e:
+                # Upload failed, but visit was created - log error
+                print(f"Error uploading visit photo: {e}")
+                # Visit is still created, just without photo URL
         
         # Get shop name for response
         shop_name = None

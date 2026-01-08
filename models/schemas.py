@@ -163,6 +163,8 @@ class ShopRegister(BaseModel):
     route_id: Optional[int] = None  # Optional route to assign shop to
     credit_limit: Optional[float] = 0
     legacy_balance: Optional[float] = 0
+    owner_cnic_front_photo: Optional[str] = None  # Base64 encoded image
+    owner_cnic_back_photo: Optional[str] = None  # Base64 encoded image
 
 
 class ShopResponse(BaseModel):
@@ -184,6 +186,10 @@ class ShopResponse(BaseModel):
     assigned_to_order_booker: Optional[int] = None  # Current: who is currently responsible
     assigned_to_order_booker_name: Optional[str] = None
     routes: Optional[List[RouteInfo]] = []  # List of routes this shop belongs to (from route_shops junction table)
+    owner_cnic_front_photo: Optional[str] = None  # URL to CNIC front photo in Supabase Storage
+    owner_cnic_back_photo: Optional[str] = None  # URL to CNIC back photo in Supabase Storage
+    shop_exterior_photo: Optional[str] = None  # URL to shop exterior photo in Supabase Storage
+    owner_photo: Optional[str] = None  # URL to owner photo in Supabase Storage
     created_at: Optional[str]
 
     class Config:

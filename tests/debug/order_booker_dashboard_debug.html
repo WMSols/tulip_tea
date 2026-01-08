@@ -330,6 +330,72 @@
         .btn-success:hover {
             background: #218838;
         }
+        /* Tooltip Styles - Black/White Theme */
+        .api-tooltip {
+            position: absolute;
+            background: #ffffff;
+            color: #000000;
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-family: 'Courier New', monospace;
+            max-width: 400px;
+            z-index: 10000;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            border: 2px solid #000000;
+            pointer-events: none;
+            display: none;
+            line-height: 1.6;
+        }
+        .api-tooltip.active {
+            display: block;
+        }
+        .api-tooltip .tooltip-method {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-weight: bold;
+            margin-right: 8px;
+            font-size: 11px;
+            border: 1px solid #000000;
+        }
+        .api-tooltip .method-POST {
+            background: #000000;
+            color: #ffffff;
+        }
+        .api-tooltip .method-GET {
+            background: #000000;
+            color: #ffffff;
+        }
+        .api-tooltip .method-PUT {
+            background: #000000;
+            color: #ffffff;
+        }
+        .api-tooltip .method-DELETE {
+            background: #000000;
+            color: #ffffff;
+        }
+        .api-tooltip .tooltip-endpoint {
+            color: #000000;
+            word-break: break-all;
+            margin: 5px 0;
+            font-weight: bold;
+        }
+        .api-tooltip .tooltip-description {
+            color: #333333;
+            margin: 8px 0;
+            font-style: italic;
+        }
+        .api-tooltip .tooltip-function {
+            color: #000000;
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid #000000;
+            font-size: 11px;
+        }
+        .btn, .tab {
+            position: relative;
+        }
     </style>
 </head>
 <body>
@@ -340,6 +406,14 @@
         <div id="apiEndpoint" class="api-endpoint"></div>
         <div id="apiOperation" class="api-endpoint" style="color: #95a5a6; font-style: italic;"></div>
         <div id="apiStatus" class="api-status"></div>
+    </div>
+
+    <!-- API Tooltip (Shown on hover) -->
+    <div id="apiTooltip" class="api-tooltip">
+        <div id="tooltipMethod" class="tooltip-method"></div>
+        <div id="tooltipEndpoint" class="tooltip-endpoint"></div>
+        <div id="tooltipDescription" class="tooltip-description"></div>
+        <div id="tooltipFunction" class="tooltip-function"></div>
     </div>
 
     <div class="container">
@@ -471,24 +545,6 @@
                             <label>Legacy Balance (Optional)</label>
                             <input type="number" id="legacyBalance" step="0.01" placeholder="0.00">
                         </div>
-                        <div class="form-group">
-                            <label>Owner CNIC Front Photo (Optional)</label>
-                            <input type="file" id="cnicFrontPhoto" accept="image/*" onchange="handleCnicFrontUpload(event)">
-                            <small style="color: #666; display: block; margin-top: 5px;">Upload owner CNIC front side photo</small>
-                            <div id="cnicFrontPreview" style="margin-top: 10px; display: none;">
-                                <img id="cnicFrontPreviewImg" src="" alt="CNIC Front Preview" style="max-width: 200px; max-height: 200px; border-radius: 5px; border: 2px solid #667eea;">
-                                <button type="button" class="btn btn-danger" onclick="clearCnicFrontPhoto()" style="margin-left: 10px; padding: 5px 10px; font-size: 12px;">Remove</button>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label>Owner CNIC Back Photo (Optional)</label>
-                            <input type="file" id="cnicBackPhoto" accept="image/*" onchange="handleCnicBackUpload(event)">
-                            <small style="color: #666; display: block; margin-top: 5px;">Upload owner CNIC back side photo</small>
-                            <div id="cnicBackPreview" style="margin-top: 10px; display: none;">
-                                <img id="cnicBackPreviewImg" src="" alt="CNIC Back Preview" style="max-width: 200px; max-height: 200px; border-radius: 5px; border: 2px solid #667eea;">
-                                <button type="button" class="btn btn-danger" onclick="clearCnicBackPhoto()" style="margin-left: 10px; padding: 5px 10px; font-size: 12px;">Remove</button>
-                            </div>
-                        </div>
                         <button type="submit" class="btn btn-primary">Register Shop</button>
                     </form>
                         <div id="shopResult" class="result"></div>
@@ -553,7 +609,7 @@
                             <select id="visitShopId">
                                 <option value="">Select Shop (Optional)</option>
                             </select>
-                            <small style="color: #666; display: block; margin-top: 5px;">Only approved shops are shown. Visits can only be registered for approved shops.</small>
+                            <small style="color: #666; display: block; margin-top: 5px;">Leave empty if visiting a new/unregistered shop</small>
                         </div>
                         <div class="form-group">
                             <label>Visit Type (Optional)</label>
@@ -623,6 +679,220 @@
         let currentUser = null;
         let myRoutesData = []; // Store routes assigned to order booker
         let availableZones = []; // Store zones from assigned routes
+
+        // API Information Mapping for Tooltips
+        const API_INFO = {
+            'login': {
+                method: 'POST',
+                endpoint: '/auth/login/order-booker',
+                description: 'Authenticate order booker and get access token',
+                function: 'routers.auth.login_order_booker() → services.auth_service.authenticate_order_booker()'
+            },
+            'logout': {
+                method: 'N/A',
+                endpoint: 'Client-side only',
+                description: 'Clear session and return to login screen',
+                function: 'Client-side function (no API call)'
+            },
+            'switchTab': {
+                method: 'N/A',
+                endpoint: 'Client-side only',
+                description: 'Switch between dashboard tabs',
+                function: 'Client-side function (may trigger API calls)'
+            },
+            'loadMyRoutes': {
+                method: 'GET',
+                endpoint: '/routes/order-booker/{order_booker_id}',
+                description: 'Get all routes assigned to the current order booker',
+                function: 'routers.route.get_routes_by_order_booker() → services.route_service.get_routes_by_order_booker()'
+            },
+            'loadZonesForRoutes': {
+                method: 'GET',
+                endpoint: '/zones/',
+                description: 'Get all zones (filtered by assigned routes)',
+                function: 'routers.zone.list_zones() → services.zone_service.get_all_zones()'
+            },
+            'registerShop': {
+                method: 'POST',
+                endpoint: '/shops/order-booker/{order_booker_id}',
+                description: 'Register a new shop with distributor approval pending',
+                function: 'routers.shop.register_shop() → services.shop_service.register_shop()'
+            },
+            'loadMyShops': {
+                method: 'GET',
+                endpoint: '/shops/order-booker/{order_booker_id}',
+                description: 'Get all shops registered by the current order booker',
+                function: 'routers.shop.list_shops_by_order_booker() → services.shop_service.get_shops_by_order_booker()'
+            },
+            'requestCreditLimitChange': {
+                method: 'POST',
+                endpoint: '/credit-limit-requests/order-booker/{order_booker_id}',
+                description: 'Request credit limit change for a shop',
+                function: 'routers.credit_limit_request.create_request() → services.credit_limit_request_service.create_request()'
+            },
+            'loadMyCreditLimitRequests': {
+                method: 'GET',
+                endpoint: '/credit-limit-requests/pending',
+                description: 'Get all pending credit limit requests (filtered by current order booker)',
+                function: 'routers.credit_limit_request.list_pending() → services.credit_limit_request_service.get_pending_requests()'
+            },
+            'registerVisit': {
+                method: 'POST',
+                endpoint: '/shop-visits/order-booker/{order_booker_id}',
+                description: 'Register a shop visit with GPS, photo, and reason',
+                function: 'routers.shop_visit.register_visit() → services.shop_visit_service.register_visit()'
+            },
+            'loadShopsForVisitRegistration': {
+                method: 'GET',
+                endpoint: '/shops/order-booker/{order_booker_id}',
+                description: 'Load shops for visit registration dropdown',
+                function: 'routers.shop.list_shops_by_order_booker() → services.shop_service.get_shops_by_order_booker()'
+            },
+            'loadMyVisits': {
+                method: 'GET',
+                endpoint: '/shop-visits/order-booker/{order_booker_id}?limit=50',
+                description: 'Get all visits made by the current order booker',
+                function: 'routers.shop_visit.list_visits_by_order_booker() → services.shop_visit_service.get_visits_by_order_booker()'
+            },
+            'resubmitRejectedShop': {
+                method: 'PUT',
+                endpoint: '/shops/{shop_id}/resubmit',
+                description: 'Resubmit a rejected shop for distributor approval',
+                function: 'routers.shop.resubmit_shop() → services.shop_service.resubmit_shop()'
+            },
+            'getCurrentLocation': {
+                method: 'N/A',
+                endpoint: 'Browser Geolocation API',
+                description: 'Get current GPS coordinates from device using browser geolocation',
+                function: 'Client-side: navigator.geolocation.getCurrentPosition()'
+            },
+            'clearPhoto': {
+                method: 'N/A',
+                endpoint: 'Client-side only',
+                description: 'Clear the selected photo from visit registration form',
+                function: 'Client-side function (no API call)'
+            },
+            'selectShopForCreditRequest': {
+                method: 'N/A',
+                endpoint: 'Client-side only',
+                description: 'Select a shop for credit limit request form',
+                function: 'Client-side function (no API call)'
+            },
+            'openEditRejectedShopModal': {
+                method: 'N/A',
+                endpoint: 'Client-side only',
+                description: 'Open modal to edit and resubmit a rejected shop',
+                function: 'Client-side function (no API call)'
+            }
+        };
+
+        // Show tooltip on hover
+        function showTooltip(event, functionName) {
+            const tooltip = document.getElementById('apiTooltip');
+            const info = API_INFO[functionName];
+            
+            if (!info) return;
+            
+            const methodEl = document.getElementById('tooltipMethod');
+            const endpointEl = document.getElementById('tooltipEndpoint');
+            const descEl = document.getElementById('tooltipDescription');
+            const funcEl = document.getElementById('tooltipFunction');
+            
+            if (info.method !== 'N/A') {
+                methodEl.textContent = info.method;
+                methodEl.className = `tooltip-method method-${info.method}`;
+            } else {
+                methodEl.textContent = '';
+                methodEl.className = '';
+            }
+            
+            endpointEl.textContent = info.endpoint;
+            descEl.textContent = info.description;
+            funcEl.textContent = `Backend: ${info.function}`;
+            
+            // Position tooltip
+            const rect = event.target.getBoundingClientRect();
+            tooltip.style.left = (rect.left + rect.width / 2 - 200) + 'px';
+            tooltip.style.top = (rect.bottom + 10) + 'px';
+            
+            tooltip.classList.add('active');
+        }
+
+        // Hide tooltip
+        function hideTooltip() {
+            const tooltip = document.getElementById('apiTooltip');
+            tooltip.classList.remove('active');
+        }
+
+        // Attach tooltip handlers to buttons and tabs
+        document.addEventListener('DOMContentLoaded', function() {
+            // Map onclick/onsubmit handlers to function names
+            const buttonMap = {
+                'login': 'login',
+                'logout': 'logout',
+                'loadMyRoutes': 'loadMyRoutes',
+                'registerShop': 'registerShop',
+                'loadMyShops': 'loadMyShops',
+                'requestCreditLimitChange': 'requestCreditLimitChange',
+                'loadMyCreditLimitRequests': 'loadMyCreditLimitRequests',
+                'registerVisit': 'registerVisit',
+                'loadMyVisits': 'loadMyVisits',
+                'getCurrentLocation': 'getCurrentLocation',
+                'clearPhoto': 'clearPhoto',
+                'selectShopForCreditRequest': 'selectShopForCreditRequest',
+                'openEditRejectedShopModal': 'openEditRejectedShopModal',
+                'switchTab': 'switchTab'
+            };
+            
+            // Add hover handlers to buttons
+            Object.keys(buttonMap).forEach(funcName => {
+                const buttons = document.querySelectorAll(`[onclick*="${funcName}"]`);
+                buttons.forEach(btn => {
+                    btn.addEventListener('mouseenter', (e) => showTooltip(e, buttonMap[funcName]));
+                    btn.addEventListener('mouseleave', hideTooltip);
+                });
+            });
+            
+            // Add hover handlers to tabs
+            const tabs = document.querySelectorAll('.tab');
+            tabs.forEach(tab => {
+                tab.addEventListener('mouseenter', (e) => {
+                    const tabText = tab.textContent.trim();
+                    if (tabText.includes('Dashboard')) {
+                        showTooltip(e, 'loadMyRoutes');
+                    } else if (tabText.includes('Register Shop')) {
+                        showTooltip(e, 'registerShop');
+                    } else if (tabText.includes('My Shops')) {
+                        showTooltip(e, 'loadMyShops');
+                    } else if (tabText.includes('Credit Limits')) {
+                        showTooltip(e, 'loadMyCreditLimitRequests');
+                    } else if (tabText.includes('Register Visit')) {
+                        showTooltip(e, 'registerVisit');
+                    } else if (tabText.includes('Visit History')) {
+                        showTooltip(e, 'loadMyVisits');
+                    } else {
+                        showTooltip(e, 'switchTab');
+                    }
+                });
+                tab.addEventListener('mouseleave', hideTooltip);
+            });
+            
+            // Add hover handlers to form submit buttons
+            const forms = document.querySelectorAll('form');
+            forms.forEach(form => {
+                const onSubmit = form.getAttribute('onsubmit');
+                if (onSubmit) {
+                    const match = onSubmit.match(/(\w+)\(/);
+                    if (match && buttonMap[match[1]]) {
+                        const submitBtn = form.querySelector('button[type="submit"]');
+                        if (submitBtn) {
+                            submitBtn.addEventListener('mouseenter', (e) => showTooltip(e, buttonMap[match[1]]));
+                            submitBtn.addEventListener('mouseleave', hideTooltip);
+                        }
+                    }
+                }
+            });
+        });
 
         /**
          * Show API call information in the helper panel
@@ -928,9 +1198,7 @@
                 zone_id: document.getElementById('shopZoneId').value ? parseInt(document.getElementById('shopZoneId').value) : null,
                 route_id: document.getElementById('shopRouteId').value ? parseInt(document.getElementById('shopRouteId').value) : null,
                 credit_limit: document.getElementById('creditLimit').value ? parseFloat(document.getElementById('creditLimit').value) : 0,
-                legacy_balance: document.getElementById('legacyBalance').value ? parseFloat(document.getElementById('legacyBalance').value) : 0,
-                owner_cnic_front_photo: cnicFrontPhotoBase64,
-                owner_cnic_back_photo: cnicBackPhotoBase64
+                legacy_balance: document.getElementById('legacyBalance').value ? parseFloat(document.getElementById('legacyBalance').value) : 0
             };
 
             const endpoint = `${API_BASE}/shops/order-booker/${currentUser.id}`;
@@ -968,8 +1236,6 @@
                 showApiCall('POST', endpoint, 'Register Shop', 'success');
 
                 document.getElementById('shopRegistrationForm').reset();
-                clearCnicFrontPhoto();
-                clearCnicBackPhoto();
                 loadMyShops();
             } catch (error) {
                 resultDiv.className = 'result error';
@@ -1012,11 +1278,9 @@
                                       shop.registration_status === 'pending' ? 'orange' : 'red';
                     const statusText = shop.registration_status || 'pending';
                     const isRejected = statusText === 'rejected';
-                    // Get first route ID if shop has routes
-                    const firstRouteId = shop.routes && shop.routes.length > 0 ? shop.routes[0].route_id : 'null';
                     
                     return `
-                    <div class="list-item" ${isRejected ? `onclick="openEditRejectedShopModal(${shop.id}, '${(shop.name || '').replace(/'/g, "\\'")}', '${(shop.owner_name || '').replace(/'/g, "\\'")}', '${(shop.owner_phone || '').replace(/'/g, "\\'")}', ${shop.gps_lat || 0}, ${shop.gps_lng || 0}, ${shop.credit_limit || 0}, ${shop.legacy_balance || 0}, ${shop.zone_id || 'null'}, ${firstRouteId})"` : `onclick="selectShopForCreditRequest(${shop.id}, '${shop.name}', ${shop.credit_limit || 0})"`}>
+                    <div class="list-item" ${isRejected ? `onclick="openEditRejectedShopModal(${shop.id}, '${(shop.name || '').replace(/'/g, "\\'")}', '${(shop.owner_name || '').replace(/'/g, "\\'")}', '${(shop.owner_phone || '').replace(/'/g, "\\'")}', ${shop.gps_lat || 0}, ${shop.gps_lng || 0}, ${shop.credit_limit || 0}, ${shop.legacy_balance || 0}, ${shop.zone_id || 'null'})"` : `onclick="selectShopForCreditRequest(${shop.id}, '${shop.name}', ${shop.credit_limit || 0})"`}>
                         <div class="list-item-info">
                             <strong>${shop.name}</strong>
                             ${isRejected ? '<span style="background: #dc3545; color: white; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-left: 10px;">REJECTED - Click to Edit & Resubmit</span>' : ''}
@@ -1188,7 +1452,7 @@
         }
 
         // Open Edit Rejected Shop Modal
-        function openEditRejectedShopModal(shopId, name, ownerName, ownerPhone, gpsLat, gpsLng, creditLimit, legacyBalance, zoneId, routeId) {
+        function openEditRejectedShopModal(shopId, name, ownerName, ownerPhone, gpsLat, gpsLng, creditLimit, legacyBalance, zoneId) {
             const modal = document.getElementById('editRejectedShopModal');
             modal.classList.remove('hidden');
             modal.classList.add('active');
@@ -1211,9 +1475,8 @@
                 zoneSelect.innerHTML = '<option value="">No zones available</option>';
             }
             
-            // Populate route dropdown based on selected zone and pre-select current route
-            const currentZoneId = zoneId ? parseInt(zoneId) : null;
-            updateRejectedShopRouteDropdown(currentZoneId, routeId && routeId !== 'null' ? parseInt(routeId) : null);
+            // Populate route dropdown based on selected zone
+            updateRejectedShopRouteDropdown(zoneId ? parseInt(zoneId) : null);
         }
 
         function closeEditRejectedShopModal() {
@@ -1223,7 +1486,7 @@
         }
 
         // Update route dropdown for rejected shop modal
-        function updateRejectedShopRouteDropdown(selectedZoneId = null, preSelectRouteId = null) {
+        function updateRejectedShopRouteDropdown(selectedZoneId = null) {
             const routeSelect = document.getElementById('editRejectedRouteId');
             if (!routeSelect) return;
             
@@ -1248,8 +1511,7 @@
                 routeSelect.innerHTML = '<option value="">Select Route (Optional)</option>' + 
                     filteredRoutes.map(r => {
                         const zoneName = r.zone_id ? (zoneMap[r.zone_id] || `Zone ${r.zone_id}`) : 'No Zone';
-                        const selected = preSelectRouteId && r.id == preSelectRouteId ? 'selected' : '';
-                        return `<option value="${r.id}" ${selected}>${r.name} (${zoneName})</option>`;
+                        return `<option value="${r.id}">${r.name} (${zoneName})</option>`;
                     }).join('');
             } else {
                 routeSelect.innerHTML = '<option value="">No routes available' + 
@@ -1332,10 +1594,8 @@
             }
         }
 
-        // Store photos as base64
+        // Store photo as base64
         let visitPhotoBase64 = null;
-        let cnicFrontPhotoBase64 = null;
-        let cnicBackPhotoBase64 = null;
 
         // Handle photo upload and convert to base64
         function handlePhotoUpload(event) {
@@ -1368,72 +1628,6 @@
             visitPhotoBase64 = null;
             document.getElementById('visitPhoto').value = '';
             document.getElementById('photoPreview').style.display = 'none';
-        }
-
-        // Handle CNIC Front Photo Upload
-        function handleCnicFrontUpload(event) {
-            const file = event.target.files[0];
-            if (!file) {
-                cnicFrontPhotoBase64 = null;
-                document.getElementById('cnicFrontPreview').style.display = 'none';
-                return;
-            }
-
-            if (file.size > 5 * 1024 * 1024) { // 5MB limit
-                alert('Photo size must be less than 5MB');
-                event.target.value = '';
-                cnicFrontPhotoBase64 = null;
-                document.getElementById('cnicFrontPreview').style.display = 'none';
-                return;
-            }
-
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                cnicFrontPhotoBase64 = e.target.result; // Base64 string
-                document.getElementById('cnicFrontPreviewImg').src = cnicFrontPhotoBase64;
-                document.getElementById('cnicFrontPreview').style.display = 'block';
-            };
-            reader.readAsDataURL(file);
-        }
-
-        // Clear CNIC Front Photo
-        function clearCnicFrontPhoto() {
-            cnicFrontPhotoBase64 = null;
-            document.getElementById('cnicFrontPhoto').value = '';
-            document.getElementById('cnicFrontPreview').style.display = 'none';
-        }
-
-        // Handle CNIC Back Photo Upload
-        function handleCnicBackUpload(event) {
-            const file = event.target.files[0];
-            if (!file) {
-                cnicBackPhotoBase64 = null;
-                document.getElementById('cnicBackPreview').style.display = 'none';
-                return;
-            }
-
-            if (file.size > 5 * 1024 * 1024) { // 5MB limit
-                alert('Photo size must be less than 5MB');
-                event.target.value = '';
-                cnicBackPhotoBase64 = null;
-                document.getElementById('cnicBackPreview').style.display = 'none';
-                return;
-            }
-
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                cnicBackPhotoBase64 = e.target.result; // Base64 string
-                document.getElementById('cnicBackPreviewImg').src = cnicBackPhotoBase64;
-                document.getElementById('cnicBackPreview').style.display = 'block';
-            };
-            reader.readAsDataURL(file);
-        }
-
-        // Clear CNIC Back Photo
-        function clearCnicBackPhoto() {
-            cnicBackPhotoBase64 = null;
-            document.getElementById('cnicBackPhoto').value = '';
-            document.getElementById('cnicBackPreview').style.display = 'none';
         }
 
         // Get current GPS location
@@ -1523,7 +1717,7 @@
             }
         }
 
-        // Load shops for visit registration dropdown (only approved shops)
+        // Load shops for visit registration dropdown
         async function loadShopsForVisitRegistration() {
             if (!currentUser || !currentUser.id) return;
             
@@ -1531,26 +1725,16 @@
             if (!visitShopSelect) return;
             
             try {
-                // Fetch only approved shops for visit registration
-                const shopsResponse = await fetch(`${API_BASE}/shops/order-booker/${currentUser.id}?approved_only=true`, {
+                const shopsResponse = await fetch(`${API_BASE}/shops/order-booker/${currentUser.id}`, {
                     headers: { 'Authorization': `Bearer ${currentToken}` }
                 });
                 if (shopsResponse.ok) {
                     const shops = await shopsResponse.json();
-                    if (shops.length === 0) {
-                        visitShopSelect.innerHTML = '<option value="">No approved shops available</option>';
-                    } else {
-                        visitShopSelect.innerHTML = '<option value="">Select Shop (Optional)</option>' +
-                            shops.map(shop => `<option value="${shop.id}">${shop.name}${shop.owner_name ? ' - ' + shop.owner_name : ''}</option>`).join('');
-                    }
-                } else {
-                    const errorData = await shopsResponse.json();
-                    console.error('Error loading shops for visit registration:', errorData);
-                    visitShopSelect.innerHTML = '<option value="">Error loading shops</option>';
+                    visitShopSelect.innerHTML = '<option value="">Select Shop (Optional)</option>' +
+                        shops.map(shop => `<option value="${shop.id}">${shop.name}${shop.owner_name ? ' - ' + shop.owner_name : ''}</option>`).join('');
                 }
             } catch (error) {
                 console.error('Error loading shops for visit registration:', error);
-                visitShopSelect.innerHTML = '<option value="">Error loading shops</option>';
             }
         }
 
@@ -1614,71 +1798,7 @@
                 listDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
             }
         }
-
-        // Close modal when clicking outside
-        window.onclick = function(event) {
-            const modal = document.getElementById('editRejectedShopModal');
-            if (event.target === modal) {
-                closeEditRejectedShopModal();
-            }
-        }
     </script>
-
-    <!-- Edit Rejected Shop Modal -->
-    <div id="editRejectedShopModal" class="modal hidden">
-        <div class="modal-content">
-            <span class="close-button" onclick="closeEditRejectedShopModal()">&times;</span>
-            <h2>Edit & Resubmit Rejected Shop</h2>
-            <p style="color: #666; margin-bottom: 20px;">This shop was rejected by the distributor. Please update the details and resubmit for approval.</p>
-            <form id="editRejectedShopForm" onsubmit="resubmitRejectedShop(event)">
-                <input type="hidden" id="editRejectedShopId">
-                
-                <div class="form-group">
-                    <label>Shop Name *</label>
-                    <input type="text" id="editRejectedShopName" required>
-                </div>
-                <div class="form-group">
-                    <label>Owner Name *</label>
-                    <input type="text" id="editRejectedOwnerName" required>
-                </div>
-                <div class="form-group">
-                    <label>Owner Phone *</label>
-                    <input type="text" id="editRejectedOwnerPhone" required>
-                </div>
-                <div class="form-group">
-                    <label>GPS Latitude *</label>
-                    <input type="number" id="editRejectedGpsLat" step="any" required>
-                </div>
-                <div class="form-group">
-                    <label>GPS Longitude *</label>
-                    <input type="number" id="editRejectedGpsLng" step="any" required>
-                </div>
-                <div class="form-group">
-                    <label>Zone (Optional)</label>
-                    <select id="editRejectedZoneId">
-                        <option value="">Select Zone (Optional)</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Route (Optional)</label>
-                    <select id="editRejectedRouteId">
-                        <option value="">Select Route (Optional)</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Credit Limit (Optional)</label>
-                    <input type="number" id="editRejectedCreditLimit" step="0.01" placeholder="0.00">
-                </div>
-                <div class="form-group">
-                    <label>Legacy Balance (Optional)</label>
-                    <input type="number" id="editRejectedLegacyBalance" step="0.01" placeholder="0.00">
-                </div>
-                <button type="submit" class="btn btn-primary">Resubmit for Approval</button>
-                <button type="button" class="btn" onclick="closeEditRejectedShopModal()" style="background: #6c757d; color: white; margin-left: 10px;">Cancel</button>
-            </form>
-            <div id="editRejectedShopResult" class="result"></div>
-        </div>
-    </div>
 </body>
 </html>
 

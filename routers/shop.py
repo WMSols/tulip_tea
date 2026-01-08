@@ -10,7 +10,7 @@ API ENDPOINTS:
 - PUT /shops/{id} - Update shop data (Distributor)
 - POST /shops/{id}/verify - Verify/approve shop (Distributor)
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import List
 from decimal import Decimal
@@ -68,7 +68,9 @@ async def register_shop(
             zone_id=shop.zone_id,
             route_id=shop.route_id,
             credit_limit=Decimal(str(shop.credit_limit)) if shop.credit_limit else None,
-            legacy_balance=Decimal(str(shop.legacy_balance)) if shop.legacy_balance else None
+            legacy_balance=Decimal(str(shop.legacy_balance)) if shop.legacy_balance else None,
+            owner_cnic_front_photo=shop.owner_cnic_front_photo,
+            owner_cnic_back_photo=shop.owner_cnic_back_photo
         )
         return result
     except ValueError as e:
@@ -79,16 +81,23 @@ async def register_shop(
 
 
 @router.get("/order-booker/{order_booker_id}", response_model=List[ShopResponse])
-async def list_shops_by_order_booker(order_booker_id: int, db: Session = Depends(get_db)):
+async def list_shops_by_order_booker(
+    order_booker_id: int, 
+    approved_only: bool = Query(False, description="Filter to show only approved shops (for visit registration)"),
+    db: Session = Depends(get_db)
+):
     """
     List all shops registered by an order booker.
     
-    API: GET /shops/order-booker/{order_booker_id}
+    API: GET /shops/order-booker/{order_booker_id}?approved_only=true
+    
+    Query Parameters:
+        approved_only: If true, returns only shops with registration_status="approved" (useful for visit registration)
     
     Response (200):
         List of shops with their details
     """
-    shops = ShopService.get_shops_by_order_booker(db=db, order_booker_id=order_booker_id)
+    shops = ShopService.get_shops_by_order_booker(db=db, order_booker_id=order_booker_id, approved_only=approved_only)
     return shops
 
 
@@ -139,6 +148,10 @@ async def list_pending_shops(db: Session = Depends(get_db)):
                 "created_by_order_booker_name": created_by_name,  # Historical creator
                 "assigned_to_order_booker": shop.assigned_to_order_booker,  # Current assignee
                 "assigned_to_order_booker_name": assigned_to_name,  # Current assignee name
+                "owner_cnic_front_photo": shop.owner_cnic_front_photo,
+                "owner_cnic_back_photo": shop.owner_cnic_back_photo,
+                "shop_exterior_photo": shop.shop_exterior_photo,
+                "owner_photo": shop.owner_photo,
                 "created_at": shop.created_at.isoformat() if shop.created_at else None
             })
         return result

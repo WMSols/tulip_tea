@@ -59,17 +59,40 @@ async def register_visit(
         Visit data with ID and timestamps
     """
     try:
+        # Convert order_items from Pydantic models to dicts
+        order_items_dicts = None
+        if visit.order_items and len(visit.order_items) > 0:
+            order_items_dicts = []
+            for item in visit.order_items:
+                # Convert Pydantic model to dict
+                # Try model_dump() first (Pydantic v2), fallback to dict() (Pydantic v1)
+                if hasattr(item, 'model_dump'):
+                    item_dict = item.model_dump(exclude_unset=True)
+                elif hasattr(item, 'dict'):
+                    item_dict = item.dict(exclude_unset=True)
+                else:
+                    # If it's already a dict, use it directly
+                    item_dict = dict(item) if not isinstance(item, dict) else item
+                
+                # Remove total_price if present (not in schema, calculated by backend)
+                item_dict.pop('total_price', None)
+                order_items_dicts.append(item_dict)
+        
         result = ShopVisitService.register_visit(
             db=db,
             shop_id=visit.shop_id,
             order_booker_id=order_booker_id,
             delivery_man_id=None,  # Order booker visits only
-            visit_type=visit.visit_type,
+            visit_types=visit.visit_types or [],
             gps_lat=visit.gps_lat,
             gps_lng=visit.gps_lng,
             visit_time=visit.visit_time,
             photo=visit.photo,
-            reason=visit.reason
+            reason=visit.reason,
+            order_items=order_items_dicts,
+            scheduled_date=visit.scheduled_date,
+            collection_amount=visit.collection_amount,
+            collection_remarks=visit.collection_remarks
         )
         return result
     except ValueError as e:
@@ -78,9 +101,13 @@ async def register_visit(
             detail=str(e)
         )
     except Exception as e:
+        import traceback
+        error_detail = f"Error registering visit: {str(e)}"
+        print(f"ERROR in register_visit: {error_detail}")
+        print(traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error registering visit: {str(e)}"
+            detail=error_detail
         )
 
 

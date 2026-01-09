@@ -17,11 +17,15 @@ WORKFLOW:
 
 RELATIONSHIPS:
 - Belongs to a Shop (via shop_id foreign key)
+- Can be linked to an Order (via order_id foreign key)
 - Collected by an Order Booker (via collected_by_order_booker foreign key)
-- Reviewed by a Distributor (via reviewed_by_distributor foreign key)
-- Moves to Payment (via payment_id reference, created after approval)
+- Can be collected by Delivery Man (via collected_by_delivery_man foreign key)
+- Verified by a Distributor (via verified_by_distributor foreign key)
+- Linked to Visit (via visit_id foreign key)
 
 DATABASE TABLE: daily_collections
+Actual columns: id, shop_id, order_id, collected_by_delivery_man, verified_by_distributor, 
+amount, status, collection_date, photo_proof, visit_id, collected_by_order_booker
 """
 from sqlalchemy import Column, BigInteger, Numeric, DateTime, ForeignKey, String, Text
 from sqlalchemy.sql import func
@@ -33,7 +37,7 @@ class DailyCollection(Base):
     Daily Collection table model.
     
     Maps to the 'daily_collections' table in PostgreSQL.
-    Each entry represents a collection made by an Order Booker that needs distributor approval.
+    Each entry represents a collection made by an Order Booker or Delivery Man that needs distributor verification.
     """
     __tablename__ = "daily_collections"
 
@@ -45,100 +49,85 @@ class DailyCollection(Base):
     """
 
     # Relationships
-    shop_id = Column(BigInteger, ForeignKey("shops.id"), nullable=False)
+    shop_id = Column(BigInteger, ForeignKey("shops.id"), nullable=True)
     """
     Foreign key to shops table.
     - Links collection to the shop where payment was collected
-    - Required field
     - Used for tracking which shop the collection belongs to
     """
 
-    collected_by_order_booker = Column(BigInteger, ForeignKey("order_bookers.id"), nullable=False)
+    order_id = Column(BigInteger, ForeignKey("orders.id"), nullable=True)
+    """
+    Foreign key to orders table.
+    - Links collection to a specific order (if applicable)
+    - Optional field
+    """
+
+    collected_by_order_booker = Column(BigInteger, ForeignKey("order_bookers.id"), nullable=True)
     """
     Foreign key to order_bookers table.
     - Links collection to the order booker who collected it
-    - Required field
+    - Nullable: Can also be collected by delivery man
     - Used for tracking who submitted the collection
     """
 
+    collected_by_delivery_man = Column(BigInteger, ForeignKey("delivery_men.id"), nullable=True)
+    """
+    Foreign key to delivery_men table.
+    - Links collection to the delivery man who collected it
+    - Nullable: Can also be collected by order booker
+    - Used for tracking who submitted the collection
+    """
+
+    verified_by_distributor = Column(BigInteger, ForeignKey("distributors.id"), nullable=True)
+    """
+    Foreign key to distributors table.
+    - Links collection to the distributor who verified it
+    - Nullable: Set when distributor verifies
+    - Used for tracking who verified the collection
+    """
+
+    visit_id = Column(BigInteger, ForeignKey("shop_visits.id"), nullable=True)
+    """
+    Foreign key to shop_visits table.
+    - Links collection to the visit where it was collected
+    - Nullable: For collections created outside of visits
+    """
+
     # Financial Information
-    amount = Column(Numeric(10, 2), nullable=False)
+    amount = Column(Numeric, nullable=True)
     """
     Collection amount.
-    - Required field
-    - Format: Decimal (10 digits total, 2 decimal places)
+    - Format: Decimal
     - Example: 5000.00 (Rs. 5,000)
     - Represents the amount collected from the shop
     """
 
-    # Status and Review
-    status = Column(String, nullable=False, default="pending")
+    # Status
+    status = Column(String, nullable=True)
     """
     Collection status.
-    - Values: "pending", "approved", "rejected"
+    - Values: "pending", "verified", "rejected"
     - Default: "pending" when first submitted
-    - "pending": Awaiting distributor approval
-    - "approved": Distributor approved, moved to payment
+    - "pending": Awaiting distributor verification
+    - "verified": Distributor verified, moved to payment
     - "rejected": Distributor rejected the collection
     """
 
-    reviewed_by_distributor = Column(BigInteger, ForeignKey("distributors.id"), nullable=True)
-    """
-    Foreign key to distributors table.
-    - Links collection to the distributor who reviewed it
-    - Nullable: Set when distributor reviews
-    - Used for tracking who approved/rejected the collection
-    """
-
-    reviewed_at = Column(DateTime(timezone=True), nullable=True)
-    """
-    Timestamp when distributor reviewed the collection.
-    - Nullable: Set when distributor reviews
-    - Timezone-aware (stores UTC)
-    - Used for tracking when collection was reviewed
-    """
-
-    remarks = Column(Text, nullable=True)
-    """
-    Remarks or notes about the collection.
-    - Optional field
-    - Can contain notes from order booker or distributor
-    - Used for rejection reasons or additional information
-    """
-
-    # Reference to Payment (created after approval)
-    payment_id = Column(BigInteger, ForeignKey("payments.id"), nullable=True)
-    """
-    Foreign key to payments table.
-    - Links to the payment record created after approval
-    - Nullable: Set when collection is approved and payment is created
-    - Used for tracking which payment this collection became
-    """
-
     # Timestamps
-    collected_at = Column(DateTime(timezone=True), nullable=True)
+    collection_date = Column(DateTime, nullable=True)
     """
     Timestamp when collection was made (at shop).
-    - Can be different from created_at
     - Used for tracking actual collection time
-    - Timezone-aware (stores UTC)
     """
 
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    # Photo Proof
+    photo_proof = Column(Text, nullable=True)
     """
-    Timestamp when collection entry was created.
-    - Automatically set by database on INSERT
-    - Timezone-aware (stores UTC)
-    - Used for auditing and sorting
-    """
-
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    """
-    Timestamp when collection entry was last updated.
-    - Automatically updated by database on UPDATE
-    - Timezone-aware (stores UTC)
-    - Used for tracking modifications
-    - Null on initial creation
+    Photo proof of collection.
+    - Optional field
+    - Can contain URL or base64 encoded image
+    - Used for verification purposes
     """
 
 

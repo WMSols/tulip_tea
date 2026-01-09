@@ -547,24 +547,88 @@
                     <div class="info-card">
                         <h3>📍 Register Shop Visit</h3>
                     <p style="color: #666; margin-bottom: 15px;">Record your visit to a shop. GPS coordinates can be captured automatically from your device.</p>
-                    <form id="visitRegistrationForm" onsubmit="registerVisit(event)">
+                    <form id="visitRegistrationForm" onsubmit="registerVisit(event)" novalidate>
                         <div class="form-group">
                             <label>Select Shop (Optional)</label>
-                            <select id="visitShopId">
+                            <select id="visitShopId" onchange="loadShopCreditInfo()">
                                 <option value="">Select Shop (Optional)</option>
                             </select>
                             <small style="color: #666; display: block; margin-top: 5px;">Only approved shops are shown. Visits can only be registered for approved shops.</small>
+                            <!-- Shop Credit Information Display -->
+                            <div id="shopCreditInfoDisplay" style="margin-top: 10px; padding: 15px; background: #e8f4f8; border-radius: 5px; border-left: 4px solid #3498db; display: none;">
+                                <h4 style="color: #3498db; margin: 0 0 10px 0; font-size: 16px;">💰 Shop Credit Information</h4>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 14px;">
+                                    <div>
+                                        <strong>Credit Limit:</strong> <span id="creditLimitValue" style="color: #2c3e50;">Rs. 0.00</span>
+                                    </div>
+                                    <div>
+                                        <strong>Outstanding Balance:</strong> <span id="outstandingBalanceValue" style="color: #e74c3c;">Rs. 0.00</span>
+                                    </div>
+                                    <div>
+                                        <strong>Legacy Balance:</strong> <span id="legacyBalanceValue" style="color: #f39c12;">Rs. 0.00</span>
+                                    </div>
+                                    <div>
+                                        <strong>Available Credit:</strong> <span id="availableCreditValue" style="color: #27ae60; font-weight: bold; font-size: 16px;">Rs. 0.00</span>
+                                    </div>
+                                </div>
+                                <div style="margin-top: 10px; padding: 8px; background: white; border-radius: 3px; font-size: 12px; color: #555;">
+                                    <strong>Note:</strong> You can only place orders up to the available credit amount. If you need to increase the credit limit, use the "Credit Limits" tab to request an increase.
+                                </div>
+                            </div>
                         </div>
                         <div class="form-group">
-                            <label>Visit Type (Optional)</label>
-                            <select id="visitType">
-                                <option value="">Select Visit Type (Optional)</option>
-                                <option value="order_booking">Order Booking</option>
-                                <option value="delivery">Delivery</option>
-                                <option value="collection">Collection</option>
-                                <option value="inspection">Inspection</option>
-                                <option value="other">Other</option>
-                            </select>
+                            <label>Visit Types (Select Multiple)</label>
+                            <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
+                                <label style="display: flex; align-items: center; cursor: pointer;">
+                                    <input type="checkbox" id="visitTypeOrderBooking" value="order_booking" onchange="toggleOrderForm()" style="width: auto; margin-right: 10px;">
+                                    <span>Order Booking</span>
+                                </label>
+                                <label style="display: flex; align-items: center; cursor: pointer;">
+                                    <input type="checkbox" id="visitTypeDailyCollections" value="daily_collections" onchange="toggleCollectionForm()" style="width: auto; margin-right: 10px;">
+                                    <span>Daily Collections</span>
+                                </label>
+                                <label style="display: flex; align-items: center; cursor: pointer;">
+                                    <input type="checkbox" id="visitTypeInspection" value="inspection" style="width: auto; margin-right: 10px;">
+                                    <span>Inspection</span>
+                                </label>
+                                <label style="display: flex; align-items: center; cursor: pointer;">
+                                    <input type="checkbox" id="visitTypeOther" value="other" style="width: auto; margin-right: 10px;">
+                                    <span>Other</span>
+                                </label>
+                            </div>
+                            <small style="color: #666; display: block; margin-top: 5px;">You can select multiple visit types. If you select "Order Booking" or "Daily Collections", additional forms will appear.</small>
+                        </div>
+                        
+                        <!-- Order Booking Form (shown when order_booking is selected) -->
+                        <div id="orderBookingForm" style="display: none; margin-top: 20px; padding: 20px; background: #f0f8ff; border-radius: 8px; border-left: 4px solid #3498db;">
+                            <h4 style="color: #3498db; margin-bottom: 15px;">📦 Order Details</h4>
+                            <div id="orderItemsContainer">
+                                <!-- Order items will be added dynamically when order booking is selected -->
+                            </div>
+                            <button type="button" class="btn btn-primary" onclick="addOrderItem()" style="margin-top: 10px;">+ Add Order Item</button>
+                            <div class="form-group" style="margin-top: 15px;">
+                                <label>Scheduled Delivery Date (Optional)</label>
+                                <input type="date" id="orderScheduledDate">
+                            </div>
+                            <div id="orderTotalDisplay" style="margin-top: 15px; padding: 10px; background: white; border-radius: 5px; font-weight: bold; color: #3498db;">
+                                Total Order Amount: Rs. <span id="orderTotalAmount">0.00</span>
+                            </div>
+                            <div id="shopCreditLimitInfo" style="margin-top: 10px; padding: 10px; background: #fff3cd; border-radius: 5px; font-size: 12px; color: #856404;">
+                                <strong>Note:</strong> Order will be validated against shop's credit limit before creation.
+                            </div>
+                        </div>
+                        
+                        <!-- Daily Collections Form (shown when daily_collections is selected) -->
+                        <div id="dailyCollectionsForm" style="display: none; margin-top: 20px; padding: 20px; background: #f0fff0; border-radius: 8px; border-left: 4px solid #27ae60;">
+                            <h4 style="color: #27ae60; margin-bottom: 15px;">💰 Collection Details</h4>
+                            <div class="form-group">
+                                <label>Collection Amount (Rs.) *</label>
+                                <input type="number" id="collectionAmount" step="0.01" min="0.01" placeholder="0.00">
+                            </div>
+                            <div class="form-group">
+                                <label>Collection Remarks (Optional)</label>
+                                <textarea id="collectionRemarks" rows="3" placeholder="Notes about the collection"></textarea>
+                            </div>
                         </div>
                         <div class="form-group">
                             <label>GPS Coordinates (Optional)</label>
@@ -1461,6 +1525,134 @@
             );
         }
 
+        // Toggle Order Booking Form
+        function toggleOrderForm() {
+            const checkbox = document.getElementById('visitTypeOrderBooking');
+            const form = document.getElementById('orderBookingForm');
+            const orderItemsContainer = document.getElementById('orderItemsContainer');
+            
+            if (checkbox.checked) {
+                form.style.display = 'block';
+                // Ensure at least one order item exists
+                if (orderItemsContainer.children.length === 0) {
+                    addOrderItem();
+                }
+                // Add required attributes to order item inputs (only when form is visible)
+                setTimeout(() => {
+                    const orderItemInputs = orderItemsContainer.querySelectorAll('.order-item-product, .order-item-quantity, .order-item-unit-price');
+                    orderItemInputs.forEach(input => {
+                        input.setAttribute('required', 'required');
+                    });
+                }, 0);
+            } else {
+                // Remove required attributes FIRST to prevent HTML5 validation errors
+                const orderItemInputs = orderItemsContainer.querySelectorAll('.order-item-product, .order-item-quantity, .order-item-unit-price');
+                orderItemInputs.forEach(input => {
+                    input.removeAttribute('required');
+                });
+                // Clear all order items when form is hidden
+                orderItemsContainer.innerHTML = '';
+                // Hide the form
+                form.style.display = 'none';
+                updateOrderTotal();
+            }
+        }
+
+        // Toggle Daily Collections Form
+        function toggleCollectionForm() {
+            const checkbox = document.getElementById('visitTypeDailyCollections');
+            const form = document.getElementById('dailyCollectionsForm');
+            const amountInput = document.getElementById('collectionAmount');
+            if (checkbox.checked) {
+                form.style.display = 'block';
+                // Add required attribute when form is visible
+                if (amountInput) {
+                    amountInput.setAttribute('required', 'required');
+                }
+            } else {
+                form.style.display = 'none';
+                // Remove required attribute when form is hidden to prevent validation errors
+                if (amountInput) {
+                    amountInput.removeAttribute('required');
+                    amountInput.value = ''; // Clear value when hidden
+                }
+            }
+        }
+
+        // Add Order Item
+        function addOrderItem() {
+            const container = document.getElementById('orderItemsContainer');
+            const orderBookingCheckbox = document.getElementById('visitTypeOrderBooking');
+            const isOrderBookingSelected = orderBookingCheckbox && orderBookingCheckbox.checked;
+            
+            const itemDiv = document.createElement('div');
+            itemDiv.className = 'order-item-form';
+            itemDiv.style.cssText = 'margin-bottom: 15px; padding: 15px; background: white; border-radius: 5px;';
+            
+            // Only add required attribute if order booking is selected
+            const requiredAttr = isOrderBookingSelected ? 'required' : '';
+            
+            itemDiv.innerHTML = `
+                <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr auto; gap: 10px; align-items: end;">
+                    <div>
+                        <label style="font-size: 12px; color: #666;">Product Name</label>
+                        <input type="text" class="order-item-product" placeholder="e.g., Tulip Tea Premium" ${requiredAttr}>
+                    </div>
+                    <div>
+                        <label style="font-size: 12px; color: #666;">Quantity</label>
+                        <input type="number" class="order-item-quantity" min="1" placeholder="10" ${requiredAttr} onchange="calculateOrderItemTotal(this)">
+                    </div>
+                    <div>
+                        <label style="font-size: 12px; color: #666;">Unit Price (Rs.)</label>
+                        <input type="number" class="order-item-unit-price" step="0.01" min="0" placeholder="500.00" ${requiredAttr} onchange="calculateOrderItemTotal(this)">
+                    </div>
+                    <div>
+                        <label style="font-size: 12px; color: #666;">Total (Rs.)</label>
+                        <input type="number" class="order-item-total" step="0.01" readonly style="background: #f0f0f0;" value="0.00">
+                    </div>
+                    <div>
+                        <button type="button" onclick="removeOrderItem(this)" style="background: #e74c3c; color: white; border: none; padding: 8px 12px; border-radius: 5px; cursor: pointer;">Remove</button>
+                    </div>
+                </div>
+            `;
+            container.appendChild(itemDiv);
+            updateOrderTotal();
+        }
+
+        // Remove Order Item
+        function removeOrderItem(button) {
+            button.closest('.order-item-form').remove();
+            updateOrderTotal();
+        }
+
+        // Calculate Order Item Total
+        function calculateOrderItemTotal(input) {
+            const itemDiv = input.closest('.order-item-form');
+            const quantity = parseFloat(itemDiv.querySelector('.order-item-quantity').value) || 0;
+            const unitPrice = parseFloat(itemDiv.querySelector('.order-item-unit-price').value) || 0;
+            const total = quantity * unitPrice;
+            itemDiv.querySelector('.order-item-total').value = total.toFixed(2);
+            updateOrderTotal();
+        }
+
+        // Update Order Total
+        function updateOrderTotal() {
+            const items = document.querySelectorAll('.order-item-form');
+            let total = 0;
+            items.forEach(item => {
+                const totalInput = item.querySelector('.order-item-total');
+                if (totalInput) {
+                    total += parseFloat(totalInput.value) || 0;
+                }
+            });
+            const orderTotalElement = document.getElementById('orderTotalAmount');
+            if (orderTotalElement) {
+                orderTotalElement.textContent = total.toFixed(2);
+            }
+            // Update credit warning if shop is selected
+            updateOrderTotalWithCreditWarning();
+        }
+
         // Register Shop Visit
         async function registerVisit(event) {
             event.preventDefault();
@@ -1471,21 +1663,131 @@
                 resultDiv.textContent = 'Please login first';
                 return;
             }
+            
+            // Remove required attributes from hidden order items to prevent HTML5 validation errors
+            const orderBookingCheckbox = document.getElementById('visitTypeOrderBooking');
+            if (!orderBookingCheckbox || !orderBookingCheckbox.checked) {
+                const orderItemsContainer = document.getElementById('orderItemsContainer');
+                if (orderItemsContainer) {
+                    const orderItemInputs = orderItemsContainer.querySelectorAll('.order-item-product, .order-item-quantity, .order-item-unit-price');
+                    orderItemInputs.forEach(input => {
+                        input.removeAttribute('required');
+                    });
+                }
+            }
+
+            // Collect visit types from checkboxes
+            const visitTypes = [];
+            if (document.getElementById('visitTypeOrderBooking').checked) {
+                visitTypes.push('order_booking');
+            }
+            if (document.getElementById('visitTypeDailyCollections').checked) {
+                visitTypes.push('daily_collections');
+            }
+            if (document.getElementById('visitTypeInspection').checked) {
+                visitTypes.push('inspection');
+            }
+            if (document.getElementById('visitTypeOther').checked) {
+                visitTypes.push('other');
+            }
+
+            if (visitTypes.length === 0) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Please select at least one visit type';
+                return;
+            }
+
+            // Collect order items if order_booking is selected
+            let orderItems = null;
+            if (visitTypes.includes('order_booking')) {
+                const items = document.querySelectorAll('.order-item-form');
+                orderItems = [];
+                let hasValidItem = false;
+                items.forEach(item => {
+                    const productName = item.querySelector('.order-item-product').value.trim();
+                    const quantityInput = item.querySelector('.order-item-quantity');
+                    const unitPriceInput = item.querySelector('.order-item-unit-price');
+                    
+                    // Ensure we have valid inputs
+                    if (!productName || !quantityInput || !unitPriceInput) {
+                        return; // Skip invalid items
+                    }
+                    
+                    const quantity = parseInt(quantityInput.value, 10);
+                    const unitPrice = parseFloat(unitPriceInput.value);
+                    
+                    // Validate numeric values
+                    if (productName && !isNaN(quantity) && quantity > 0 && !isNaN(unitPrice) && unitPrice > 0) {
+                        hasValidItem = true;
+                        orderItems.push({
+                            product_name: productName,
+                            quantity: quantity,  // Ensure it's a number, not string
+                            unit_price: unitPrice,  // Ensure it's a number, not string
+                            total_price: quantity * unitPrice  // Will be ignored by backend
+                        });
+                    }
+                });
+                
+                if (!hasValidItem || orderItems.length === 0) {
+                    resultDiv.className = 'result error';
+                    resultDiv.textContent = 'Please add at least one valid order item for order booking';
+                    return;
+                }
+            }
+
+            // Collect collection data if daily_collections is selected
+            let collectionAmount = null;
+            let collectionRemarks = null;
+            if (visitTypes.includes('daily_collections')) {
+                const amountInput = document.getElementById('collectionAmount');
+                if (amountInput && amountInput.value) {
+                    collectionAmount = parseFloat(amountInput.value);
+                    if (isNaN(collectionAmount) || collectionAmount <= 0) {
+                        resultDiv.className = 'result error';
+                        resultDiv.textContent = 'Please enter a valid collection amount';
+                        return;
+                    }
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.textContent = 'Please enter collection amount for daily collections';
+                    return;
+                }
+                const remarksInput = document.getElementById('collectionRemarks');
+                if (remarksInput && remarksInput.value) {
+                    collectionRemarks = remarksInput.value.trim();
+                }
+            }
+
+            // Get scheduled date if order_booking is selected
+            let scheduledDate = null;
+            if (visitTypes.includes('order_booking')) {
+                const scheduledDateInput = document.getElementById('orderScheduledDate');
+                if (scheduledDateInput && scheduledDateInput.value) {
+                    scheduledDate = scheduledDateInput.value; // Format: YYYY-MM-DD
+                }
+            }
 
             const visitData = {
                 shop_id: document.getElementById('visitShopId').value ? parseInt(document.getElementById('visitShopId').value) : null,
-                visit_type: document.getElementById('visitType').value || null,
+                visit_types: visitTypes,
                 gps_lat: document.getElementById('visitGpsLat').value ? parseFloat(document.getElementById('visitGpsLat').value) : null,
                 gps_lng: document.getElementById('visitGpsLng').value ? parseFloat(document.getElementById('visitGpsLng').value) : null,
                 visit_time: document.getElementById('visitTime').value ? new Date(document.getElementById('visitTime').value).toISOString() : null,
                 photo: visitPhotoBase64,
-                reason: document.getElementById('visitReason').value || null
+                reason: document.getElementById('visitReason').value || null,
+                order_items: orderItems,
+                scheduled_date: scheduledDate,
+                collection_amount: collectionAmount,
+                collection_remarks: collectionRemarks
             };
 
             const endpoint = `${API_BASE}/shop-visits/order-booker/${currentUser.id}`;
             showApiCall('POST', endpoint, 'Register Shop Visit', 'loading');
 
             try {
+                // Debug: Log the data being sent
+                console.log('Sending visit data:', JSON.stringify(visitData, null, 2));
+                
                 const response = await fetch(endpoint, {
                     method: 'POST',
                     headers: {
@@ -1499,27 +1801,78 @@
 
                 if (!response.ok) {
                     showApiCall('POST', endpoint, 'Register Shop Visit', 'error');
-                    throw new Error(data.detail || 'Failed to register visit');
+                    // Log full error for debugging
+                    console.error('Error response:', data);
+                    
+                    // Extract error message - handle both detail and message fields
+                    let errorMessage = data.detail || data.message || 'Failed to register visit';
+                    
+                    // If error contains credit limit information, format it nicely
+                    if (errorMessage.includes('exceeds available credit') || errorMessage.includes('credit limit')) {
+                        errorMessage = '❌ Credit Limit Exceeded!\n\n' + errorMessage.replace(/\. /g, '.\n');
+                    }
+                    
+                    throw new Error(errorMessage);
                 }
 
                 resultDiv.className = 'result success';
-                resultDiv.innerHTML = `
+                let resultHtml = `
                     <strong>Visit Registered Successfully!</strong><br>
                     Visit ID: ${data.id}<br>
                     ${data.shop_name ? `Shop: ${data.shop_name}<br>` : ''}
-                    Visit Type: ${data.visit_type || 'Not specified'}<br>
+                    Visit Types: ${data.visit_types && data.visit_types.length > 0 ? data.visit_types.join(', ') : 'Not specified'}<br>
                     ${data.gps_lat && data.gps_lng ? `Location: ${data.gps_lat}, ${data.gps_lng}<br>` : ''}
                     Visit Time: ${data.visit_time ? new Date(data.visit_time).toLocaleString() : 'Current time'}<br>
-                    <small>Visit ID: ${data.id}</small>
                 `;
+                if (data.order_id) {
+                    resultHtml += `<br><strong style="color: #3498db;">✅ Order Created!</strong><br>Order ID: ${data.order_id}<br>`;
+                }
+                if (data.collection_id) {
+                    resultHtml += `<br><strong style="color: #27ae60;">✅ Collection Created!</strong><br>Collection ID: ${data.collection_id}<br>`;
+                }
+                resultHtml += `<br><small>Visit ID: ${data.id}</small>`;
+                resultDiv.innerHTML = resultHtml;
                 showApiCall('POST', endpoint, 'Register Shop Visit', 'success');
 
                 document.getElementById('visitRegistrationForm').reset();
                 clearPhoto();
+                // Reset visit type checkboxes
+                document.getElementById('visitTypeOrderBooking').checked = false;
+                document.getElementById('visitTypeDailyCollections').checked = false;
+                document.getElementById('visitTypeInspection').checked = false;
+                document.getElementById('visitTypeOther').checked = false;
+                // Hide forms
+                document.getElementById('orderBookingForm').style.display = 'none';
+                document.getElementById('dailyCollectionsForm').style.display = 'none';
+                // Clear order items and remove required attributes
+                const orderItemsContainer = document.getElementById('orderItemsContainer');
+                const orderItemInputs = orderItemsContainer.querySelectorAll('.order-item-product, .order-item-quantity, .order-item-unit-price');
+                orderItemInputs.forEach(input => {
+                    input.removeAttribute('required');
+                });
+                orderItemsContainer.innerHTML = '';
+                // Clear collection fields
+                const collectionAmountInput = document.getElementById('collectionAmount');
+                if (collectionAmountInput) {
+                    collectionAmountInput.removeAttribute('required');
+                    collectionAmountInput.value = '';
+                }
+                document.getElementById('collectionRemarks').value = '';
+                // Reset order total
+                document.getElementById('orderTotalAmount').textContent = '0.00';
+                // Hide credit info display
+                const creditInfoDisplay = document.getElementById('shopCreditInfoDisplay');
+                if (creditInfoDisplay) {
+                    creditInfoDisplay.style.display = 'none';
+                }
                 loadMyVisits();
             } catch (error) {
                 resultDiv.className = 'result error';
-                resultDiv.textContent = `Error: ${error.message}`;
+                // Display error message with better formatting
+                let errorText = error.message;
+                // Replace newlines with <br> for HTML display
+                errorText = errorText.replace(/\n/g, '<br>');
+                resultDiv.innerHTML = `<strong>Error:</strong><br>${errorText}`;
             }
         }
 
@@ -1551,6 +1904,96 @@
             } catch (error) {
                 console.error('Error loading shops for visit registration:', error);
                 visitShopSelect.innerHTML = '<option value="">Error loading shops</option>';
+            }
+        }
+
+        // Load shop credit information when shop is selected
+        async function loadShopCreditInfo() {
+            const shopId = document.getElementById('visitShopId').value;
+            const creditInfoDisplay = document.getElementById('shopCreditInfoDisplay');
+            
+            if (!shopId) {
+                creditInfoDisplay.style.display = 'none';
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/shops/${shopId}/credit-info`, {
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+                
+                if (response.ok) {
+                    const creditInfo = await response.json();
+                    
+                    // Update display values
+                    document.getElementById('creditLimitValue').textContent = `Rs. ${creditInfo.credit_limit.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                    document.getElementById('outstandingBalanceValue').textContent = `Rs. ${creditInfo.outstanding_balance.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                    document.getElementById('legacyBalanceValue').textContent = `Rs. ${creditInfo.legacy_balance.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                    
+                    const availableCredit = creditInfo.available_credit;
+                    const availableCreditElement = document.getElementById('availableCreditValue');
+                    availableCreditElement.textContent = `Rs. ${availableCredit.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                    
+                    // Color code based on available credit
+                    if (availableCredit <= 0) {
+                        availableCreditElement.style.color = '#e74c3c'; // Red
+                    } else if (availableCredit < 1000) {
+                        availableCreditElement.style.color = '#f39c12'; // Orange
+                    } else {
+                        availableCreditElement.style.color = '#27ae60'; // Green
+                    }
+                    
+                    // Show the display
+                    creditInfoDisplay.style.display = 'block';
+                    
+                    // Update order total display warning if order booking is selected
+                    updateOrderTotalWithCreditWarning();
+                } else {
+                    console.error('Error loading shop credit info:', await response.json());
+                    creditInfoDisplay.style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Error loading shop credit info:', error);
+                creditInfoDisplay.style.display = 'none';
+            }
+        }
+
+        // Update order total display with credit warning
+        function updateOrderTotalWithCreditWarning() {
+            const orderTotalElement = document.getElementById('orderTotalAmount');
+            const creditInfoDisplay = document.getElementById('shopCreditInfoDisplay');
+            const shopCreditInfo = document.getElementById('availableCreditValue');
+            
+            if (!orderTotalElement || !creditInfoDisplay || creditInfoDisplay.style.display === 'none') {
+                return;
+            }
+            
+            const orderTotal = parseFloat(orderTotalElement.textContent) || 0;
+            const availableCreditText = shopCreditInfo.textContent.replace('Rs. ', '').replace(/,/g, '');
+            const availableCredit = parseFloat(availableCreditText) || 0;
+            
+            const orderTotalDisplay = document.getElementById('orderTotalDisplay');
+            if (orderTotalDisplay) {
+                if (orderTotal > availableCredit && availableCredit > 0) {
+                    orderTotalDisplay.style.background = '#ffe6e6';
+                    orderTotalDisplay.style.border = '2px solid #e74c3c';
+                    orderTotalDisplay.innerHTML = `
+                        Total Order Amount: Rs. <span id="orderTotalAmount" style="color: #e74c3c;">${orderTotal.toFixed(2)}</span>
+                        <br><small style="color: #e74c3c; font-weight: bold;">⚠️ Order exceeds available credit!</small>
+                    `;
+                } else if (orderTotal > 0) {
+                    orderTotalDisplay.style.background = 'white';
+                    orderTotalDisplay.style.border = '1px solid #3498db';
+                    orderTotalDisplay.innerHTML = `
+                        Total Order Amount: Rs. <span id="orderTotalAmount" style="color: #3498db;">${orderTotal.toFixed(2)}</span>
+                    `;
+                } else {
+                    orderTotalDisplay.style.background = 'white';
+                    orderTotalDisplay.style.border = 'none';
+                    orderTotalDisplay.innerHTML = `
+                        Total Order Amount: Rs. <span id="orderTotalAmount">0.00</span>
+                    `;
+                }
             }
         }
 
@@ -1587,19 +2030,30 @@
                 listDiv.innerHTML = data.map(visit => {
                     const visitTypeColors = {
                         'order_booking': '#3498db',
-                        'delivery': '#27ae60',
-                        'collection': '#f39c12',
+                        'daily_collections': '#f39c12',
                         'inspection': '#9b59b6',
                         'other': '#95a5a6'
                     };
-                    const visitTypeColor = visitTypeColors[visit.visit_type] || '#95a5a6';
-                    const visitTypeLabel = visit.visit_type ? visit.visit_type.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Not specified';
+                    
+                    // Handle both visit_types (array) and visit_type (single) for backward compatibility
+                    const visitTypes = visit.visit_types && visit.visit_types.length > 0 
+                        ? visit.visit_types 
+                        : (visit.visit_type ? [visit.visit_type] : []);
+                    
+                    const visitTypesHtml = visitTypes.map(vt => {
+                        const color = visitTypeColors[vt] || '#95a5a6';
+                        const label = vt.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+                        return `<span style="background: ${color}; color: white; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-left: 5px;">${label}</span>`;
+                    }).join('');
                     
                     return `
                     <div class="list-item">
                         <div class="list-item-info">
                             <strong>${visit.shop_name || 'Unregistered Shop'}</strong>
-                            ${visit.visit_type ? `<span style="background: ${visitTypeColor}; color: white; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-left: 10px;">${visitTypeLabel}</span>` : ''}
+                            ${visitTypesHtml}
+                            <br>
+                            ${visit.order_id ? `<span style="color: #3498db; font-weight: bold; font-size: 11px;">📦 Order ID: ${visit.order_id}</span> ` : ''}
+                            ${visit.collection_id ? `<span style="color: #27ae60; font-weight: bold; font-size: 11px;">💰 Collection ID: ${visit.collection_id}</span> ` : ''}
                             <br>
                             ${visit.gps_lat && visit.gps_lng ? `📍 Location: ${visit.gps_lat.toFixed(6)}, ${visit.gps_lng.toFixed(6)}<br>` : ''}
                             🕐 Visit Time: ${visit.visit_time ? new Date(visit.visit_time).toLocaleString() : 'Not recorded'}<br>

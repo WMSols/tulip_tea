@@ -718,6 +718,28 @@
         </div>
     </div>
 
+    <!-- Order Details Modal -->
+    <div id="orderDetailsModal" class="modal hidden">
+        <div class="modal-content" style="max-width: 800px;">
+            <span class="close-button" onclick="closeOrderDetailsModal()">&times;</span>
+            <h2 id="orderDetailsModalTitle">Order Details</h2>
+            <div id="orderDetailsContent">
+                <!-- Order details will be populated here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Collection Details Modal -->
+    <div id="collectionDetailsModal" class="modal hidden">
+        <div class="modal-content" style="max-width: 700px;">
+            <span class="close-button" onclick="closeCollectionDetailsModal()">&times;</span>
+            <h2 id="collectionDetailsModalTitle">Daily Collection Details</h2>
+            <div id="collectionDetailsContent">
+                <!-- Collection details will be populated here -->
+            </div>
+        </div>
+    </div>
+
     <!-- CNIC Photos Modal -->
     <div id="cnicPhotosModal" class="modal hidden">
         <div class="modal-content">
@@ -2636,10 +2658,27 @@
         function displayVisits(data, filterZoneId = null) {
             const listDiv = document.getElementById('visitsList');
             
+            // Deduplicate visits by ID (in case backend returns duplicates)
+            const visitMap = new Map();
+            data.forEach(visit => {
+                if (!visitMap.has(visit.id)) {
+                    visitMap.set(visit.id, visit);
+                } else {
+                    // If duplicate found, merge visit_types if they differ
+                    const existing = visitMap.get(visit.id);
+                    if (visit.visit_types && visit.visit_types.length > 0) {
+                        const existingTypes = existing.visit_types || [];
+                        const mergedTypes = [...new Set([...existingTypes, ...visit.visit_types])];
+                        existing.visit_types = mergedTypes;
+                    }
+                }
+            });
+            const uniqueVisits = Array.from(visitMap.values());
+            
             // Group visits by zone
             const visitsByZone = {};
             
-            data.forEach(visit => {
+            uniqueVisits.forEach(visit => {
                 // Apply zone filter if specified
                 if (filterZoneId && visit.shop_zone_id != filterZoneId) {
                     return; // Skip this visit
@@ -2691,33 +2730,69 @@
                     const visitTypeColor = visitTypeColors[visit.visit_type] || '#95a5a6';
                     const visitTypeLabel = visit.visit_type ? visit.visit_type.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Not specified';
                     
-                    // Determine who visited
+                    // Determine who visited (show name only, no IDs)
                     let visitorInfo = '';
                     if (visit.order_booker_name) {
-                        visitorInfo = `Order Booker: ${visit.order_booker_name} (ID: ${visit.order_booker_id})`;
+                        visitorInfo = `👤 Visited by: ${visit.order_booker_name}`;
                     } else if (visit.delivery_man_name) {
-                        visitorInfo = `Delivery Man: ${visit.delivery_man_name} (ID: ${visit.delivery_man_id})`;
+                        visitorInfo = `👤 Visited by: ${visit.delivery_man_name}`;
                     } else {
-                        visitorInfo = 'Visitor: Unknown';
+                        visitorInfo = '👤 Visitor: Unknown';
                     }
                     
-                    // Escape quotes for onclick
-                    const shopName = (visit.shop_name || 'Unregistered Shop').replace(/'/g, "\\'");
-                    const reason = (visit.reason || '').replace(/'/g, "\\'");
-                    const photoUrl = (visit.photo || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                    // Get shop route information
+                    let routeInfo = '';
+                    if (visit.shop_routes && visit.shop_routes.length > 0) {
+                        const routeNames = visit.shop_routes.map(r => r.route_name).join(', ');
+                        routeInfo = `<br>🛣️ Route: ${routeNames}`;
+                    }
                     
+                    // Escape data for data attributes - use HTML entities only (no backslash escaping needed)
+                    const shopName = (visit.shop_name || 'Unregistered Shop').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/\n/g, ' ').replace(/\r/g, '');
+                    const reason = (visit.reason || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/\n/g, ' ').replace(/\r/g, '');
+                    const photoUrl = (visit.photo || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+                    const orderBookerName = (visit.order_booker_name || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+                    const deliveryManName = (visit.delivery_man_name || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+                    const visitTime = (visit.visit_time || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+                    // Escape JSON string for data attribute - only need to escape quotes
+                    const visitTypesJson = JSON.stringify(visit.visit_types || (visit.visit_type ? [visit.visit_type] : [])).replace(/"/g, '&quot;');
+                    
+                    // Use data attributes to store complex data and a simpler onclick
                     html += `
-                        <div class="list-item" onclick="openViewVisitModal(${visit.id}, '${shopName}', ${visit.shop_id || 'null'}, ${visit.shop_zone_id || 'null'}, '${visit.order_booker_name || ''}', ${visit.order_booker_id || 'null'}, '${visit.delivery_man_name || ''}', ${visit.delivery_man_id || 'null'}, '${visit.visit_type || ''}', ${visit.gps_lat || 'null'}, ${visit.gps_lng || 'null'}, '${visit.visit_time || ''}', '${photoUrl}', '${reason}')" style="margin-bottom: 10px; cursor: pointer;">
+                        <div class="list-item visit-item" 
+                             data-visit-id="${visit.id}"
+                             data-shop-name="${shopName}"
+                             data-shop-id="${visit.shop_id || ''}"
+                             data-shop-zone-id="${visit.shop_zone_id || ''}"
+                             data-order-booker-name="${orderBookerName}"
+                             data-order-booker-id="${visit.order_booker_id || ''}"
+                             data-delivery-man-name="${deliveryManName}"
+                             data-delivery-man-id="${visit.delivery_man_id || ''}"
+                             data-visit-types="${visitTypesJson}"
+                             data-gps-lat="${visit.gps_lat || ''}"
+                             data-gps-lng="${visit.gps_lng || ''}"
+                             data-visit-time="${visitTime}"
+                             data-photo="${photoUrl}"
+                             data-reason="${reason}"
+                             data-order-id="${visit.order_id || ''}"
+                             data-collection-id="${visit.collection_id || ''}"
+                             style="margin-bottom: 10px; cursor: pointer;">
                             <div class="list-item-info">
-                                <strong>${visit.shop_name || 'Unregistered Shop'}</strong>
-                                ${visit.visit_type ? `<span style="background: ${visitTypeColor}; color: white; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-left: 10px;">${visitTypeLabel}</span>` : ''}
+                                <strong style="font-size: 1.1em;">${visit.shop_name || 'Unregistered Shop'}</strong>
+                                ${routeInfo}
+                                ${visit.visit_types && visit.visit_types.length > 0 ? visit.visit_types.map(vt => {
+                                    const color = visitTypeColors[vt] || '#95a5a6';
+                                    const label = vt.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+                                    return `<span style="background: ${color}; color: white; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-left: 5px;">${label}</span>`;
+                                }).join('') : (visit.visit_type ? `<span style="background: ${visitTypeColors[visit.visit_type] || '#95a5a6'}; color: white; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-left: 10px;">${visit.visit_type.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>` : '')}
+                                <br>
+                                ${visit.order_id ? `<span style="color: #3498db; font-weight: bold; font-size: 12px;">📦 Order Placed</span> ` : ''}
+                                ${visit.collection_id ? `<span style="color: #27ae60; font-weight: bold; font-size: 12px;">💰 Collection Recorded</span> ` : ''}
                                 <br>
                                 ${visitorInfo}<br>
-                                ${visit.gps_lat && visit.gps_lng ? `📍 Location: ${visit.gps_lat.toFixed(6)}, ${visit.gps_lng.toFixed(6)}<br>` : ''}
-                                🕐 Visit Time: ${visit.visit_time ? new Date(visit.visit_time).toLocaleString() : 'Not recorded'}<br>
-                                ${visit.reason ? `📝 Reason: ${visit.reason.substring(0, 50)}${visit.reason.length > 50 ? '...' : ''}<br>` : ''}
+                                🕐 ${visit.visit_time ? new Date(visit.visit_time).toLocaleString() : 'Time not recorded'}<br>
+                                ${visit.reason ? `📝 ${visit.reason.substring(0, 60)}${visit.reason.length > 60 ? '...' : ''}<br>` : ''}
                                 ${visit.photo ? `📷 Photo Available<br>` : ''}
-                                <small>Visit ID: ${visit.id}</small>
                             </div>
                         </div>
                     `;
@@ -2751,21 +2826,45 @@
             }
         }
 
+        // Store current visit data for reloading after approval
+        let currentVisitData = null;
+
         // Open View Visit Modal
-        function openViewVisitModal(visitId, shopName, shopId, shopZoneId, orderBookerName, orderBookerId, deliveryManName, deliveryManId, visitType, gpsLat, gpsLng, visitTime, photo, reason) {
+        function openViewVisitModal(visitId, shopName, shopId, shopZoneId, orderBookerName, orderBookerId, deliveryManName, deliveryManId, visitTypesJson, gpsLat, gpsLng, visitTime, photo, reason, orderId, collectionId, shopRoutesJson) {
             const modal = document.getElementById('viewVisitModal');
             modal.classList.remove('hidden');
             modal.style.display = 'flex';
             
+            // Store visit data for potential reload
+            currentVisitData = {
+                visitId, shopName, shopId, shopZoneId, orderBookerName, orderBookerId,
+                deliveryManName, deliveryManId, visitTypesJson, gpsLat, gpsLng,
+                visitTime, photo, reason, orderId, collectionId, shopRoutesJson
+            };
+            
             const visitTypeColors = {
                 'order_booking': '#3498db',
-                'delivery': '#27ae60',
-                'collection': '#f39c12',
+                'daily_collections': '#f39c12',
                 'inspection': '#9b59b6',
                 'other': '#95a5a6'
             };
-            const visitTypeColor = visitTypeColors[visitType] || '#95a5a6';
-            const visitTypeLabel = visitType ? visitType.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Not specified';
+            
+            // Parse visit types
+            let visitTypes = [];
+            try {
+                visitTypes = typeof visitTypesJson === 'string' ? JSON.parse(visitTypesJson) : (visitTypesJson || []);
+            } catch (e) {
+                visitTypes = [];
+            }
+            
+            // Generate visit types HTML
+            const visitTypesHtml = visitTypes.length > 0 
+                ? visitTypes.map(vt => {
+                    const color = visitTypeColors[vt] || '#95a5a6';
+                    const label = vt.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+                    return `<span style="background: ${color}; color: white; padding: 4px 10px; border-radius: 15px; font-size: 12px; margin-right: 5px; display: inline-block;">${label}</span>`;
+                }).join('')
+                : '<span style="color: #999;">Not specified</span>';
             
             // Get zone name
             const zoneName = shopZoneId && allZones.find(z => z.id == shopZoneId) 
@@ -2794,21 +2893,21 @@
                     </div>
                     <div class="info-row">
                         <span class="info-label">Shop:</span>
-                        <span class="info-value">${shopName || 'Unregistered Shop'} ${shopId ? `(ID: ${shopId})` : ''}</span>
+                        <span class="info-value">${shopName || 'Unregistered Shop'} ${shopId && shopId !== 'null' ? `(ID: ${shopId})` : ''}</span>
                     </div>
                     <div class="info-row">
                         <span class="info-label">Zone:</span>
                         <span class="info-value">${zoneName}</span>
                     </div>
                     <div class="info-row">
-                        <span class="info-label">Visit Type:</span>
+                        <span class="info-label">Visit Types:</span>
                         <span class="info-value">
-                            <span style="background: ${visitTypeColor}; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px;">${visitTypeLabel}</span>
+                            ${visitTypesHtml}
                         </span>
                     </div>
                     <div class="info-row">
                         <span class="info-label">Visit Time:</span>
-                        <span class="info-value">${visitTime ? new Date(visitTime).toLocaleString() : 'Not recorded'}</span>
+                        <span class="info-value">${visitTime && visitTime !== 'null' ? new Date(visitTime).toLocaleString() : 'Not recorded'}</span>
                     </div>
                 </div>
                 
@@ -2835,7 +2934,7 @@
                 </div>
                 ` : ''}
                 
-                ${reason ? `
+                ${reason && reason !== 'null' && reason.trim() !== '' ? `
                 <div class="info-card" style="margin-bottom: 20px;">
                     <h3 style="color: #667eea; margin-bottom: 15px;">Reason/Notes</h3>
                     <p style="color: #333; padding: 10px; background: #f8f9fa; border-radius: 5px;">${reason}</p>
@@ -2852,13 +2951,461 @@
                     </div>
                 </div>
                 ` : ''}
+                
+                <div id="visitLinkedData" style="margin-top: 20px;">
+                    <!-- Order and Collection data will be loaded here -->
+                </div>
             `;
+            
+            // Load linked order and collection data
+            loadVisitLinkedData(visitId, orderId, collectionId);
+        }
+        
+        function loadVisitLinkedData(visitId, orderId, collectionId) {
+            const linkedDataDiv = document.getElementById('visitLinkedData');
+            linkedDataDiv.innerHTML = '<p style="color: #999; text-align: center;">Loading linked data...</p>';
+            
+            let promises = [];
+            
+            // Load order if orderId exists
+            if (orderId && orderId !== 'null' && orderId !== null) {
+                promises.push(
+                    fetch(`http://localhost:8000/orders/${orderId}`)
+                        .then(res => res.json())
+                        .then(order => ({ type: 'order', data: order }))
+                        .catch(err => {
+                            console.error('Error loading order:', err);
+                            return { type: 'order', data: null, error: err.message };
+                        })
+                );
+            }
+            
+            // Load collection if collectionId exists
+            if (collectionId && collectionId !== 'null' && collectionId !== null) {
+                promises.push(
+                    fetch(`http://localhost:8000/daily-collections/${collectionId}`)
+                        .then(res => res.json())
+                        .then(collection => ({ type: 'collection', data: collection }))
+                        .catch(err => {
+                            console.error('Error loading collection:', err);
+                            return { type: 'collection', data: null, error: err.message };
+                        })
+                );
+            }
+            
+            Promise.all(promises).then(results => {
+                let html = '';
+                
+                results.forEach(result => {
+                    if (result.type === 'order' && result.data) {
+                        const order = result.data;
+                        const orderJson = JSON.stringify(order).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                        html += `
+                            <div class="info-card" style="margin-bottom: 20px; border-left: 4px solid #3498db;">
+                                <h3 style="color: #3498db; margin-bottom: 15px;">📦 Order Information</h3>
+                                <div class="info-row">
+                                    <span class="info-label">Order ID:</span>
+                                    <span class="info-value">${order.id}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">Total Amount:</span>
+                                    <span class="info-value"><strong style="color: #3498db;">Rs. ${parseFloat(order.total_amount || 0).toFixed(2)}</strong></span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">Status:</span>
+                                    <span class="info-value">
+                                        <span style="background: ${order.status === 'pending' ? '#f39c12' : order.status === 'confirmed' ? '#27ae60' : order.status === 'delivered' ? '#27ae60' : '#e74c3c'}; color: white; padding: 4px 10px; border-radius: 15px; font-size: 12px;">
+                                            ${(order.status || 'pending').toUpperCase()}
+                                        </span>
+                                    </span>
+                                </div>
+                                ${order.scheduled_date ? `
+                                <div class="info-row">
+                                    <span class="info-label">Scheduled Date:</span>
+                                    <span class="info-value">${new Date(order.scheduled_date).toLocaleDateString()}</span>
+                                </div>
+                                ` : ''}
+                                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee;">
+                                    <button class="btn btn-primary" onclick="openOrderDetailsModal('${orderJson}')" style="width: 100%;">
+                                        📋 View Full Order Details
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                    } else if (result.type === 'collection' && result.data) {
+                        const collection = result.data;
+                        const collectionJson = JSON.stringify(collection).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                        const isPending = collection.status === 'pending';
+                        html += `
+                            <div class="info-card" style="margin-bottom: 20px; border-left: 4px solid #f39c12;">
+                                <h3 style="color: #f39c12; margin-bottom: 15px;">💰 Daily Collection Information</h3>
+                                <div class="info-row">
+                                    <span class="info-label">Shop:</span>
+                                    <span class="info-value"><strong>${collection.shop_name || 'N/A'}</strong></span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">Collected By:</span>
+                                    <span class="info-value">${collection.order_booker_name || 'N/A'}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">Amount:</span>
+                                    <span class="info-value"><strong style="color: #f39c12; font-size: 1.1em;">Rs. ${parseFloat(collection.amount || 0).toFixed(2)}</strong></span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">Status:</span>
+                                    <span class="info-value">
+                                        <span style="background: ${collection.status === 'pending' ? '#f39c12' : collection.status === 'verified' ? '#27ae60' : '#e74c3c'}; color: white; padding: 4px 10px; border-radius: 15px; font-size: 12px;">
+                                            ${(collection.status || 'pending').toUpperCase()}
+                                        </span>
+                                    </span>
+                                </div>
+                                ${collection.collection_date ? `
+                                <div class="info-row">
+                                    <span class="info-label">Collection Date:</span>
+                                    <span class="info-value">${new Date(collection.collection_date).toLocaleString()}</span>
+                                </div>
+                                ` : ''}
+                                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee; display: flex; gap: 10px; flex-wrap: wrap;">
+                                    <button class="btn btn-primary" onclick="openCollectionDetailsModal('${collectionJson}')" style="flex: 1; min-width: 150px;">
+                                        📋 View Collection Details
+                                    </button>
+                                    ${isPending ? `
+                                    <button class="btn btn-success" onclick="approveCollectionFromVisit(${collection.id}, ${currentDistributorId})" style="flex: 1; min-width: 150px;">
+                                        ✅ Approve Collection
+                                    </button>
+                                    ` : ''}
+                                </div>
+                            </div>
+                        `;
+                    }
+                });
+                
+                if (html === '') {
+                    linkedDataDiv.innerHTML = '<p style="color: #999; text-align: center;">No linked orders or collections for this visit.</p>';
+                } else {
+                    linkedDataDiv.innerHTML = html;
+                }
+            }).catch(err => {
+                console.error('Error loading linked data:', err);
+                linkedDataDiv.innerHTML = '<p style="color: #e74c3c; text-align: center;">Error loading linked data. Please try again.</p>';
+            });
         }
 
         function closeViewVisitModal() {
             const modal = document.getElementById('viewVisitModal');
             modal.classList.add('hidden');
             modal.style.display = 'none';
+        }
+
+        // Open Order Details Modal
+        function openOrderDetailsModal(orderJson) {
+            const modal = document.getElementById('orderDetailsModal');
+            modal.classList.remove('hidden');
+            modal.style.display = 'flex';
+            
+            let order;
+            try {
+                order = typeof orderJson === 'string' ? JSON.parse(orderJson.replace(/&quot;/g, '"')) : orderJson;
+            } catch (e) {
+                console.error('Error parsing order JSON:', e);
+                document.getElementById('orderDetailsContent').innerHTML = '<p style="color: red;">Error loading order details.</p>';
+                return;
+            }
+            
+            document.getElementById('orderDetailsModalTitle').textContent = `Order Details - ${order.shop_name || 'Shop'}`;
+            
+            const contentDiv = document.getElementById('orderDetailsContent');
+            contentDiv.innerHTML = `
+                <div class="info-card" style="margin-bottom: 20px;">
+                    <h3 style="color: #3498db; margin-bottom: 15px;">📦 Order Information</h3>
+                    <div class="info-row">
+                        <span class="info-label">Shop:</span>
+                        <span class="info-value"><strong>${order.shop_name || 'N/A'}</strong></span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Order Booker:</span>
+                        <span class="info-value">${order.order_booker_name || 'N/A'}</span>
+                    </div>
+                    ${order.delivery_man_name ? `
+                    <div class="info-row">
+                        <span class="info-label">Delivery Man:</span>
+                        <span class="info-value">${order.delivery_man_name}</span>
+                    </div>
+                    ` : ''}
+                    <div class="info-row">
+                        <span class="info-label">Total Amount:</span>
+                        <span class="info-value"><strong style="color: #3498db; font-size: 1.2em;">Rs. ${parseFloat(order.total_amount || 0).toFixed(2)}</strong></span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Status:</span>
+                        <span class="info-value">
+                            <span style="background: ${order.status === 'pending' ? '#f39c12' : order.status === 'confirmed' ? '#27ae60' : order.status === 'delivered' ? '#27ae60' : order.status === 'cancelled' ? '#e74c3c' : '#95a5a6'}; color: white; padding: 6px 15px; border-radius: 15px; font-size: 14px; font-weight: bold;">
+                                ${(order.status || 'pending').toUpperCase()}
+                            </span>
+                        </span>
+                    </div>
+                    ${order.scheduled_date ? `
+                    <div class="info-row">
+                        <span class="info-label">Scheduled Delivery:</span>
+                        <span class="info-value">${new Date(order.scheduled_date).toLocaleDateString()}</span>
+                    </div>
+                    ` : ''}
+                    ${order.created_at ? `
+                    <div class="info-row">
+                        <span class="info-label">Order Date:</span>
+                        <span class="info-value">${new Date(order.created_at).toLocaleString()}</span>
+                    </div>
+                    ` : ''}
+                </div>
+                
+                ${order.order_items && order.order_items.length > 0 ? `
+                <div class="info-card" style="margin-bottom: 20px;">
+                    <h3 style="color: #3498db; margin-bottom: 15px;">📋 Order Items (${order.order_items.length})</h3>
+                    <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+                        <thead>
+                            <tr style="background: #f8f9fa;">
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid #ddd; font-weight: 600;">Product Name</th>
+                                <th style="padding: 12px; text-align: right; border-bottom: 2px solid #ddd; font-weight: 600;">Quantity</th>
+                                <th style="padding: 12px; text-align: right; border-bottom: 2px solid #ddd; font-weight: 600;">Unit Price</th>
+                                <th style="padding: 12px; text-align: right; border-bottom: 2px solid #ddd; font-weight: 600;">Total Price</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${order.order_items.map((item, index) => `
+                                <tr style="${index % 2 === 0 ? 'background: #f8f9fa;' : 'background: white;'}">
+                                    <td style="padding: 12px; border-bottom: 1px solid #eee; font-weight: 500;">${item.product_name || 'N/A'}</td>
+                                    <td style="padding: 12px; text-align: right; border-bottom: 1px solid #eee;">${item.quantity || 0}</td>
+                                    <td style="padding: 12px; text-align: right; border-bottom: 1px solid #eee;">Rs. ${parseFloat(item.unit_price || 0).toFixed(2)}</td>
+                                    <td style="padding: 12px; text-align: right; border-bottom: 1px solid #eee; font-weight: 600; color: #3498db;">Rs. ${parseFloat(item.total_price || 0).toFixed(2)}</td>
+                                </tr>
+                            `).join('')}
+                            <tr style="background: #e3f2fd; font-weight: bold;">
+                                <td colspan="3" style="padding: 12px; text-align: right; border-top: 2px solid #3498db;">Grand Total:</td>
+                                <td style="padding: 12px; text-align: right; border-top: 2px solid #3498db; color: #3498db; font-size: 1.1em;">Rs. ${parseFloat(order.total_amount || 0).toFixed(2)}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                ` : '<div class="info-card"><p style="color: #999; text-align: center;">No order items found.</p></div>'}
+            `;
+        }
+
+        function closeOrderDetailsModal() {
+            const modal = document.getElementById('orderDetailsModal');
+            modal.classList.add('hidden');
+            modal.style.display = 'none';
+        }
+
+        // Open Collection Details Modal
+        function openCollectionDetailsModal(collectionJson) {
+            const modal = document.getElementById('collectionDetailsModal');
+            modal.classList.remove('hidden');
+            modal.style.display = 'flex';
+            
+            let collection;
+            try {
+                collection = typeof collectionJson === 'string' ? JSON.parse(collectionJson.replace(/&quot;/g, '"')) : collectionJson;
+            } catch (e) {
+                console.error('Error parsing collection JSON:', e);
+                document.getElementById('collectionDetailsContent').innerHTML = '<p style="color: red;">Error loading collection details.</p>';
+                return;
+            }
+            
+            document.getElementById('collectionDetailsModalTitle').textContent = `Collection Details - ${collection.shop_name || 'Shop'}`;
+            
+            const contentDiv = document.getElementById('collectionDetailsContent');
+            contentDiv.innerHTML = `
+                <div class="info-card" style="margin-bottom: 20px;">
+                    <h3 style="color: #f39c12; margin-bottom: 15px;">💰 Collection Information</h3>
+                    <div class="info-row">
+                        <span class="info-label">Shop:</span>
+                        <span class="info-value"><strong>${collection.shop_name || 'N/A'}</strong></span>
+                    </div>
+                    ${collection.order_booker_name ? `
+                    <div class="info-row">
+                        <span class="info-label">Collected By:</span>
+                        <span class="info-value">${collection.order_booker_name}</span>
+                    </div>
+                    ` : ''}
+                    ${collection.verified_by_distributor ? `
+                    <div class="info-row">
+                        <span class="info-label">Verified By:</span>
+                        <span class="info-value">Distributor</span>
+                    </div>
+                    ` : ''}
+                    <div class="info-row">
+                        <span class="info-label">Amount:</span>
+                        <span class="info-value"><strong style="color: #f39c12; font-size: 1.2em;">Rs. ${parseFloat(collection.amount || 0).toFixed(2)}</strong></span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Status:</span>
+                        <span class="info-value">
+                            <span style="background: ${collection.status === 'pending' ? '#f39c12' : collection.status === 'verified' ? '#27ae60' : collection.status === 'rejected' ? '#e74c3c' : '#95a5a6'}; color: white; padding: 6px 15px; border-radius: 15px; font-size: 14px; font-weight: bold;">
+                                ${(collection.status || 'pending').toUpperCase()}
+                            </span>
+                        </span>
+                    </div>
+                    ${collection.collection_date ? `
+                    <div class="info-row">
+                        <span class="info-label">Collection Date:</span>
+                        <span class="info-value">${new Date(collection.collection_date).toLocaleString()}</span>
+                    </div>
+                    ` : ''}
+                    ${collection.remarks ? `
+                    <div class="info-row">
+                        <span class="info-label">Remarks:</span>
+                        <span class="info-value">${collection.remarks}</span>
+                    </div>
+                    ` : ''}
+                    ${collection.photo_proof ? `
+                    <div class="info-row">
+                        <span class="info-label">Photo Proof:</span>
+                        <span class="info-value">
+                            <a href="${collection.photo_proof}" target="_blank" style="color: #667eea;">View Photo</a>
+                        </span>
+                    </div>
+                    ` : ''}
+                </div>
+                
+                ${collection.status === 'pending' ? `
+                <div style="margin-top: 20px; padding-top: 20px; border-top: 2px solid #eee;">
+                    <h3 style="color: #667eea; margin-bottom: 15px;">Actions</h3>
+                    <div style="display: flex; gap: 10px;">
+                        <button class="btn btn-success" onclick="approveCollectionFromModal(${collection.id}, ${currentDistributorId})" style="flex: 1;">
+                            ✅ Approve Collection
+                        </button>
+                        <button class="btn btn-danger" onclick="rejectCollectionFromModal(${collection.id}, ${currentDistributorId})" style="flex: 1;">
+                            ❌ Reject Collection
+                        </button>
+                    </div>
+                    <p style="color: #666; font-size: 12px; margin-top: 10px;">
+                        Approving will create a payment record in the payments table.
+                    </p>
+                </div>
+                ` : ''}
+            `;
+        }
+
+        function closeCollectionDetailsModal() {
+            const modal = document.getElementById('collectionDetailsModal');
+            modal.classList.add('hidden');
+            modal.style.display = 'none';
+        }
+
+        // Approve Collection from Visit Modal or Collection Details Modal
+        async function approveCollectionFromVisit(collectionId, distributorId) {
+            await approveCollection(collectionId, distributorId, 'visit');
+        }
+
+        async function approveCollectionFromModal(collectionId, distributorId) {
+            await approveCollection(collectionId, distributorId, 'modal');
+        }
+
+        async function approveCollection(collectionId, distributorId, source) {
+            if (!confirm(`Are you sure you want to approve this collection? This will create a payment record.`)) {
+                return;
+            }
+
+            const remarks = prompt('Enter remarks (optional):') || null;
+
+            const endpoint = `${API_BASE}/daily-collections/${collectionId}/approve?distributor_id=${distributorId}`;
+            showApiCall('POST', endpoint, 'Approve Daily Collection', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify({
+                        remarks: remarks
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showApiCall('POST', endpoint, 'Approve Daily Collection', 'error');
+                    throw new Error(data.detail || 'Failed to approve collection');
+                }
+
+                showApiCall('POST', endpoint, 'Approve Daily Collection', 'success');
+                
+                alert(`Collection approved successfully! Payment record created with ID: ${data.payment?.id || 'N/A'}`);
+                
+                if (source === 'modal') {
+                    // Close collection modal and reload it with updated data
+                    closeCollectionDetailsModal();
+                    // Reload collection data
+                    setTimeout(() => {
+                        fetch(`${API_BASE}/daily-collections/${collectionId}`)
+                            .then(res => res.json())
+                            .then(collection => {
+                                openCollectionDetailsModal(JSON.stringify(collection));
+                            })
+                            .catch(err => console.error('Error reloading collection:', err));
+                    }, 500);
+                } else if (source === 'visit' && currentVisitData) {
+                    // Reload visit linked data
+                    loadVisitLinkedData(
+                        currentVisitData.visitId,
+                        currentVisitData.orderId && currentVisitData.orderId !== 'null' ? currentVisitData.orderId : null,
+                        currentVisitData.collectionId && currentVisitData.collectionId !== 'null' ? currentVisitData.collectionId : null
+                    );
+                }
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        }
+
+        // Reject Collection
+        async function rejectCollectionFromModal(collectionId, distributorId) {
+            const remarks = prompt('Enter reason for rejection (required):') || 'Rejected by distributor';
+            
+            if (!confirm(`Are you sure you want to reject this collection?`)) {
+                return;
+            }
+
+            const endpoint = `${API_BASE}/daily-collections/${collectionId}/reject?distributor_id=${distributorId}`;
+            showApiCall('POST', endpoint, 'Reject Daily Collection', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify({
+                        remarks: remarks
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showApiCall('POST', endpoint, 'Reject Daily Collection', 'error');
+                    throw new Error(data.detail || 'Failed to reject collection');
+                }
+
+                showApiCall('POST', endpoint, 'Reject Daily Collection', 'success');
+                
+                alert(`Collection rejected successfully.`);
+                
+                // Close and reload collection modal
+                closeCollectionDetailsModal();
+                setTimeout(() => {
+                    fetch(`${API_BASE}/daily-collections/${collectionId}`)
+                        .then(res => res.json())
+                        .then(collection => {
+                            openCollectionDetailsModal(JSON.stringify(collection));
+                        })
+                        .catch(err => console.error('Error reloading collection:', err));
+                }, 500);
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
         }
 
         // Open CNIC Photos Modal
@@ -2924,8 +3471,65 @@
             modal.style.display = 'none';
         }
 
-        // Close modal when clicking outside
-        window.onclick = function(event) {
+        // Event delegation for visit items to avoid inline onclick issues
+        document.addEventListener('click', function(event) {
+            // Check if clicked element is a visit item or inside one
+            const visitItem = event.target.closest('.visit-item');
+            if (visitItem) {
+                const visitId = visitItem.getAttribute('data-visit-id');
+                const shopName = visitItem.getAttribute('data-shop-name') || 'Unregistered Shop';
+                const shopId = visitItem.getAttribute('data-shop-id') || null;
+                const shopZoneId = visitItem.getAttribute('data-shop-zone-id') || null;
+                const orderBookerName = visitItem.getAttribute('data-order-booker-name') || '';
+                const orderBookerId = visitItem.getAttribute('data-order-booker-id') || null;
+                const deliveryManName = visitItem.getAttribute('data-delivery-man-name') || '';
+                const deliveryManId = visitItem.getAttribute('data-delivery-man-id') || null;
+                let visitTypesJson = visitItem.getAttribute('data-visit-types') || '[]';
+                let shopRoutesJson = visitItem.getAttribute('data-shop-routes') || '[]';
+                // Decode HTML entities
+                visitTypesJson = visitTypesJson.replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+                shopRoutesJson = shopRoutesJson.replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+                const gpsLat = visitItem.getAttribute('data-gps-lat') || null;
+                const gpsLng = visitItem.getAttribute('data-gps-lng') || null;
+                const visitTime = visitItem.getAttribute('data-visit-time') || '';
+                const photo = visitItem.getAttribute('data-photo') || '';
+                const reason = visitItem.getAttribute('data-reason') || '';
+                const orderId = visitItem.getAttribute('data-order-id') || null;
+                const collectionId = visitItem.getAttribute('data-collection-id') || null;
+                let shopRoutesJson = visitItem.getAttribute('data-shop-routes') || '[]';
+                shopRoutesJson = shopRoutesJson.replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+                
+                // Decode HTML entities for text fields
+                const decodedShopName = shopName.replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+                const decodedOrderBookerName = orderBookerName.replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+                const decodedDeliveryManName = deliveryManName.replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+                const decodedReason = reason.replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+                const decodedPhoto = photo.replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+                const decodedVisitTime = visitTime.replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+                
+                openViewVisitModal(
+                    parseInt(visitId),
+                    decodedShopName,
+                    shopId && shopId !== '' ? parseInt(shopId) : null,
+                    shopZoneId && shopZoneId !== '' ? parseInt(shopZoneId) : null,
+                    decodedOrderBookerName,
+                    orderBookerId && orderBookerId !== '' ? parseInt(orderBookerId) : null,
+                    decodedDeliveryManName,
+                    deliveryManId && deliveryManId !== '' ? parseInt(deliveryManId) : null,
+                    visitTypesJson,
+                    gpsLat && gpsLat !== '' ? parseFloat(gpsLat) : null,
+                    gpsLng && gpsLng !== '' ? parseFloat(gpsLng) : null,
+                    decodedVisitTime,
+                    decodedPhoto,
+                    decodedReason,
+                    orderId && orderId !== '' ? parseInt(orderId) : null,
+                    collectionId && collectionId !== '' ? parseInt(collectionId) : null,
+                    shopRoutesJson
+                );
+                return; // Don't process modal close logic
+            }
+            
+            // Close modal when clicking outside
             const modal = document.getElementById('editModal');
             if (event.target === modal) {
                 closeEditModal();
@@ -2934,11 +3538,19 @@
             if (event.target === visitModal) {
                 closeViewVisitModal();
             }
+            const orderModal = document.getElementById('orderDetailsModal');
+            if (event.target === orderModal) {
+                closeOrderDetailsModal();
+            }
+            const collectionModal = document.getElementById('collectionDetailsModal');
+            if (event.target === collectionModal) {
+                closeCollectionDetailsModal();
+            }
             const cnicPhotosModal = document.getElementById('cnicPhotosModal');
             if (event.target === cnicPhotosModal) {
                 closeCnicPhotosModal();
             }
-        }
+        });
     </script>
 
     <!-- Edit Modal -->

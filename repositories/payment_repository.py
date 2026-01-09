@@ -14,34 +14,32 @@ class PaymentRepository:
     """Repository for Payment database operations."""
     
     @staticmethod
-    def create(db: Session, shop_id: int, collected_by_order_booker: int,
-              approved_by_distributor: int, amount: Decimal,
-              daily_collection_id: int = None, collected_at: datetime = None,
-              remarks: str = None) -> Payment:
+    def create(db: Session, shop_id: int, amount: Decimal,
+              order_id: int = None, received_by_distributor: int = None,
+              payment_date: datetime = None) -> Payment:
         """
         Create a new payment record.
+        
+        Note: Payments are created when distributors verify daily collections.
+        The daily_collection table has the details about who collected and who approved.
         
         Args:
             db: Database session
             shop_id: Shop ID where payment was collected
-            collected_by_order_booker: Order booker ID who collected
-            approved_by_distributor: Distributor ID who approved
             amount: Payment amount
-            daily_collection_id: Optional daily collection ID this payment came from
-            collected_at: Timestamp when payment was collected
-            remarks: Optional remarks
+            order_id: Optional order ID this payment is for
+            received_by_distributor: Optional distributor ID who received the payment
+            payment_date: Optional timestamp when payment was received
         
         Returns:
             Created payment instance
         """
         payment = Payment(
             shop_id=shop_id,
-            daily_collection_id=daily_collection_id,
-            collected_by_order_booker=collected_by_order_booker,
-            approved_by_distributor=approved_by_distributor,
             amount=amount,
-            collected_at=collected_at or datetime.utcnow(),
-            remarks=remarks
+            order_id=order_id,
+            received_by_distributor=received_by_distributor,
+            payment_date=payment_date or datetime.utcnow()
         )
         db.add(payment)
         db.commit()
@@ -58,21 +56,11 @@ class PaymentRepository:
         """Get all payments for a shop."""
         return db.query(Payment).filter(
             Payment.shop_id == shop_id
-        ).order_by(Payment.created_at.desc()).all()
+        ).order_by(Payment.payment_date.desc() if Payment.payment_date else Payment.id.desc()).all()
     
-    @staticmethod
-    def get_by_order_booker(db: Session, order_booker_id: int) -> List[Payment]:
-        """Get all payments collected by an order booker."""
-        return db.query(Payment).filter(
-            Payment.collected_by_order_booker == order_booker_id
-        ).order_by(Payment.created_at.desc()).all()
-    
-    @staticmethod
-    def get_by_distributor(db: Session, distributor_id: int) -> List[Payment]:
-        """Get all payments approved by a distributor."""
-        return db.query(Payment).filter(
-            Payment.approved_by_distributor == distributor_id
-        ).order_by(Payment.created_at.desc()).all()
+    # Note: get_by_order_booker and get_by_distributor removed
+    # Payment table doesn't have these columns. Use daily_collections table instead
+    # to track who collected and who approved.
 
 
 

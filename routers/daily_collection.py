@@ -78,6 +78,52 @@ async def submit_daily_collection(
         )
 
 
+@router.get("/{collection_id}", response_model=DailyCollectionResponse)
+async def get_collection_by_id(
+    collection_id: int,
+    db: Session = Depends(get_db)
+):
+    """Get a daily collection by ID."""
+    try:
+        from repositories.daily_collection_repository import DailyCollectionRepository
+        from repositories.shop_repository import ShopRepository
+        from repositories.order_booker_repository import OrderBookerRepository
+        
+        collection = DailyCollectionRepository.get_by_id(db, collection_id)
+        if not collection:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Collection not found"
+            )
+        
+        shop = ShopRepository.get_by_id(db, collection.shop_id) if collection.shop_id else None
+        order_booker = OrderBookerRepository.get_by_id(db, collection.collected_by_order_booker) if collection.collected_by_order_booker else None
+        
+        return {
+            "id": collection.id,
+            "shop_id": collection.shop_id,
+            "shop_name": shop.name if shop else None,
+            "shop_owner": shop.owner_name if shop else None,
+            "order_id": collection.order_id,
+            "collected_by_order_booker": collection.collected_by_order_booker,
+            "order_booker_name": order_booker.name if order_booker else None,
+            "collected_by_delivery_man": collection.collected_by_delivery_man,
+            "verified_by_distributor": collection.verified_by_distributor,
+            "amount": float(collection.amount) if collection.amount else 0,
+            "status": collection.status,
+            "visit_id": collection.visit_id,
+            "collection_date": collection.collection_date.isoformat() if collection.collection_date else None,
+            "photo_proof": collection.photo_proof
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching collection: {str(e)}"
+        )
+
+
 @router.get("/order-booker/{order_booker_id}", response_model=List[DailyCollectionResponse])
 async def list_collections_by_order_booker(
     order_booker_id: int,

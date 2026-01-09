@@ -20,7 +20,7 @@ class DailyCollectionService:
     @staticmethod
     def create_collection(db: Session, shop_id: int, order_booker_id: int,
                          amount: float, collected_at: datetime = None,
-                         remarks: str = None) -> Dict:
+                         remarks: str = None, visit_id: int = None) -> Dict:
         """
         Create a daily collection entry.
         
@@ -35,8 +35,9 @@ class DailyCollectionService:
             shop_id: Shop ID where collection was made
             order_booker_id: Order booker ID who collected
             amount: Collection amount
-            collected_at: Timestamp when collection was made
-            remarks: Optional remarks
+            collected_at: Timestamp when collection was made (will be stored as collection_date)
+            remarks: Optional remarks (not stored in database, kept for API compatibility)
+            visit_id: Optional visit ID this collection is linked to
         
         Returns:
             Dict: Collection data
@@ -51,25 +52,33 @@ class DailyCollectionService:
         if not order_booker:
             raise ValueError("Order Booker not found")
         
-        # Create collection
+        # Create collection (database uses collection_date, not collected_at)
         collection = DailyCollectionRepository.create(
             db=db,
             shop_id=shop_id,
             collected_by_order_booker=order_booker_id,
             amount=Decimal(str(amount)),
-            collected_at=collected_at,
-            remarks=remarks
+            collection_date=collected_at,  # Use collection_date to match database
+            visit_id=visit_id
         )
         
+        shop = ShopRepository.get_by_id(db, shop_id)
+        order_booker = OrderBookerRepository.get_by_id(db, order_booker_id)
         return {
             "id": collection.id,
             "shop_id": collection.shop_id,
+            "shop_name": shop.name if shop else None,
+            "shop_owner": shop.owner_name if shop else None,
+            "order_id": collection.order_id,
             "collected_by_order_booker": collection.collected_by_order_booker,
-            "amount": float(collection.amount),
+            "order_booker_name": order_booker.name if order_booker else None,
+            "collected_by_delivery_man": collection.collected_by_delivery_man,
+            "verified_by_distributor": collection.verified_by_distributor,
+            "amount": float(collection.amount) if collection.amount else 0.0,
             "status": collection.status,
-            "collected_at": collection.collected_at.isoformat() if collection.collected_at else None,
-            "remarks": collection.remarks,
-            "created_at": collection.created_at.isoformat() if collection.created_at else None
+            "visit_id": collection.visit_id,
+            "collection_date": collection.collection_date.isoformat() if collection.collection_date else None,
+            "photo_proof": collection.photo_proof
         }
     
     @staticmethod
@@ -104,13 +113,16 @@ class DailyCollectionService:
                 "shop_id": collection.shop_id,
                 "shop_name": shop.name if shop else "Unknown",
                 "shop_owner": shop.owner_name if shop else None,
+                "order_id": collection.order_id,
                 "collected_by_order_booker": collection.collected_by_order_booker,
                 "order_booker_name": order_booker.name if order_booker else None,
-                "amount": float(collection.amount),
+                "collected_by_delivery_man": collection.collected_by_delivery_man,
+                "verified_by_distributor": collection.verified_by_distributor,
+                "amount": float(collection.amount) if collection.amount else 0.0,
                 "status": collection.status,
-                "collected_at": collection.collected_at.isoformat() if collection.collected_at else None,
-                "remarks": collection.remarks,
-                "created_at": collection.created_at.isoformat() if collection.created_at else None
+                "visit_id": collection.visit_id,
+                "collection_date": collection.collection_date.isoformat() if collection.collection_date else None,
+                "photo_proof": collection.photo_proof
             })
         
         return result
@@ -137,11 +149,17 @@ class DailyCollectionService:
                 "id": collection.id,
                 "shop_id": collection.shop_id,
                 "shop_name": shop.name if shop else "Unknown",
-                "amount": float(collection.amount),
+                "shop_owner": shop.owner_name if shop else None,
+                "order_id": collection.order_id,
+                "collected_by_order_booker": collection.collected_by_order_booker,
+                "order_booker_name": None,  # Could fetch if needed
+                "collected_by_delivery_man": collection.collected_by_delivery_man,
+                "verified_by_distributor": collection.verified_by_distributor,
+                "amount": float(collection.amount) if collection.amount else 0.0,
                 "status": collection.status,
-                "collected_at": collection.collected_at.isoformat() if collection.collected_at else None,
-                "remarks": collection.remarks,
-                "created_at": collection.created_at.isoformat() if collection.created_at else None
+                "visit_id": collection.visit_id,
+                "collection_date": collection.collection_date.isoformat() if collection.collection_date else None,
+                "photo_proof": collection.photo_proof
             })
         
         return result
@@ -155,16 +173,14 @@ class DailyCollectionService:
         FLOW:
         1. Validates collection exists and is pending
         2. Validates distributor exists
-        3. Approves collection (sets status, reviewed_by, reviewed_at)
+        3. Verifies collection (sets status="verified", verified_by_distributor)
         4. Creates payment record from collection
-        5. Links collection to payment
-        6. Returns approved collection and payment data
+        5. Returns verified collection and payment data
         
         Args:
             db: Database session
             collection_id: Collection ID to approve
-            distributor_id: Distributor ID who is approving
-            remarks: Optional remarks
+            distributor_id: Distributor ID who is verifying
         
         Returns:
             Dict: Approved collection and payment data
@@ -182,28 +198,22 @@ class DailyCollectionService:
         if not distributor:
             raise ValueError("Distributor not found")
         
-        # Approve collection
+        # Approve/verify collection
         approved = DailyCollectionRepository.approve(
             db=db,
             collection_id=collection_id,
-            distributor_id=distributor_id,
-            remarks=remarks
+            distributor_id=distributor_id
         )
         
-        # Create payment record
+        # Create payment record (payments table has: id, shop_id, order_id, amount, received_by_distributor, payment_date)
         payment = PaymentRepository.create(
             db=db,
             shop_id=approved.shop_id,
-            collected_by_order_booker=approved.collected_by_order_booker,
-            approved_by_distributor=distributor_id,
             amount=approved.amount,
-            daily_collection_id=approved.id,
-            collected_at=approved.collected_at,
-            remarks=remarks or approved.remarks
+            order_id=approved.order_id,  # Link to order if collection was for an order
+            received_by_distributor=distributor_id,
+            payment_date=approved.collection_date or datetime.utcnow()
         )
-        
-        # Link collection to payment
-        DailyCollectionRepository.update_payment_id(db, approved.id, payment.id)
         
         # Get shop name for response
         shop = ShopRepository.get_by_id(db, approved.shop_id)
@@ -214,47 +224,47 @@ class DailyCollectionService:
                 "id": approved.id,
                 "shop_id": approved.shop_id,
                 "shop_name": shop.name if shop else "Unknown",
+                "shop_owner": shop.owner_name if shop else None,
+                "order_id": approved.order_id,
                 "collected_by_order_booker": approved.collected_by_order_booker,
                 "order_booker_name": order_booker.name if order_booker else None,
-                "amount": float(approved.amount),
+                "collected_by_delivery_man": approved.collected_by_delivery_man,
+                "verified_by_distributor": approved.verified_by_distributor,
+                "amount": float(approved.amount) if approved.amount else 0.0,
                 "status": approved.status,
-                "reviewed_by_distributor": approved.reviewed_by_distributor,
-                "reviewed_at": approved.reviewed_at.isoformat() if approved.reviewed_at else None,
-                "payment_id": approved.payment_id,
-                "remarks": approved.remarks,
-                "created_at": approved.created_at.isoformat() if approved.created_at else None
+                "visit_id": approved.visit_id,
+                "collection_date": approved.collection_date.isoformat() if approved.collection_date else None,
+                "photo_proof": approved.photo_proof
             },
             "payment": {
                 "id": payment.id,
                 "shop_id": payment.shop_id,
                 "shop_name": shop.name if shop else "Unknown",
-                "amount": float(payment.amount),
-                "daily_collection_id": payment.daily_collection_id,
-                "collected_by_order_booker": payment.collected_by_order_booker,
-                "order_booker_name": order_booker.name if order_booker else None,
-                "approved_by_distributor": payment.approved_by_distributor,
-                "collected_at": payment.collected_at.isoformat() if payment.collected_at else None,
-                "created_at": payment.created_at.isoformat() if payment.created_at else None
+                "order_id": payment.order_id,
+                "amount": float(payment.amount) if payment.amount else 0.0,
+                "received_by_distributor": payment.received_by_distributor,
+                "payment_date": payment.payment_date.isoformat() if payment.payment_date else None,
+                # Note: collected_by_order_booker info comes from the daily_collection record
+                "collected_by_order_booker": approved.collected_by_order_booker,
+                "order_booker_name": order_booker.name if order_booker else None
             }
         }
     
     @staticmethod
-    def reject_collection(db: Session, collection_id: int, distributor_id: int,
-                         remarks: str = None) -> Dict:
+    def reject_collection(db: Session, collection_id: int, distributor_id: int) -> Dict:
         """
         Reject a daily collection.
         
         FLOW:
         1. Validates collection exists and is pending
         2. Validates distributor exists
-        3. Rejects collection (sets status, reviewed_by, reviewed_at)
+        3. Rejects collection (sets status="rejected", verified_by_distributor)
         4. Returns rejected collection data
         
         Args:
             db: Database session
             collection_id: Collection ID to reject
             distributor_id: Distributor ID who is rejecting
-            remarks: Reason for rejection
         
         Returns:
             Dict: Rejected collection data
@@ -276,25 +286,28 @@ class DailyCollectionService:
         rejected = DailyCollectionRepository.reject(
             db=db,
             collection_id=collection_id,
-            distributor_id=distributor_id,
-            remarks=remarks
+            distributor_id=distributor_id
         )
         
         # Get shop and order booker names for response
         shop = ShopRepository.get_by_id(db, rejected.shop_id)
         order_booker = OrderBookerRepository.get_by_id(db, rejected.collected_by_order_booker)
         
+        shop = ShopRepository.get_by_id(db, rejected.shop_id)
         return {
             "id": rejected.id,
             "shop_id": rejected.shop_id,
             "shop_name": shop.name if shop else "Unknown",
+            "shop_owner": shop.owner_name if shop else None,
+            "order_id": rejected.order_id,
             "collected_by_order_booker": rejected.collected_by_order_booker,
             "order_booker_name": order_booker.name if order_booker else None,
-            "amount": float(rejected.amount),
+            "collected_by_delivery_man": rejected.collected_by_delivery_man,
+            "verified_by_distributor": rejected.verified_by_distributor,
+            "amount": float(rejected.amount) if rejected.amount else 0.0,
             "status": rejected.status,
-            "reviewed_by_distributor": rejected.reviewed_by_distributor,
-            "reviewed_at": rejected.reviewed_at.isoformat() if rejected.reviewed_at else None,
-            "remarks": rejected.remarks,
-            "created_at": rejected.created_at.isoformat() if rejected.created_at else None
+            "visit_id": rejected.visit_id,
+            "collection_date": rejected.collection_date.isoformat() if rejected.collection_date else None,
+            "photo_proof": rejected.photo_proof
         }
 

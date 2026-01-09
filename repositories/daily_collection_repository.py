@@ -14,19 +14,23 @@ class DailyCollectionRepository:
     """Repository for Daily Collection database operations."""
     
     @staticmethod
-    def create(db: Session, shop_id: int, collected_by_order_booker: int,
-              amount: Decimal, collected_at: datetime = None,
-              remarks: str = None) -> DailyCollection:
+    def create(db: Session, shop_id: int, collected_by_order_booker: int = None,
+              amount: Decimal = None, collection_date: datetime = None,
+              visit_id: int = None, order_id: int = None,
+              collected_by_delivery_man: int = None, photo_proof: str = None) -> DailyCollection:
         """
         Create a new daily collection entry.
         
         Args:
             db: Database session
             shop_id: Shop ID where collection was made
-            collected_by_order_booker: Order booker ID who collected
+            collected_by_order_booker: Order booker ID who collected (optional)
             amount: Collection amount
-            collected_at: Timestamp when collection was made (optional)
-            remarks: Optional remarks
+            collection_date: Timestamp when collection was made (optional)
+            visit_id: Visit ID where collection was made (optional)
+            order_id: Order ID this collection is for (optional)
+            collected_by_delivery_man: Delivery man ID who collected (optional)
+            photo_proof: Photo proof URL or base64 (optional)
         
         Returns:
             Created daily collection instance
@@ -34,10 +38,13 @@ class DailyCollectionRepository:
         collection = DailyCollection(
             shop_id=shop_id,
             collected_by_order_booker=collected_by_order_booker,
+            collected_by_delivery_man=collected_by_delivery_man,
             amount=amount,
             status="pending",
-            collected_at=collected_at or datetime.utcnow(),
-            remarks=remarks
+            collection_date=collection_date or datetime.utcnow(),
+            visit_id=visit_id,
+            order_id=order_id,
+            photo_proof=photo_proof
         )
         db.add(collection)
         db.commit()
@@ -69,35 +76,34 @@ class DailyCollectionRepository:
         # Note: Distributors are not assigned to zones, so we return all pending collections
         # If zone filtering is needed, filter by order_booker.zone_id or delivery_man.zone_id
         # at the service layer instead
+        # Order by collection_date if available, otherwise by id
         return db.query(DailyCollection).filter(
             DailyCollection.status == "pending"
-        ).order_by(DailyCollection.created_at.desc()).all()
+        ).order_by(DailyCollection.id.desc()).all()
     
     @staticmethod
     def get_by_order_booker(db: Session, order_booker_id: int) -> List[DailyCollection]:
         """Get all collections by an order booker."""
         return db.query(DailyCollection).filter(
             DailyCollection.collected_by_order_booker == order_booker_id
-        ).order_by(DailyCollection.created_at.desc()).all()
+        ).order_by(DailyCollection.id.desc()).all()
     
     @staticmethod
     def get_by_shop(db: Session, shop_id: int) -> List[DailyCollection]:
         """Get all collections for a shop."""
         return db.query(DailyCollection).filter(
             DailyCollection.shop_id == shop_id
-        ).order_by(DailyCollection.created_at.desc()).all()
+        ).order_by(DailyCollection.id.desc()).all()
     
     @staticmethod
-    def approve(db: Session, collection_id: int, distributor_id: int,
-               remarks: str = None) -> Optional[DailyCollection]:
+    def approve(db: Session, collection_id: int, distributor_id: int) -> Optional[DailyCollection]:
         """
-        Approve a daily collection.
+        Approve/verify a daily collection.
         
         Args:
             db: Database session
             collection_id: Collection ID to approve
-            distributor_id: Distributor ID who is approving
-            remarks: Optional remarks
+            distributor_id: Distributor ID who is verifying
         
         Returns:
             Updated collection instance or None if not found
@@ -106,19 +112,15 @@ class DailyCollectionRepository:
         if not collection:
             return None
         
-        collection.status = "approved"
-        collection.reviewed_by_distributor = distributor_id
-        collection.reviewed_at = datetime.utcnow()
-        if remarks:
-            collection.remarks = remarks
+        collection.status = "verified"  # Use "verified" to match database convention
+        collection.verified_by_distributor = distributor_id
         
         db.commit()
         db.refresh(collection)
         return collection
     
     @staticmethod
-    def reject(db: Session, collection_id: int, distributor_id: int,
-              remarks: str = None) -> Optional[DailyCollection]:
+    def reject(db: Session, collection_id: int, distributor_id: int) -> Optional[DailyCollection]:
         """
         Reject a daily collection.
         
@@ -126,7 +128,6 @@ class DailyCollectionRepository:
             db: Database session
             collection_id: Collection ID to reject
             distributor_id: Distributor ID who is rejecting
-            remarks: Reason for rejection
         
         Returns:
             Updated collection instance or None if not found
@@ -136,33 +137,12 @@ class DailyCollectionRepository:
             return None
         
         collection.status = "rejected"
-        collection.reviewed_by_distributor = distributor_id
-        collection.reviewed_at = datetime.utcnow()
-        if remarks:
-            collection.remarks = remarks
+        collection.verified_by_distributor = distributor_id
         
         db.commit()
         db.refresh(collection)
         return collection
     
-    @staticmethod
-    def update_payment_id(db: Session, collection_id: int, payment_id: int) -> bool:
-        """
-        Update collection with payment ID after payment is created.
-        
-        Args:
-            db: Database session
-            collection_id: Collection ID
-            payment_id: Payment ID to link
-        
-        Returns:
-            True if updated, False if not found
-        """
-        collection = db.query(DailyCollection).filter(DailyCollection.id == collection_id).first()
-        if not collection:
-            return False
-        
-        collection.payment_id = payment_id
-        db.commit()
-        return True
+    # Note: update_payment_id method removed - payment_id column doesn't exist in database
+    # Payments are linked to collections via the daily_collection service logic, not via a foreign key
 

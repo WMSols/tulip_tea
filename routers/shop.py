@@ -101,6 +101,59 @@ async def list_shops_by_order_booker(
     return shops
 
 
+@router.get("/{shop_id}/credit-info")
+async def get_shop_credit_info(shop_id: int, db: Session = Depends(get_db)):
+    """
+    Get shop's credit limit information including outstanding balance and available credit.
+    
+    API: GET /shops/{shop_id}/credit-info
+    
+    Response (200):
+        {
+            "shop_id": 1,
+            "credit_limit": 50000.00,
+            "legacy_balance": 0.00,
+            "outstanding_balance": 1000.00,
+            "total_outstanding": 1000.00,
+            "available_credit": 49000.00
+        }
+    """
+    from services.order_service import OrderService
+    
+    shop = ShopRepository.get_by_id(db, shop_id)
+    if not shop:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Shop not found"
+        )
+    
+    credit_limit = float(shop.credit_limit or 0)
+    legacy_balance = float(shop.legacy_balance or 0)
+    
+    outstanding_balance = 0.0
+    if credit_limit > 0:
+        try:
+            outstanding = OrderService.calculate_outstanding_balance(db, shop_id)
+            outstanding_balance = float(outstanding)
+        except Exception as e:
+            # If calculation fails, set to 0 and log error
+            print(f"Error calculating outstanding balance for shop {shop_id}: {e}")
+            outstanding_balance = 0.0
+    
+    total_outstanding = outstanding_balance + legacy_balance
+    available_credit = credit_limit - total_outstanding if credit_limit > 0 else 0.0
+    
+    return {
+        "shop_id": shop_id,
+        "shop_name": shop.name,
+        "credit_limit": credit_limit,
+        "legacy_balance": legacy_balance,
+        "outstanding_balance": outstanding_balance,
+        "total_outstanding": total_outstanding,
+        "available_credit": available_credit
+    }
+
+
 @router.get("/pending", response_model=List[ShopResponse])
 async def list_pending_shops(db: Session = Depends(get_db)):
     """

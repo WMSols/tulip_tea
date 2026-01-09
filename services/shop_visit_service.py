@@ -24,21 +24,112 @@ from repositories.shop_visit_repository import ShopVisitRepository
 from repositories.shop_repository import ShopRepository
 from repositories.order_booker_repository import OrderBookerRepository
 from repositories.delivery_man_repository import DeliveryManRepository
+from repositories.visit_type_repository import VisitTypeRepository
+from repositories.order_repository import OrderRepository
+from repositories.daily_collection_repository import DailyCollectionRepository
 from services.image_service import ImageService
+from services.order_service import OrderService
+from services.daily_collection_service import DailyCollectionService
 from decimal import Decimal
 from typing import Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, date
 
 
 class ShopVisitService:
     """Service for Shop Visit business logic."""
     
     @staticmethod
+    def _format_visit_data(db: Session, visit, include_linked_data: bool = True) -> Dict:
+        """
+        Helper method to format visit data consistently.
+        
+        Args:
+            db: Database session
+            visit: ShopVisit instance
+            include_linked_data: Whether to include order_id and collection_id
+        
+        Returns:
+            Dict: Formatted visit data
+        """
+        # Get shop name, zone, and routes
+        shop_name = None
+        shop_zone_id = None
+        shop_routes = []
+        if visit.shop_id:
+            shop = ShopRepository.get_by_id(db, visit.shop_id)
+            if shop:
+                shop_name = shop.name
+                shop_zone_id = shop.zone_id
+                # Get shop routes
+                from models.route_shop import RouteShop
+                from repositories.route_repository import RouteRepository
+                route_shops = db.query(RouteShop).filter(RouteShop.shop_id == shop.id).all()
+                for route_shop in route_shops:
+                    route = RouteRepository.get_by_id(db, route_shop.route_id)
+                    if route:
+                        shop_routes.append({
+                            "route_id": route.id,
+                            "route_name": route.name,
+                            "zone_id": route.zone_id
+                        })
+        
+        # Get order booker name
+        order_booker_name = None
+        if visit.order_booker_id:
+            order_booker = OrderBookerRepository.get_by_id(db, visit.order_booker_id)
+            order_booker_name = order_booker.name if order_booker else None
+        
+        # Get delivery man name
+        delivery_man_name = None
+        if visit.delivery_man_id:
+            delivery_man = DeliveryManRepository.get_by_id(db, visit.delivery_man_id)
+            delivery_man_name = delivery_man.name if delivery_man else None
+        
+        # Get visit types from junction table
+        visit_types_list = [vt.visit_type for vt in VisitTypeRepository.get_by_visit(db, visit.id)]
+        if not visit_types_list and visit.visit_type:
+            # Fallback to legacy visit_type field
+            visit_types_list = [visit.visit_type]
+        
+        # Get linked order and collection if requested
+        order_id = None
+        collection_id = None
+        if include_linked_data:
+            orders = OrderRepository.get_by_visit(db, visit.id)
+            order_id = orders[0].id if orders else None
+            
+            from models.daily_collection import DailyCollection
+            collections = db.query(DailyCollection).filter(DailyCollection.visit_id == visit.id).all()
+            collection_id = collections[0].id if collections else None
+        
+        return {
+            "id": visit.id,
+            "shop_id": visit.shop_id,
+            "shop_name": shop_name,
+            "shop_zone_id": shop_zone_id,
+            "shop_routes": shop_routes,  # List of routes this shop belongs to
+            "order_booker_id": visit.order_booker_id,
+            "order_booker_name": order_booker_name,
+            "delivery_man_id": visit.delivery_man_id,
+            "delivery_man_name": delivery_man_name,
+            "visit_types": visit_types_list,
+            "gps_lat": float(visit.gps_lat) if visit.gps_lat else None,
+            "gps_lng": float(visit.gps_lng) if visit.gps_lng else None,
+            "visit_time": visit.visit_time.isoformat() if visit.visit_time else None,
+            "photo": visit.photo,
+            "reason": visit.reason,
+            "order_id": order_id,
+            "collection_id": collection_id
+        }
+    
+    @staticmethod
     def register_visit(db: Session, shop_id: int = None, order_booker_id: int = None,
-                      delivery_man_id: int = None, visit_type: str = None,
+                      delivery_man_id: int = None, visit_types: List[str] = None,
                       gps_lat: float = None, gps_lng: float = None,
                       visit_time: str = None, photo: str = None,
-                      reason: str = None) -> Dict:
+                      reason: str = None, order_items: List[Dict] = None,
+                      scheduled_date: str = None, collection_amount: float = None,
+                      collection_remarks: str = None) -> Dict:
         """
         Register a new shop visit.
         
@@ -114,18 +205,32 @@ class ShopVisitService:
             # Photo is base64, will upload after visit creation
             photo_url = None
         
+        # Create visit (visit_type is deprecated, but keep for backward compatibility)
+        # We'll use visit_types table instead
+        visit_type_legacy = visit_types[0] if visit_types and len(visit_types) > 0 else None
+        
         visit = ShopVisitRepository.create(
             db=db,
             shop_id=shop_id,
             order_booker_id=order_booker_id,
             delivery_man_id=delivery_man_id,
-            visit_type=visit_type,
+            visit_type=visit_type_legacy,  # Keep for backward compatibility
             gps_lat=gps_lat_decimal,
             gps_lng=gps_lng_decimal,
             visit_time=visit_time_datetime,
             photo=photo_url,  # Will be None if base64, URL if already uploaded
             reason=reason
         )
+        
+        # Create visit types in junction table
+        created_visit_types = []
+        if visit_types:
+            for vt in visit_types:
+                try:
+                    visit_type_obj = VisitTypeRepository.create(db, visit.id, vt)
+                    created_visit_types.append(vt)
+                except Exception as e:
+                    print(f"Warning: Failed to create visit type '{vt}': {e}")
         
         # Upload photo to Supabase Storage if it's base64
         if photo_base64 and photo_base64.startswith('data:image'):
@@ -152,47 +257,78 @@ class ShopVisitService:
                 print(f"Error uploading visit photo: {e}")
                 # Visit is still created, just without photo URL
         
-        # Get shop name for response
-        shop_name = None
-        if visit.shop_id:
-            shop = ShopRepository.get_by_id(db, visit.shop_id)
-            shop_name = shop.name if shop else None
+        # Handle order_booking type - create order
+        order_id = None
+        if visit_types and "order_booking" in visit_types:
+            if not shop_id:
+                raise ValueError("shop_id is required when visit_type includes 'order_booking'")
+            if not order_items or len(order_items) == 0:
+                raise ValueError("order_items are required when visit_type includes 'order_booking'")
+            
+            # Parse scheduled_date if provided
+            scheduled_date_obj = None
+            if scheduled_date:
+                try:
+                    scheduled_date_obj = datetime.fromisoformat(scheduled_date).date()
+                except (ValueError, AttributeError):
+                    try:
+                        scheduled_date_obj = date.fromisoformat(scheduled_date)
+                    except (ValueError, AttributeError):
+                        raise ValueError("Invalid scheduled_date format. Use ISO date format (e.g., 2026-01-10)")
+            
+            # Get distributor_id from order_booker
+            distributor_id = None
+            if order_booker_id:
+                order_booker = OrderBookerRepository.get_by_id(db, order_booker_id)
+                if order_booker:
+                    distributor_id = order_booker.distributor_id
+            
+            # Create order
+            try:
+                order_data = OrderService.create_order(
+                    db=db,
+                    shop_id=shop_id,
+                    order_booker_id=order_booker_id,
+                    order_items=order_items,
+                    distributor_id=distributor_id,
+                    visit_id=visit.id,
+                    scheduled_date=scheduled_date_obj
+                )
+                order_id = order_data["id"]
+            except Exception as e:
+                print(f"Error creating order during visit: {e}")
+                # Visit is still created, but order creation failed
+                raise ValueError(f"Failed to create order: {str(e)}")
         
-        # Get order booker name for response
-        order_booker_name = None
-        if visit.order_booker_id:
-            order_booker = OrderBookerRepository.get_by_id(db, visit.order_booker_id)
-            order_booker_name = order_booker.name if order_booker else None
+        # Handle daily_collections type - create collection
+        collection_id = None
+        if visit_types and "daily_collections" in visit_types:
+            if not shop_id:
+                raise ValueError("shop_id is required when visit_type includes 'daily_collections'")
+            if not collection_amount or collection_amount <= 0:
+                raise ValueError("collection_amount is required and must be greater than 0 when visit_type includes 'daily_collections'")
+            if not order_booker_id:
+                raise ValueError("order_booker_id is required when visit_type includes 'daily_collections'")
+            
+            # Create daily collection
+            try:
+                collection_data = DailyCollectionService.create_collection(
+                    db=db,
+                    shop_id=shop_id,
+                    order_booker_id=order_booker_id,
+                    amount=collection_amount,
+                    collected_at=visit_time_datetime,
+                    remarks=collection_remarks,
+                    visit_id=visit.id  # Link collection to visit directly
+                )
+                collection_id = collection_data["id"]
+            except Exception as e:
+                print(f"Error creating collection during visit: {e}")
+                # Visit is still created, but collection creation failed
+                raise ValueError(f"Failed to create collection: {str(e)}")
         
-        # Get delivery man name for response
-        delivery_man_name = None
-        if visit.delivery_man_id:
-            delivery_man = DeliveryManRepository.get_by_id(db, visit.delivery_man_id)
-            delivery_man_name = delivery_man.name if delivery_man else None
-        
-        # Get shop zone_id for response
-        shop_zone_id = None
-        if visit.shop_id:
-            shop = ShopRepository.get_by_id(db, visit.shop_id)
-            shop_zone_id = shop.zone_id if shop else None
-        
-        return {
-            "id": visit.id,
-            "shop_id": visit.shop_id,
-            "shop_name": shop_name,
-            "shop_zone_id": shop_zone_id,
-            "order_booker_id": visit.order_booker_id,
-            "order_booker_name": order_booker_name,
-            "delivery_man_id": visit.delivery_man_id,
-            "delivery_man_name": delivery_man_name,
-            "visit_type": visit.visit_type,
-            "gps_lat": float(visit.gps_lat) if visit.gps_lat else None,
-            "gps_lng": float(visit.gps_lng) if visit.gps_lng else None,
-            "visit_time": visit.visit_time.isoformat() if visit.visit_time else None,
-            "photo": visit.photo,
-            "reason": visit.reason
-            # Note: created_at is not in the database schema, using visit_time for timestamp
-        }
+        # Format and return visit data
+        return ShopVisitService._format_visit_data(db, visit, include_linked_data=True)
     
     @staticmethod
     def get_visits_by_order_booker(db: Session, order_booker_id: int,
@@ -242,23 +378,7 @@ class ShopVisitService:
                 shop = ShopRepository.get_by_id(db, visit.shop_id)
                 shop_zone_id = shop.zone_id if shop else None
             
-            result.append({
-                "id": visit.id,
-                "shop_id": visit.shop_id,
-                "shop_name": shop_name,
-                "shop_zone_id": shop_zone_id,
-                "order_booker_id": visit.order_booker_id,
-                "order_booker_name": order_booker_name,
-                "delivery_man_id": visit.delivery_man_id,
-                "delivery_man_name": delivery_man_name,
-                "visit_type": visit.visit_type,
-                "gps_lat": float(visit.gps_lat) if visit.gps_lat else None,
-                "gps_lng": float(visit.gps_lng) if visit.gps_lng else None,
-                "visit_time": visit.visit_time.isoformat() if visit.visit_time else None,
-                "photo": visit.photo,
-                "reason": visit.reason
-                # Note: created_at is not in the database schema, using visit_time for timestamp
-            })
+            result.append(ShopVisitService._format_visit_data(db, visit, include_linked_data=True))
         
         return result
     
@@ -308,23 +428,7 @@ class ShopVisitService:
                 shop = ShopRepository.get_by_id(db, visit.shop_id)
                 shop_zone_id = shop.zone_id if shop else None
             
-            result.append({
-                "id": visit.id,
-                "shop_id": visit.shop_id,
-                "shop_name": shop_name,
-                "shop_zone_id": shop_zone_id,
-                "order_booker_id": visit.order_booker_id,
-                "order_booker_name": order_booker_name,
-                "delivery_man_id": visit.delivery_man_id,
-                "delivery_man_name": delivery_man_name,
-                "visit_type": visit.visit_type,
-                "gps_lat": float(visit.gps_lat) if visit.gps_lat else None,
-                "gps_lng": float(visit.gps_lng) if visit.gps_lng else None,
-                "visit_time": visit.visit_time.isoformat() if visit.visit_time else None,
-                "photo": visit.photo,
-                "reason": visit.reason
-                # Note: created_at is not in the database schema, using visit_time for timestamp
-            })
+            result.append(ShopVisitService._format_visit_data(db, visit, include_linked_data=True))
         
         return result
     
@@ -336,7 +440,7 @@ class ShopVisitService:
         FLOW:
         1. Gets all visits from repository
         2. For each visit, fetches shop, order booker, and delivery man information
-        3. Returns formatted list with zone information
+        3. Returns formatted list with zone information and linked order/collection IDs
         
         Args:
             db: Database session
@@ -344,49 +448,15 @@ class ShopVisitService:
             limit: Maximum number of records to return
         
         Returns:
-            List[Dict]: List of visits with shop, visitor, and zone info
+            List[Dict]: List of visits with shop, visitor, zone info, and linked order/collection IDs
         """
         visits = ShopVisitRepository.get_all(db, skip, limit)
         
         result = []
         for visit in visits:
-            # Get shop name and zone
-            shop_name = None
-            shop_zone_id = None
-            if visit.shop_id:
-                shop = ShopRepository.get_by_id(db, visit.shop_id)
-                if shop:
-                    shop_name = shop.name
-                    shop_zone_id = shop.zone_id
-            
-            # Get order booker name
-            order_booker_name = None
-            if visit.order_booker_id:
-                order_booker = OrderBookerRepository.get_by_id(db, visit.order_booker_id)
-                order_booker_name = order_booker.name if order_booker else None
-            
-            # Get delivery man name
-            delivery_man_name = None
-            if visit.delivery_man_id:
-                delivery_man = DeliveryManRepository.get_by_id(db, visit.delivery_man_id)
-                delivery_man_name = delivery_man.name if delivery_man else None
-            
-            result.append({
-                "id": visit.id,
-                "shop_id": visit.shop_id,
-                "shop_name": shop_name,
-                "shop_zone_id": shop_zone_id,
-                "order_booker_id": visit.order_booker_id,
-                "order_booker_name": order_booker_name,
-                "delivery_man_id": visit.delivery_man_id,
-                "delivery_man_name": delivery_man_name,
-                "visit_type": visit.visit_type,
-                "gps_lat": float(visit.gps_lat) if visit.gps_lat else None,
-                "gps_lng": float(visit.gps_lng) if visit.gps_lng else None,
-                "visit_time": visit.visit_time.isoformat() if visit.visit_time else None,
-                "photo": visit.photo,
-                "reason": visit.reason
-            })
+            # Use the helper method to format visit data consistently
+            # This ensures order_id and collection_id are included
+            result.append(ShopVisitService._format_visit_data(db, visit, include_linked_data=True))
         
         return result
 

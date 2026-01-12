@@ -10,12 +10,14 @@ API ENDPOINTS:
 - GET /orders/visit/{visit_id} - Get orders linked to a visit
 - POST /orders/{order_id}/assign - Assign order to delivery man (Distributor)
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 from typing import List
 from config.database import get_db
 from models.schemas import OrderCreate, OrderResponse
 from services.order_service import OrderService
+from services.activity_log_service import ActivityLogService
+from utils.auth_helpers import get_current_user_from_request
 
 router = APIRouter(prefix="/orders", tags=["Orders"])
 
@@ -24,6 +26,7 @@ router = APIRouter(prefix="/orders", tags=["Orders"])
 async def create_order(
     order_booker_id: int,
     order: OrderCreate,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """
@@ -77,13 +80,58 @@ async def create_order(
             visit_id=order.visit_id,
             scheduled_date=scheduled_date_obj
         )
+        
+        # Log order creation
+        ActivityLogService.log_create(
+            db=db,
+            user_id=order_booker_id,
+            user_role='order_booker',
+            entity_type='order',
+            entity_id=order_data['id'],
+            new_values={
+                'shop_id': order_data.get('shop_id'),
+                'shop_name': order_data.get('shop_name'),
+                'total_amount': str(order_data.get('total_amount', 0)),
+                'status': order_data.get('status')
+            },
+            metadata={
+                'order_items_count': len(order_data.get('order_items', [])),
+                'visit_id': order_data.get('visit_id'),
+                'scheduled_date': str(order_data.get('scheduled_date', '')) if order_data.get('scheduled_date') else None
+            },
+            changes_summary=f"Order created: {order_data.get('shop_name')} - Rs. {order_data.get('total_amount', 0)}",
+            request=request
+        )
+        
         return order_data
     except ValueError as e:
+        # Log failure
+        user_info = get_current_user_from_request(request)
+        ActivityLogService.log_failure(
+            db=db,
+            user_id=user_info['user_id'] if user_info else order_booker_id,
+            user_role=user_info['user_role'] if user_info else 'order_booker',
+            action_type='CREATE',
+            entity_type='order',
+            error_message=str(e),
+            request=request
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except Exception as e:
+        # Log failure
+        user_info = get_current_user_from_request(request)
+        ActivityLogService.log_failure(
+            db=db,
+            user_id=user_info['user_id'] if user_info else order_booker_id,
+            user_role=user_info['user_role'] if user_info else 'order_booker',
+            action_type='CREATE',
+            entity_type='order',
+            error_message=str(e),
+            request=request
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error creating order: {str(e)}"
@@ -167,6 +215,7 @@ async def list_orders_by_visit(
 async def assign_order_to_delivery_man(
     order_id: int,
     delivery_man_id: int,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """
@@ -181,14 +230,46 @@ async def assign_order_to_delivery_man(
     4. Order status changes to "confirmed"
     """
     try:
+        # Get order before assignment for logging
+        from repositories.order_repository import OrderRepository
+        order_before = OrderRepository.get_by_id(db, order_id)
+        if not order_before:
+            raise ValueError("Order not found")
+        
+        old_delivery_man_id = order_before.delivery_man_id
+        old_status = order_before.status
+        
         result = OrderService.assign_delivery_man(db, order_id, delivery_man_id)
         # Get full order data
-        from repositories.order_repository import OrderRepository
         order = OrderRepository.get_by_id(db, order_id)
         if not order:
             raise ValueError("Order not found")
         orders = OrderService._format_orders(db, [order])
-        return orders[0] if orders else result
+        order_data = orders[0] if orders else result
+        
+        # Log order assignment
+        user_info = get_current_user_from_request(request)
+        ActivityLogService.log_activity(
+            db=db,
+            user_id=user_info['user_id'] if user_info else None,
+            user_role=user_info['user_role'] if user_info else 'distributor',
+            action_type='ASSIGN',
+            entity_type='order',
+            entity_id=order_id,
+            old_values={
+                'delivery_man_id': old_delivery_man_id,
+                'status': old_status
+            },
+            new_values={
+                'delivery_man_id': delivery_man_id,
+                'status': order_data.get('status')
+            },
+            changes_summary=f"Order assigned to delivery man: {order_data.get('delivery_man_name', 'N/A')}",
+            metadata={'shop_id': order_data.get('shop_id'), 'shop_name': order_data.get('shop_name')},
+            request=request
+        )
+        
+        return order_data
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

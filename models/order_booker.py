@@ -30,7 +30,7 @@ AUTHENTICATION:
 
 DATABASE TABLE: order_bookers
 """
-from sqlalchemy import Column, BigInteger, String, DateTime, ForeignKey
+from sqlalchemy import Column, BigInteger, String, DateTime, ForeignKey, Boolean
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from config.database import Base
@@ -125,5 +125,24 @@ class OrderBooker(Base):
     - Timezone-aware (stores UTC)
     - Used for tracking modifications
     - Null on initial creation
+    """
+
+    # Soft Delete
+    deleted_at = Column(DateTime(timezone=False), nullable=True)
+    """
+    Soft delete timestamp.
+    - When set, order booker is considered deleted but data is preserved for audit
+    - NULL = active record
+    - Used for soft delete functionality
+    """
+
+    # Activation Status
+    is_active = Column(Boolean, nullable=False, default=True)
+    """
+    Activation status.
+    - TRUE = active (can login and work)
+    - FALSE = inactive (blocked from system)
+    - Default: TRUE
+    - Used for temporary suspension without deletion
     """
 

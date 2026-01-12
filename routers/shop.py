@@ -9,8 +9,9 @@ API ENDPOINTS:
 - GET /shops/pending - List pending shops (Distributor)
 - PUT /shops/{id} - Update shop data (Distributor)
 - POST /shops/{id}/verify - Verify/approve shop (Distributor)
+- DELETE /shops/{id} - Soft delete shop (Distributor)
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 from typing import List
 from decimal import Decimal
@@ -19,6 +20,8 @@ from models.schemas import ShopRegister, ShopResponse, ShopUpdate, ShopVerify
 from services.shop_service import ShopService
 from repositories.shop_repository import ShopRepository
 from repositories.order_booker_repository import OrderBookerRepository
+from services.activity_log_service import ActivityLogService
+from utils.auth_helpers import get_current_user_from_request
 
 router = APIRouter(prefix="/shops", tags=["Shops"])
 
@@ -27,6 +30,7 @@ router = APIRouter(prefix="/shops", tags=["Shops"])
 async def register_shop(
     order_booker_id: int,
     shop: ShopRegister,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """
@@ -72,8 +76,43 @@ async def register_shop(
             owner_cnic_front_photo=shop.owner_cnic_front_photo,
             owner_cnic_back_photo=shop.owner_cnic_back_photo
         )
+        
+        # Log shop creation
+        ActivityLogService.log_create(
+            db=db,
+            user_id=order_booker_id,
+            user_role='order_booker',
+            entity_type='shop',
+            entity_id=result['id'],
+            new_values={
+                'name': result.get('name'),
+                'owner_name': result.get('owner_name'),
+                'registration_status': result.get('registration_status'),
+                'credit_limit': str(result.get('credit_limit', 0))
+            },
+            user_name=result.get('created_by_order_booker_name'),
+            metadata={
+                'zone_id': result.get('zone_id'),
+                'gps_lat': str(result.get('gps_lat', '')),
+                'gps_lng': str(result.get('gps_lng', '')),
+                'credit_limit_request_id': result.get('credit_limit_request_id')
+            },
+            request=request
+        )
+        
         return result
     except ValueError as e:
+        # Log failure
+        user_info = get_current_user_from_request(request)
+        ActivityLogService.log_failure(
+            db=db,
+            user_id=user_info['user_id'] if user_info else order_booker_id,
+            user_role=user_info['user_role'] if user_info else 'order_booker',
+            action_type='CREATE',
+            entity_type='shop',
+            error_message=str(e),
+            request=request
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
@@ -130,17 +169,13 @@ async def get_shop_credit_info(shop_id: int, db: Session = Depends(get_db)):
     credit_limit = float(shop.credit_limit or 0)
     legacy_balance = float(shop.legacy_balance or 0)
     
-    outstanding_balance = 0.0
-    if credit_limit > 0:
-        try:
-            outstanding = OrderService.calculate_outstanding_balance(db, shop_id)
-            outstanding_balance = float(outstanding)
-        except Exception as e:
-            # If calculation fails, set to 0 and log error
-            print(f"Error calculating outstanding balance for shop {shop_id}: {e}")
-            outstanding_balance = 0.0
+    # Use shop's outstanding_balance field (maintained automatically)
+    outstanding_balance = float(shop.outstanding_balance or 0)
     
-    total_outstanding = outstanding_balance + legacy_balance
+    # Total outstanding includes legacy balance
+    # Note: outstanding_balance already includes legacy_balance in its calculation
+    # So total_outstanding = outstanding_balance (which is orders - payments + legacy)
+    total_outstanding = outstanding_balance
     available_credit = credit_limit - total_outstanding if credit_limit > 0 else 0.0
     
     return {
@@ -194,6 +229,7 @@ async def list_pending_shops(db: Session = Depends(get_db)):
                 "gps_lng": float(shop.gps_lng) if shop.gps_lng else None,
                 "credit_limit": float(shop.credit_limit) if shop.credit_limit else 0,
                 "legacy_balance": float(shop.legacy_balance) if shop.legacy_balance else 0,
+                "outstanding_balance": float(shop.outstanding_balance) if shop.outstanding_balance else 0,
                 "is_registered": shop.is_registered,
                 "registration_status": shop.registration_status,
                 "zone_id": shop.zone_id,
@@ -212,6 +248,45 @@ async def list_pending_shops(db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error fetching pending shops: {str(e)}"
+        )
+
+
+@router.get("/unassigned", response_model=List[ShopResponse])
+async def get_unassigned_shops(
+    zone_id: int = Query(None, description="Optional zone ID to filter unassigned shops"),
+    request: Request = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Get all unassigned shops (shops without an active order booker).
+    
+    API: GET /shops/unassigned?zone_id={id}
+    
+    FLOW:
+    1. Distributor views shops that need to be reassigned
+    2. Shops are unassigned if:
+       - assigned_to_order_booker is NULL, OR
+       - assigned_to_order_booker points to an inactive/deleted order booker
+    3. Optionally filters by zone_id
+    4. Returns list of unassigned shops with zone information
+    
+    Query Parameters:
+        zone_id: Optional zone ID to filter shops by zone
+    
+    Response (200):
+        List of unassigned shops with zone info
+    
+    Note:
+        - Shops remain active and visible, but need reassignment
+        - Zone matching is required when reassigning shops to order bookers
+    """
+    try:
+        shops = ShopService.get_unassigned_shops(db=db, zone_id=zone_id)
+        return shops
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching unassigned shops: {str(e)}"
         )
 
 
@@ -252,6 +327,10 @@ async def get_all_shops(
         )
         return shops
     except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"ERROR in get_all_shops: {str(e)}")
+        print(f"Traceback: {error_trace}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error fetching shops: {str(e)}"
@@ -352,6 +431,7 @@ async def update_shop(
 async def resubmit_rejected_shop(
     shop_id: int,
     shop_update: ShopUpdate,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """
@@ -418,6 +498,13 @@ async def resubmit_rejected_shop(
         if hasattr(shop_update, 'route_id') and shop_update.route_id:
             route_id = shop_update.route_id
         
+        # Store old values for logging
+        old_values = {
+            'name': shop.name,
+            'registration_status': shop.registration_status,
+            'credit_limit': str(shop.credit_limit) if shop.credit_limit else '0'
+        }
+        
         updated_shop = ShopService.update_and_resubmit_shop(
             db=db,
             shop_id=shop_id,
@@ -439,6 +526,24 @@ async def resubmit_rejected_shop(
         if updated_shop.assigned_to_order_booker:
             assigned_order_booker = OrderBookerRepository.get_by_id(db, updated_shop.assigned_to_order_booker)
             assigned_to_name = assigned_order_booker.name if assigned_order_booker else None
+        
+        # Log shop resubmission
+        user_info = get_current_user_from_request(request)
+        ActivityLogService.log_update(
+            db=db,
+            user_id=user_info['user_id'] if user_info else updated_shop.created_by_order_booker,
+            user_role=user_info['user_role'] if user_info else 'order_booker',
+            entity_type='shop',
+            entity_id=shop_id,
+            old_values=old_values,
+            new_values={
+                'name': updated_shop.name,
+                'registration_status': updated_shop.registration_status,
+                'credit_limit': str(updated_shop.credit_limit) if updated_shop.credit_limit else '0'
+            },
+            changes_summary=f"Shop resubmitted: {old_values['registration_status']} → {updated_shop.registration_status}",
+            request=request
+        )
         
         return {
             "id": updated_shop.id,
@@ -472,6 +577,7 @@ async def verify_shop(
     shop_id: int,
     verification: ShopVerify,
     distributor_id: int,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """
@@ -496,6 +602,13 @@ async def verify_shop(
         Verified shop data with verified_by_distributor and verified_at
     """
     try:
+        # Get shop before verification for logging
+        shop_before = ShopRepository.get_by_id(db, shop_id)
+        if not shop_before:
+            raise ValueError("Shop not found")
+        
+        old_status = shop_before.registration_status
+        
         verified_shop = ShopRepository.verify_shop(
             db=db,
             shop_id=shop_id,
@@ -517,6 +630,22 @@ async def verify_shop(
             assigned_order_booker = OrderBookerRepository.get_by_id(db, verified_shop.assigned_to_order_booker)
             assigned_to_name = assigned_order_booker.name if assigned_order_booker else None
         
+        # Log shop verification
+        action_type = 'APPROVE' if verification.registration_status == 'approved' else 'REJECT'
+        ActivityLogService.log_activity(
+            db=db,
+            user_id=distributor_id,
+            user_role='distributor',
+            action_type=action_type,
+            entity_type='shop',
+            entity_id=shop_id,
+            old_values={'registration_status': old_status},
+            new_values={'registration_status': verification.registration_status},
+            changes_summary=f"Shop {action_type.lower()}d: {old_status} → {verification.registration_status}",
+            reason=verification.remarks,
+            request=request
+        )
+        
         return {
             "id": verified_shop.id,
             "name": verified_shop.name,
@@ -526,6 +655,7 @@ async def verify_shop(
             "gps_lng": float(verified_shop.gps_lng) if verified_shop.gps_lng else None,
             "credit_limit": float(verified_shop.credit_limit) if verified_shop.credit_limit else 0,
             "legacy_balance": float(verified_shop.legacy_balance) if verified_shop.legacy_balance else 0,
+            "outstanding_balance": float(verified_shop.outstanding_balance) if verified_shop.outstanding_balance else 0,
             "is_registered": verified_shop.is_registered,
             "registration_status": verified_shop.registration_status,
             "verified_by_distributor": verified_shop.verified_by_distributor,
@@ -576,10 +706,32 @@ async def reassign_shop_to_order_booker(
         if not shop:
             raise ValueError("Shop not found")
         
-        # Verify new order booker exists
+        # Verify new order booker exists and is active
         new_order_booker = OrderBookerRepository.get_by_id(db, new_order_booker_id)
         if not new_order_booker:
             raise ValueError("Order Booker not found")
+        
+        # Validate zone matching: shop and order booker must be in the same zone
+        if shop.zone_id and new_order_booker.zone_id:
+            if shop.zone_id != new_order_booker.zone_id:
+                raise ValueError(
+                    f"Cannot reassign shop: Shop belongs to zone {shop.zone_id}, "
+                    f"but order booker is assigned to zone {new_order_booker.zone_id}. "
+                    f"They must be in the same zone."
+                )
+        elif shop.zone_id and not new_order_booker.zone_id:
+            raise ValueError(
+                f"Cannot reassign shop: Shop belongs to zone {shop.zone_id}, "
+                f"but order booker has no zone assigned. "
+                f"Please assign the order booker to zone {shop.zone_id} first."
+            )
+        elif not shop.zone_id and new_order_booker.zone_id:
+            raise ValueError(
+                f"Cannot reassign shop: Shop has no zone assigned, "
+                f"but order booker is assigned to zone {new_order_booker.zone_id}. "
+                f"Please assign the shop to a zone first."
+            )
+        # If both are None, allow assignment (though this is unusual)
         
         # Update assigned_to_order_booker (created_by_order_booker remains unchanged)
         updated_shop = ShopRepository.update(
@@ -608,6 +760,7 @@ async def reassign_shop_to_order_booker(
             "gps_lng": float(updated_shop.gps_lng) if updated_shop.gps_lng else None,
             "credit_limit": float(updated_shop.credit_limit) if updated_shop.credit_limit else 0,
             "legacy_balance": float(updated_shop.legacy_balance) if updated_shop.legacy_balance else 0,
+            "outstanding_balance": float(updated_shop.outstanding_balance) if updated_shop.outstanding_balance else 0,
             "is_registered": updated_shop.is_registered,
             "registration_status": updated_shop.registration_status,
             "verified_by_distributor": updated_shop.verified_by_distributor,
@@ -625,3 +778,48 @@ async def reassign_shop_to_order_booker(
             detail=str(e)
         )
 
+
+@router.delete("/{shop_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_shop(
+    shop_id: int,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Soft delete a shop (by Distributor).
+    
+    API: DELETE /shops/{shop_id}
+    
+    FLOW:
+    1. Distributor requests to delete a shop
+    2. Service soft deletes the shop (sets deleted_at timestamp)
+    3. Shop is hidden from normal queries but data is preserved
+    4. Activity is logged
+    
+    Response (204):
+        No content on success
+    
+    Note:
+        - This is a soft delete - data is preserved for audit
+        - Shop will not appear in normal queries after deletion
+        - Can be restored by setting deleted_at to NULL (manual DB operation)
+    """
+    try:
+        user_info = get_current_user_from_request(request)
+        ShopService.delete_shop(
+            db=db,
+            shop_id=shop_id,
+            deleter_id=user_info['user_id'],
+            request=request
+        )
+        return None
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error deleting shop: {str(e)}"
+        )

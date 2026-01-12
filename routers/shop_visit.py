@@ -15,12 +15,13 @@ FLOW:
 4. Registers visit via API
 5. Visit is stored with timestamp and location
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from config.database import get_db
 from models.schemas import ShopVisitCreate, ShopVisitResponse
 from services.shop_visit_service import ShopVisitService
+from services.activity_log_service import ActivityLogService
 
 router = APIRouter(prefix="/shop-visits", tags=["Shop Visits"])
 
@@ -29,6 +30,7 @@ router = APIRouter(prefix="/shop-visits", tags=["Shop Visits"])
 async def register_visit(
     order_booker_id: int,
     visit: ShopVisitCreate,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """
@@ -94,8 +96,43 @@ async def register_visit(
             collection_amount=visit.collection_amount,
             collection_remarks=visit.collection_remarks
         )
+        
+        # Log visit registration
+        ActivityLogService.log_create(
+            db=db,
+            user_id=order_booker_id,
+            user_role='order_booker',
+            entity_type='shop_visit',
+            entity_id=result['id'],
+            new_values={
+                'shop_id': result.get('shop_id'),
+                'shop_name': result.get('shop_name'),
+                'visit_types': result.get('visit_types', [])
+            },
+            metadata={
+                'order_id': result.get('order_id'),
+                'collection_id': result.get('collection_id'),
+                'gps_lat': str(result.get('gps_lat', '')) if result.get('gps_lat') else None,
+                'gps_lng': str(result.get('gps_lng', '')) if result.get('gps_lng') else None,
+                'has_photo': bool(result.get('photo'))
+            },
+            request=request
+        )
+        
         return result
     except ValueError as e:
+        # Log failure
+        from utils.auth_helpers import get_current_user_from_request
+        user_info = get_current_user_from_request(request)
+        ActivityLogService.log_failure(
+            db=db,
+            user_id=user_info['user_id'] if user_info else order_booker_id,
+            user_role=user_info['user_role'] if user_info else 'order_booker',
+            action_type='CREATE',
+            entity_type='shop_visit',
+            error_message=str(e),
+            request=request
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
@@ -105,6 +142,18 @@ async def register_visit(
         error_detail = f"Error registering visit: {str(e)}"
         print(f"ERROR in register_visit: {error_detail}")
         print(traceback.format_exc())
+        # Log failure
+        from utils.auth_helpers import get_current_user_from_request
+        user_info = get_current_user_from_request(request)
+        ActivityLogService.log_failure(
+            db=db,
+            user_id=user_info['user_id'] if user_info else order_booker_id,
+            user_role=user_info['user_role'] if user_info else 'order_booker',
+            action_type='CREATE',
+            entity_type='shop_visit',
+            error_message=str(e),
+            request=request
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=error_detail

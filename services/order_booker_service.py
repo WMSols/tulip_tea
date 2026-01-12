@@ -62,9 +62,13 @@ class OrderBookerService:
         Returns:
             Dictionary with access_token and user info, or None if invalid
         """
-        # Get order booker by phone
-        order_booker = OrderBookerRepository.get_by_phone(db, phone)
+        # Get order booker by phone (include_deleted=False to exclude soft-deleted and inactive)
+        order_booker = OrderBookerRepository.get_by_phone(db, phone, include_deleted=False)
         if not order_booker:
+            return None
+        
+        # Check if order booker is active
+        if not order_booker.is_active:
             return None
         
         # Verify password
@@ -182,39 +186,46 @@ class OrderBookerService:
     @staticmethod
     def delete_order_booker(db: Session, order_booker_id: int, 
                            reassign_shops_to: int = None, 
-                           reassign_routes_to: int = None) -> bool:
+                           reassign_routes_to: int = None,
+                           deleter_id: int = None,
+                           request = None) -> bool:
         """
-        Delete an order booker with optional reassignment of shops and routes.
+        Soft delete an order booker with optional reassignment of shops and routes.
         
-        This method handles the deletion of an order booker while preserving data integrity.
-        It supports reassigning shops and routes to another order booker before deletion.
+        This method handles the soft deletion of an order booker while preserving data integrity.
+        It supports reassigning shops and routes to another order booker, or unassigning them if no reassignment is provided.
         
         FLOW:
         1. Verify order booker exists
-        2. Check for shops created by this order booker
+        2. Check for shops assigned to this order booker (assigned_to_order_booker)
            - If reassign_shops_to is provided: Reassign all shops to new order booker
-           - If not provided: Raise error with count of shops
+           - If not provided: Unassign shops (set assigned_to_order_booker to NULL)
+           - created_by_order_booker remains unchanged for audit trail
         3. Check for routes assigned to this order booker
            - If reassign_routes_to is provided: Reassign all routes to new order booker
-           - If not provided: Raise error with count of routes
-        4. Delete the order booker
+           - If not provided: Unassign routes (set order_booker_id to NULL)
+        4. Soft delete the order booker (set deleted_at and is_active=False)
         
         IMPORTANT NOTES:
+        - This is a SOFT DELETE - data is preserved, just hidden from normal operations
         - When shops are reassigned, only assigned_to_order_booker is updated
         - created_by_order_booker remains unchanged for audit trail
-        - Routes are fully reassigned (order_booker_id is updated)
+        - Routes can be reassigned or unassigned (set to NULL)
+        - Order booker cannot login after soft deletion (is_active=False)
         
         Args:
             db: Database session
-            order_booker_id: ID of order booker to delete
-            reassign_shops_to: Optional - New order booker ID to reassign shops to
-            reassign_routes_to: Optional - New order booker ID to reassign routes to
+            order_booker_id: ID of order booker to soft delete
+            reassign_shops_to: Optional - New order booker ID to reassign shops to. If None, shops are unassigned.
+            reassign_routes_to: Optional - New order booker ID to reassign routes to. If None, routes are unassigned.
+            deleter_id: Optional - ID of user performing the deletion (for logging)
+            request: Optional - FastAPI request object (for logging context)
         
         Returns:
             bool: True if successful
         
         Raises:
-            ValueError: If order booker not found, or if shops/routes exist without reassignment
+            ValueError: If order booker not found, or if reassignment order booker doesn't exist
         """
         from models.shop import Shop
         from models.route import Route
@@ -224,8 +235,9 @@ class OrderBookerService:
         if not order_booker:
             raise ValueError("Order Booker not found")
         
-        # Check for shops created by this order booker
-        shops = db.query(Shop).filter(Shop.created_by_order_booker == order_booker_id).all()
+        # Check for shops assigned to this order booker (assigned_to_order_booker, not created_by)
+        # Note: created_by_order_booker is kept for audit trail, we only need to handle assigned_to
+        shops = db.query(Shop).filter(Shop.assigned_to_order_booker == order_booker_id).all()
         shops_count = len(shops)
         
         if shops_count > 0:
@@ -249,10 +261,12 @@ class OrderBookerService:
                         f"but only {reassigned_count} were reassigned."
                     )
             else:
-                raise ValueError(
-                    f"Cannot delete order booker: {shops_count} shop(s) were created by this order booker. "
-                    "Please provide 'reassign_shops_to' parameter to reassign shops, or delete shops first."
-                )
+                # For soft delete, we can just unassign shops (set assigned_to_order_booker to NULL)
+                # This allows soft deletion without requiring reassignment
+                # created_by_order_booker remains unchanged for audit trail
+                for shop in shops:
+                    shop.assigned_to_order_booker = None
+                db.commit()
         
         # Check for routes assigned to this order booker
         routes = db.query(Route).filter(Route.order_booker_id == order_booker_id).all()
@@ -270,11 +284,33 @@ class OrderBookerService:
                     route.order_booker_id = reassign_routes_to
                 db.commit()
             else:
-                raise ValueError(
-                    f"Cannot delete order booker: {routes_count} route(s) are assigned to this order booker. "
-                    "Please provide 'reassign_routes_to' parameter to reassign routes, or reassign routes first."
-                )
+                # For soft delete, we can just unassign routes (set to NULL) instead of blocking deletion
+                # This allows soft deletion without requiring reassignment
+                for route in routes:
+                    route.order_booker_id = None
+                db.commit()
         
-        # Now safe to delete the order booker
-        return OrderBookerRepository.delete(db, order_booker_id)
+        # Now safe to soft delete the order booker
+        success = OrderBookerRepository.delete(db, order_booker_id)
+        if success:
+            # Log the soft delete operation
+            from services.activity_log_service import ActivityLogService
+            ActivityLogService.log_delete(
+                db=db,
+                user_id=deleter_id,
+                user_role='distributor',
+                entity_type='order_booker',
+                entity_id=order_booker_id,
+                changes_summary=f"Soft deleted Order Booker {order_booker.name} (ID: {order_booker_id})",
+                metadata={
+                    'reassigned_shops_to': reassign_shops_to,
+                    'reassigned_routes_to': reassign_routes_to,
+                    'shops_count': shops_count,
+                    'routes_count': routes_count,
+                    'shops_unassigned': shops_count > 0 and not reassign_shops_to,
+                    'routes_unassigned': routes_count > 0 and not reassign_routes_to
+                },
+                request=request
+            )
+        return success
 

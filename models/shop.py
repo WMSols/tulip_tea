@@ -137,6 +137,22 @@ class Shop(Base):
       * Include in total outstanding calculation
     """
 
+    outstanding_balance = Column(Numeric(10, 2), default=0, nullable=False)
+    """
+    Current outstanding balance (dues) for the shop.
+    - Default: 0 (no outstanding balance)
+    - Format: Decimal (10 digits total, 2 decimal places)
+    - Example: 25000.00 (Rs. 25,000)
+    - Formula: (Total unpaid orders) - (Total payments) + (Legacy balance)
+    - Updated automatically when:
+      * Order is created: outstanding_balance += order_amount
+      * Payment is received: outstanding_balance -= payment_amount
+    - Used to:
+      * Track current dues from shop
+      * Validate credit limit before creating new orders
+      * Display shop's financial status
+    """
+
     # Status
     is_registered = Column(Boolean, default=False)
     """
@@ -265,5 +281,24 @@ class Shop(Base):
     - Timezone-aware (stores UTC)
     - Used for tracking modifications
     - Null on initial creation
+    """
+
+    # Soft Delete
+    deleted_at = Column(DateTime(timezone=False), nullable=True)
+    """
+    Soft delete timestamp.
+    - When set, shop is considered deleted but data is preserved for audit
+    - NULL = active record
+    - Used for soft delete functionality
+    """
+
+    # Activation Status
+    is_active = Column(Boolean, nullable=False, default=True)
+    """
+    Activation status.
+    - TRUE = active (can receive orders)
+    - FALSE = inactive (blocked from receiving orders)
+    - Default: TRUE
+    - Used for temporary suspension without deletion
     """
 

@@ -17,7 +17,7 @@ FLOW:
 4. Distributor approves/rejects → Status: "approved"/"rejected"
 5. On approval, shop's credit_limit is updated
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from typing import List
 from config.database import get_db
@@ -26,6 +26,7 @@ from models.schemas import (
     CreditLimitRequestUpdate, CreditLimitRequestApprove, CreditLimitRequestReject
 )
 from services.credit_limit_request_service import CreditLimitRequestService
+from services.activity_log_service import ActivityLogService
 
 router = APIRouter(prefix="/credit-limit-requests", tags=["Credit Limit Requests"])
 
@@ -34,6 +35,7 @@ router = APIRouter(prefix="/credit-limit-requests", tags=["Credit Limit Requests
 async def create_credit_limit_request(
     order_booker_id: int,
     request_data: CreditLimitRequestCreate,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """
@@ -75,6 +77,26 @@ async def create_credit_limit_request(
             requested_credit_limit=request_data.requested_credit_limit,
             remarks=request_data.remarks
         )
+        
+        # Log credit limit request creation
+        ActivityLogService.log_create(
+            db=db,
+            user_id=order_booker_id,
+            user_role='order_booker',
+            entity_type='credit_limit_request',
+            entity_id=result['id'],
+            new_values={
+                'shop_id': result.get('shop_id'),
+                'shop_name': result.get('shop_name'),
+                'old_credit_limit': str(result.get('old_credit_limit', 0)),
+                'requested_credit_limit': str(result.get('requested_credit_limit', 0)),
+                'status': result.get('status')
+            },
+            changes_summary=f"Credit limit request: {result.get('shop_name')} - {result.get('old_credit_limit', 0)} → {result.get('requested_credit_limit', 0)}",
+            reason=request_data.remarks,
+            request=request
+        )
+        
         return result
     except ValueError as e:
         raise HTTPException(
@@ -172,6 +194,7 @@ async def approve_credit_limit_request(
     request_id: int,
     approval_data: CreditLimitRequestApprove,
     distributor_id: int,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """
@@ -195,6 +218,16 @@ async def approve_credit_limit_request(
         Approved request data with reviewed_by_distributor and reviewed_at
     """
     try:
+        # Get request before approval for logging
+        from repositories.credit_limit_request_repository import CreditLimitRequestRepository
+        request_before = CreditLimitRequestRepository.get_by_id(db, request_id)
+        if not request_before:
+            raise ValueError("Credit limit request not found")
+        
+        old_status = request_before.status
+        old_credit_limit = float(request_before.old_credit_limit) if request_before.old_credit_limit else 0
+        requested_limit = float(request_before.requested_credit_limit) if request_before.requested_credit_limit else 0
+        
         result = CreditLimitRequestService.approve_request(
             db=db,
             request_id=request_id,
@@ -202,8 +235,45 @@ async def approve_credit_limit_request(
             final_credit_limit=approval_data.final_credit_limit,
             remarks=approval_data.remarks
         )
+        
+        # Get final credit limit (may differ from requested)
+        final_limit = float(approval_data.final_credit_limit) if approval_data.final_credit_limit else requested_limit
+        
+        # Log credit limit approval
+        ActivityLogService.log_approve(
+            db=db,
+            user_id=distributor_id,
+            user_role='distributor',
+            entity_type='credit_limit_request',
+            entity_id=request_id,
+            old_values={
+                'status': old_status,
+                'old_credit_limit': str(old_credit_limit),
+                'requested_credit_limit': str(requested_limit)
+            },
+            new_values={
+                'status': result.get('status'),
+                'final_credit_limit': str(final_limit)
+            },
+            changes_summary=f"Credit limit approved: {result.get('shop_name')} - {old_credit_limit} → {final_limit}",
+            reason=approval_data.remarks,
+            metadata={'shop_id': result.get('shop_id')},
+            request=request
+        )
+        
         return result
     except ValueError as e:
+        # Log failure
+        ActivityLogService.log_failure(
+            db=db,
+            user_id=distributor_id,
+            user_role='distributor',
+            action_type='APPROVE',
+            entity_type='credit_limit_request',
+            entity_id=request_id,
+            error_message=str(e),
+            request=request
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
@@ -215,6 +285,7 @@ async def reject_credit_limit_request(
     request_id: int,
     rejection_data: CreditLimitRequestReject,
     distributor_id: int,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """
@@ -238,12 +309,42 @@ async def reject_credit_limit_request(
         Rejected request data with reviewed_by_distributor and reviewed_at
     """
     try:
+        # Get request before rejection for logging
+        from repositories.credit_limit_request_repository import CreditLimitRequestRepository
+        request_before = CreditLimitRequestRepository.get_by_id(db, request_id)
+        if not request_before:
+            raise ValueError("Credit limit request not found")
+        
+        old_status = request_before.status
+        old_credit_limit = float(request_before.old_credit_limit) if request_before.old_credit_limit else 0
+        requested_limit = float(request_before.requested_credit_limit) if request_before.requested_credit_limit else 0
+        
         result = CreditLimitRequestService.reject_request(
             db=db,
             request_id=request_id,
             distributor_id=distributor_id,
             remarks=rejection_data.remarks
         )
+        
+        # Log credit limit rejection
+        ActivityLogService.log_reject(
+            db=db,
+            user_id=distributor_id,
+            user_role='distributor',
+            entity_type='credit_limit_request',
+            entity_id=request_id,
+            old_values={
+                'status': old_status,
+                'old_credit_limit': str(old_credit_limit),
+                'requested_credit_limit': str(requested_limit)
+            },
+            new_values={'status': result.get('status')},
+            changes_summary=f"Credit limit request rejected: {result.get('shop_name')} - Requested: {old_credit_limit} → {requested_limit}",
+            reason=rejection_data.remarks,
+            metadata={'shop_id': result.get('shop_id')},
+            request=request
+        )
+        
         return result
     except ValueError as e:
         raise HTTPException(

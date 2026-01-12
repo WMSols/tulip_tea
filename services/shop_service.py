@@ -11,6 +11,7 @@ from repositories.route_shop_repository import RouteShopRepository
 from models.route_shop import RouteShop
 from decimal import Decimal
 from typing import Dict, List, Optional
+from fastapi import Request
 
 
 class ShopService:
@@ -176,9 +177,16 @@ class ShopService:
         assigned_order_booker_name = order_booker.name if order_booker else None
         
         # Get routes this shop belongs to (should include the route we just assigned)
-        route_shops = db.query(RouteShop).filter(RouteShop.shop_id == shop.id).all()
+        # Exclude soft-deleted route-shop relationships
+        route_shops = db.query(RouteShop).filter(
+            RouteShop.shop_id == shop.id,
+            # RouteShop.deleted_at.is_(None),  # Uncomment after running sql/add_deleted_at_to_route_shops.sql
+            RouteShop.route_id.isnot(None)
+        ).all()
         routes_info = []
         for route_shop in route_shops:
+            if not route_shop.route_id:  # Skip if route_id is None
+                continue
             route = RouteRepository.get_by_id(db, route_shop.route_id)
             if route:
                 route_order_booker = None
@@ -212,6 +220,7 @@ class ShopService:
             "gps_lng": float(shop.gps_lng) if shop.gps_lng else None,
             "credit_limit": float(shop.credit_limit) if shop.credit_limit else 0,
             "legacy_balance": float(shop.legacy_balance) if shop.legacy_balance else 0,
+            "outstanding_balance": float(shop.outstanding_balance) if shop.outstanding_balance else 0,
             "is_registered": shop.is_registered,
             "registration_status": shop.registration_status,
             "verified_by_distributor": shop.verified_by_distributor,
@@ -263,6 +272,7 @@ class ShopService:
                 "gps_lng": float(shop.gps_lng) if shop.gps_lng else None,
                 "credit_limit": float(shop.credit_limit) if shop.credit_limit else 0,
                 "legacy_balance": float(shop.legacy_balance) if shop.legacy_balance else 0,
+                "outstanding_balance": float(shop.outstanding_balance) if shop.outstanding_balance else 0,
                 "is_registered": shop.is_registered,
                 "registration_status": shop.registration_status,
                 "verified_by_distributor": shop.verified_by_distributor,
@@ -311,6 +321,7 @@ class ShopService:
                 "gps_lng": float(shop.gps_lng) if shop.gps_lng else None,
                 "credit_limit": float(shop.credit_limit) if shop.credit_limit else 0,
                 "legacy_balance": float(shop.legacy_balance) if shop.legacy_balance else 0,
+                "outstanding_balance": float(shop.outstanding_balance) if shop.outstanding_balance else 0,
                 "is_registered": shop.is_registered,
                 "registration_status": shop.registration_status,
                 "verified_by_distributor": shop.verified_by_distributor,
@@ -369,78 +380,165 @@ class ShopService:
             # Filter by zone
             shops = ShopRepository.get_by_zone(db, zone_id)
         else:
-            # Return all shops - let UI filters handle zone/route filtering
-            shops = db.query(Shop).all()
+            # Return all active shops (exclude soft-deleted and inactive) - let UI filters handle zone/route filtering
+            try:
+                shops = db.query(Shop).filter(
+                    Shop.deleted_at.is_(None),
+                    Shop.is_active == True
+                ).all()
+            except Exception as e:
+                print(f"ERROR querying shops: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                raise
         
         result = []
         for shop in shops:
             # Get order booker who created the shop (historical)
+            # Note: We use include_deleted=True here because we want to show historical data even if order booker is deleted
             created_order_booker = None
             created_order_booker_name = None
             if shop.created_by_order_booker:
-                created_order_booker = OrderBookerRepository.get_by_id(db, shop.created_by_order_booker)
-                created_order_booker_name = created_order_booker.name if created_order_booker else None
+                try:
+                    created_order_booker = OrderBookerRepository.get_by_id(db, shop.created_by_order_booker, include_deleted=True)
+                    created_order_booker_name = created_order_booker.name if created_order_booker else None
+                except Exception as e:
+                    print(f"WARNING: Could not get created order booker {shop.created_by_order_booker} for shop {shop.id}: {str(e)}")
+                    created_order_booker_name = None
             
             # Get order booker currently assigned to the shop
+            # Note: We use include_deleted=False here because we only want active order bookers
             assigned_order_booker = None
             assigned_order_booker_name = None
             if shop.assigned_to_order_booker:
-                assigned_order_booker = OrderBookerRepository.get_by_id(db, shop.assigned_to_order_booker)
-                assigned_order_booker_name = assigned_order_booker.name if assigned_order_booker else None
+                try:
+                    assigned_order_booker = OrderBookerRepository.get_by_id(db, shop.assigned_to_order_booker, include_deleted=False)
+                    assigned_order_booker_name = assigned_order_booker.name if assigned_order_booker else None
+                except Exception as e:
+                    print(f"WARNING: Could not get assigned order booker {shop.assigned_to_order_booker} for shop {shop.id}: {str(e)}")
+                    assigned_order_booker_name = None
             
-            # Get routes this shop belongs to
-            route_shops = db.query(RouteShop).filter(RouteShop.shop_id == shop.id).all()
+            # Get routes this shop belongs to (exclude soft-deleted route-shop relationships)
+            try:
+                route_shops = db.query(RouteShop).filter(
+                    RouteShop.shop_id == shop.id,
+                    # RouteShop.deleted_at.is_(None),  # Uncomment after running sql/add_deleted_at_to_route_shops.sql
+                    RouteShop.route_id.isnot(None)  # Only get route_shops with valid route_id
+                ).all()
+            except Exception as e:
+                print(f"WARNING: Could not query route_shops for shop {shop.id}: {str(e)}")
+                route_shops = []
+            
             routes_info = []
             for route_shop in route_shops:
-                route = RouteRepository.get_by_id(db, route_shop.route_id)
-                if route:
-                    route_order_booker = None
-                    route_order_booker_name = None
-                    if route.order_booker_id:
-                        route_order_booker = OrderBookerRepository.get_by_id(db, route.order_booker_id)
-                        route_order_booker_name = route_order_booker.name if route_order_booker else None
-                    
-                    # Get zone name for route
-                    route_zone_name = None
-                    if route.zone_id:
-                        route_zone = ZoneRepository.get_by_id(db, route.zone_id)
-                        route_zone_name = route_zone.name if route_zone else None
-                    
-                    routes_info.append({
-                        "route_id": route.id,
-                        "route_name": route.name,
-                        "route_zone_id": route.zone_id,
-                        "route_zone_name": route_zone_name,
-                        "order_booker_id": route.order_booker_id,
-                        "order_booker_name": route_order_booker_name,
-                        "sequence": route_shop.sequence
-                    })
+                if not route_shop.route_id:  # Skip if route_id is None
+                    continue
+                try:
+                    route = RouteRepository.get_by_id(db, route_shop.route_id, include_deleted=False)
+                    if route:
+                        route_order_booker = None
+                        route_order_booker_name = None
+                        if route.order_booker_id:
+                            try:
+                                route_order_booker = OrderBookerRepository.get_by_id(db, route.order_booker_id, include_deleted=False)
+                                route_order_booker_name = route_order_booker.name if route_order_booker else None
+                            except Exception as e:
+                                print(f"WARNING: Could not get route order booker {route.order_booker_id} for route {route.id}: {str(e)}")
+                                route_order_booker_name = None
+                        
+                        # Get zone name for route
+                        route_zone_name = None
+                        if route.zone_id:
+                            try:
+                                route_zone = ZoneRepository.get_by_id(db, route.zone_id, include_deleted=False)
+                                route_zone_name = route_zone.name if route_zone else None
+                            except Exception as e:
+                                print(f"WARNING: Could not get zone {route.zone_id} for route {route.id}: {str(e)}")
+                                route_zone_name = None
+                        
+                        routes_info.append({
+                            "route_id": route.id,
+                            "route_name": route.name,
+                            "route_zone_id": route.zone_id,
+                            "route_zone_name": route_zone_name,
+                            "order_booker_id": route.order_booker_id,
+                            "order_booker_name": route_order_booker_name,
+                            "sequence": route_shop.sequence
+                        })
+                except Exception as e:
+                    print(f"WARNING: Could not process route {route_shop.route_id} for shop {shop.id}: {str(e)}")
+                    continue  # Skip this route and continue
             
-            result.append({
-                "id": shop.id,
-                "name": shop.name,
-                "owner_name": shop.owner_name,
-                "owner_phone": shop.owner_phone,
-                "gps_lat": float(shop.gps_lat) if shop.gps_lat else None,
-                "gps_lng": float(shop.gps_lng) if shop.gps_lng else None,
-                "credit_limit": float(shop.credit_limit) if shop.credit_limit else 0,
-                "legacy_balance": float(shop.legacy_balance) if shop.legacy_balance else 0,
-                "is_registered": shop.is_registered,
-                "registration_status": shop.registration_status,
-                "verified_by_distributor": shop.verified_by_distributor,
-                "verified_at": shop.verified_at.isoformat() if shop.verified_at else None,
-                "zone_id": shop.zone_id,
-                "created_by_order_booker": shop.created_by_order_booker,
-                "created_by_order_booker_name": created_order_booker_name,  # Historical creator
-                "assigned_to_order_booker": shop.assigned_to_order_booker,  # Current assignee
-                "assigned_to_order_booker_name": assigned_order_booker_name,  # Current assignee name
-                "routes": routes_info,  # List of routes this shop belongs to
-                "owner_cnic_front_photo": shop.owner_cnic_front_photo,
-                "owner_cnic_back_photo": shop.owner_cnic_back_photo,
-                "shop_exterior_photo": shop.shop_exterior_photo,
-                "owner_photo": shop.owner_photo,
-                "created_at": shop.created_at.isoformat() if shop.created_at else None
-            })
+            # Safely build result dictionary with error handling
+            try:
+                # Safely convert Decimal to float
+                gps_lat_val = None
+                if shop.gps_lat is not None:
+                    try:
+                        gps_lat_val = float(shop.gps_lat)
+                    except (TypeError, ValueError):
+                        gps_lat_val = None
+                
+                gps_lng_val = None
+                if shop.gps_lng is not None:
+                    try:
+                        gps_lng_val = float(shop.gps_lng)
+                    except (TypeError, ValueError):
+                        gps_lng_val = None
+                
+                credit_limit_val = 0.0
+                if shop.credit_limit is not None:
+                    try:
+                        credit_limit_val = float(shop.credit_limit)
+                    except (TypeError, ValueError):
+                        credit_limit_val = 0.0
+                
+                legacy_balance_val = 0.0
+                if shop.legacy_balance is not None:
+                    try:
+                        legacy_balance_val = float(shop.legacy_balance)
+                    except (TypeError, ValueError):
+                        legacy_balance_val = 0.0
+                
+                outstanding_balance_val = 0.0
+                if shop.outstanding_balance is not None:
+                    try:
+                        outstanding_balance_val = float(shop.outstanding_balance)
+                    except (TypeError, ValueError):
+                        outstanding_balance_val = 0.0
+                
+                result.append({
+                    "id": shop.id,
+                    "name": shop.name,
+                    "owner_name": shop.owner_name,
+                    "owner_phone": shop.owner_phone,
+                    "gps_lat": gps_lat_val,
+                    "gps_lng": gps_lng_val,
+                    "credit_limit": credit_limit_val,
+                    "legacy_balance": legacy_balance_val,
+                    "outstanding_balance": outstanding_balance_val,
+                    "is_registered": shop.is_registered if shop.is_registered is not None else False,
+                    "registration_status": shop.registration_status if shop.registration_status else "pending",
+                    "verified_by_distributor": shop.verified_by_distributor,
+                    "verified_at": shop.verified_at.isoformat() if shop.verified_at else None,
+                    "zone_id": shop.zone_id,
+                    "created_by_order_booker": shop.created_by_order_booker,
+                    "created_by_order_booker_name": created_order_booker_name,  # Historical creator
+                    "assigned_to_order_booker": shop.assigned_to_order_booker,  # Current assignee
+                    "assigned_to_order_booker_name": assigned_order_booker_name,  # Current assignee name
+                    "routes": routes_info,  # List of routes this shop belongs to
+                    "owner_cnic_front_photo": shop.owner_cnic_front_photo,
+                    "owner_cnic_back_photo": shop.owner_cnic_back_photo,
+                    "shop_exterior_photo": shop.shop_exterior_photo,
+                    "owner_photo": shop.owner_photo,
+                    "created_at": shop.created_at.isoformat() if shop.created_at else None
+                })
+            except Exception as e:
+                print(f"ERROR building result for shop {shop.id}: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                # Skip this shop and continue with others
+                continue
         
         return result
     
@@ -490,4 +588,184 @@ class ShopService:
             RouteShopRepository.assign_shop_to_route(db, route_id, shop_id)
         
         return updated_shop
+    
+    @staticmethod
+    def delete_shop(db: Session, shop_id: int, deleter_id: int = None, request: Optional[Request] = None) -> bool:
+        """
+        Soft delete a shop and handle related credit limit requests.
+        
+        FLOW:
+        1. Soft delete the shop (sets deleted_at and is_active=False)
+        2. Soft delete all pending credit limit requests for this shop
+        3. Set shop's credit_limit to 0 (deactivate credit)
+        4. Log the operation
+        
+        Args:
+            db: Database session
+            shop_id: Shop ID to soft delete
+            deleter_id: ID of the user performing the deletion (for logging)
+            request: Optional FastAPI request object for logging context
+        
+        Returns:
+            bool: True if successful
+        
+        Raises:
+            ValueError: If shop not found
+        """
+        from datetime import datetime
+        from models.credit_limit_request import CreditLimitRequest
+        
+        shop = ShopRepository.get_by_id(db, shop_id)
+        if not shop:
+            raise ValueError("Shop not found")
+        
+        # Soft delete all pending credit limit requests for this shop
+        pending_requests = db.query(CreditLimitRequest).filter(
+            CreditLimitRequest.shop_id == shop_id,
+            CreditLimitRequest.status == "pending",
+            CreditLimitRequest.deleted_at.is_(None)
+        ).all()
+        
+        requests_deleted = 0
+        for req in pending_requests:
+            req.deleted_at = datetime.utcnow()
+            requests_deleted += 1
+        
+        # Set shop's credit_limit to 0 (deactivate credit)
+        old_credit_limit = shop.credit_limit
+        shop.credit_limit = Decimal('0')
+        
+        # Soft delete the shop (sets deleted_at and is_active=False)
+        success = ShopRepository.delete(db, shop_id)
+        
+        if success:
+            db.commit()  # Commit credit limit requests and credit_limit changes
+            
+            # Log the soft delete operation
+            from services.activity_log_service import ActivityLogService
+            ActivityLogService.log_delete(
+                db=db,
+                user_id=deleter_id,
+                user_role='distributor',
+                entity_type='shop',
+                entity_id=shop_id,
+                changes_summary=f"Soft deleted shop '{shop.name}' (ID: {shop_id}). Credit limit set to 0. {requests_deleted} pending credit limit request(s) soft deleted.",
+                metadata={
+                    'old_credit_limit': str(old_credit_limit),
+                    'new_credit_limit': '0',
+                    'pending_requests_deleted': requests_deleted
+                },
+                request=request
+            )
+        
+        return success
+    
+    @staticmethod
+    def get_unassigned_shops(db: Session, zone_id: int = None) -> List[Dict]:
+        """
+        Get all shops that are unassigned (assigned_to_order_booker is NULL or points to inactive/deleted order booker).
+        
+        FLOW:
+        1. Gets all active shops
+        2. Filters shops where assigned_to_order_booker is NULL or points to inactive/deleted order booker
+        3. Optionally filters by zone_id
+        4. Returns formatted list with zone information
+        
+        Args:
+            db: Database session
+            zone_id: Optional zone ID to filter shops
+        
+        Returns:
+            List[Dict]: List of unassigned shops with zone info
+        """
+        from models.shop import Shop
+        
+        # Get all active, non-deleted shops
+        query = db.query(Shop).filter(
+            Shop.deleted_at.is_(None),
+            Shop.is_active == True
+        )
+        
+        # Filter by zone if provided
+        if zone_id:
+            query = query.filter(Shop.zone_id == zone_id)
+        
+        shops = query.all()
+        
+        result = []
+        for shop in shops:
+            # Check if shop is unassigned
+            is_unassigned = False
+            assigned_order_booker_name = None
+            
+            if shop.assigned_to_order_booker is None:
+                is_unassigned = True
+            else:
+                # Check if assigned order booker is active
+                assigned_order_booker = OrderBookerRepository.get_by_id(db, shop.assigned_to_order_booker, include_deleted=False)
+                if not assigned_order_booker:
+                    # Order booker is deleted or inactive
+                    is_unassigned = True
+                else:
+                    assigned_order_booker_name = assigned_order_booker.name
+            
+            # Only include unassigned shops
+            if is_unassigned:
+                # Get zone name
+                zone_name = None
+                if shop.zone_id:
+                    zone = ZoneRepository.get_by_id(db, shop.zone_id, include_deleted=False)
+                    zone_name = zone.name if zone else None
+                
+                # Get created by order booker name (historical)
+                created_order_booker_name = None
+                if shop.created_by_order_booker:
+                    created_order_booker = OrderBookerRepository.get_by_id(db, shop.created_by_order_booker, include_deleted=True)
+                    created_order_booker_name = created_order_booker.name if created_order_booker else None
+                
+                # Safely convert Decimal to float
+                try:
+                    gps_lat_val = float(shop.gps_lat) if shop.gps_lat is not None else None
+                except (TypeError, ValueError):
+                    gps_lat_val = None
+                
+                try:
+                    gps_lng_val = float(shop.gps_lng) if shop.gps_lng is not None else None
+                except (TypeError, ValueError):
+                    gps_lng_val = None
+                
+                try:
+                    credit_limit_val = float(shop.credit_limit) if shop.credit_limit is not None else 0.0
+                except (TypeError, ValueError):
+                    credit_limit_val = 0.0
+                
+                try:
+                    legacy_balance_val = float(shop.legacy_balance) if shop.legacy_balance is not None else 0.0
+                except (TypeError, ValueError):
+                    legacy_balance_val = 0.0
+                
+                result.append({
+                    "id": shop.id,
+                    "name": shop.name,
+                    "owner_name": shop.owner_name,
+                    "owner_phone": shop.owner_phone,
+                    "gps_lat": gps_lat_val,
+                    "gps_lng": gps_lng_val,
+                    "credit_limit": credit_limit_val,
+                    "legacy_balance": legacy_balance_val,
+                    "is_registered": shop.is_registered if shop.is_registered is not None else False,
+                    "registration_status": shop.registration_status if shop.registration_status else "pending",
+                    "verified_by_distributor": shop.verified_by_distributor,
+                    "verified_at": shop.verified_at.isoformat() if shop.verified_at else None,
+                    "zone_id": shop.zone_id,
+                    "zone_name": zone_name,
+                    "created_by_order_booker": shop.created_by_order_booker,
+                    "created_by_order_booker_name": created_order_booker_name,  # Historical creator
+                    "assigned_to_order_booker": shop.assigned_to_order_booker,  # NULL or inactive
+                    "assigned_to_order_booker_name": assigned_order_booker_name,  # NULL or inactive
+                    "is_unassigned": True,  # Flag to indicate this shop needs reassignment
+                    "created_at": shop.created_at.isoformat() if shop.created_at else None
+                })
+        
+        return result
 

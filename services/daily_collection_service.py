@@ -215,7 +215,20 @@ class DailyCollectionService:
             payment_date=approved.collection_date or datetime.utcnow()
         )
         
-        # Get shop name for response
+        # Update shop's outstanding balance: Reduce by payment amount
+        shop = ShopRepository.get_by_id(db, approved.shop_id)
+        if shop:
+            current_outstanding = Decimal(str(shop.outstanding_balance or 0))
+            payment_amount = Decimal(str(approved.amount or 0))
+            new_outstanding = max(Decimal('0'), current_outstanding - payment_amount)  # Don't go below 0
+            
+            ShopRepository.update(
+                db=db,
+                shop_id=approved.shop_id,
+                outstanding_balance=new_outstanding
+            )
+        
+        # Get shop name for response (refresh to get updated outstanding_balance)
         shop = ShopRepository.get_by_id(db, approved.shop_id)
         order_booker = OrderBookerRepository.get_by_id(db, approved.collected_by_order_booker)
         

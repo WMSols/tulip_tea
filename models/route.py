@@ -27,7 +27,7 @@ RELATIONSHIPS:
 
 DATABASE TABLE: routes
 """
-from sqlalchemy import Column, BigInteger, String, DateTime, ForeignKey
+from sqlalchemy import Column, BigInteger, String, DateTime, ForeignKey, Boolean
 from sqlalchemy.sql import func
 from config.database import Base
 
@@ -94,5 +94,24 @@ class Route(Base):
     - Automatically set by database on INSERT
     - Timezone-aware (stores UTC)
     - Used for auditing and sorting
+    """
+
+    # Soft Delete
+    deleted_at = Column(DateTime(timezone=False), nullable=True)
+    """
+    Soft delete timestamp.
+    - When set, route is considered deleted but data is preserved
+    - NULL = active record
+    - Used for soft delete functionality
+    """
+
+    # Activation Status
+    is_active = Column(Boolean, nullable=False, default=True)
+    """
+    Activation status.
+    - TRUE = active (route is operational)
+    - FALSE = inactive (route is suspended)
+    - Default: TRUE
+    - Used for temporary suspension without deletion
     """
 

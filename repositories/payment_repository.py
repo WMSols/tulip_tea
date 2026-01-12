@@ -52,11 +52,24 @@ class PaymentRepository:
         return db.query(Payment).filter(Payment.id == payment_id).first()
     
     @staticmethod
-    def get_by_shop(db: Session, shop_id: int) -> List[Payment]:
-        """Get all payments for a shop."""
-        return db.query(Payment).filter(
-            Payment.shop_id == shop_id
-        ).order_by(Payment.payment_date.desc() if Payment.payment_date else Payment.id.desc()).all()
+    def get_by_shop(db: Session, shop_id: int, include_deleted: bool = False) -> List[Payment]:
+        """
+        Get all payments for a shop (excludes soft-deleted by default).
+        
+        Args:
+            db: Database session
+            shop_id: Shop ID
+            include_deleted: If True, includes soft-deleted payments
+        
+        Returns:
+            List of payment instances
+        """
+        query = db.query(Payment).filter(Payment.shop_id == shop_id)
+        # NOTE: deleted_at filtering temporarily disabled until database column is added
+        # Uncomment after running sql/add_deleted_at_to_payments.sql:
+        # if not include_deleted:
+        #     query = query.filter(Payment.deleted_at.is_(None))
+        return query.order_by(Payment.payment_date.desc() if Payment.payment_date else Payment.id.desc()).all()
     
     # Note: get_by_order_booker and get_by_distributor removed
     # Payment table doesn't have these columns. Use daily_collections table instead

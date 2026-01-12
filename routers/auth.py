@@ -32,20 +32,21 @@ RESPONSE:
     }
 }
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from config.database import get_db
 from models.schemas import DistributorLogin, OrderBookerLogin, DeliveryManLogin, TokenResponse
 from services.distributor_service import DistributorService
 from services.order_booker_service import OrderBookerService
 from services.delivery_man_service import DeliveryManService
+from services.activity_log_service import ActivityLogService
 
 # Create router with prefix /auth (all routes will be /auth/*)
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
 @router.post("/login/distributor", response_model=TokenResponse)
-async def login_distributor(credentials: DistributorLogin, db: Session = Depends(get_db)):
+async def login_distributor(credentials: DistributorLogin, request: Request, db: Session = Depends(get_db)):
     """
     Login endpoint for Distributor role.
     
@@ -86,6 +87,7 @@ async def login_distributor(credentials: DistributorLogin, db: Session = Depends
     
     Args:
         credentials: DistributorLogin schema (phone, password)
+        request: FastAPI Request object (for logging IP/user agent)
         db: Database session (injected by FastAPI Depends)
     
     Returns:
@@ -100,17 +102,36 @@ async def login_distributor(credentials: DistributorLogin, db: Session = Depends
     
     # If service returns None, credentials are invalid
     if not result:
+        # Log failed login attempt
+        ActivityLogService.log_failure(
+            db=db,
+            user_id=None,
+            user_role='system',
+            action_type='LOGIN',
+            entity_type='user',
+            error_message='Invalid phone number or password',
+            request=request
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid phone number or password"
         )
+    
+    # Log successful login
+    ActivityLogService.log_login(
+        db=db,
+        user_id=result['user']['id'],
+        user_role='distributor',
+        user_name=result['user'].get('name'),
+        request=request
+    )
     
     # Return token and user info
     return result
 
 
 @router.post("/login/order-booker", response_model=TokenResponse)
-async def login_order_booker(credentials: OrderBookerLogin, db: Session = Depends(get_db)):
+async def login_order_booker(credentials: OrderBookerLogin, request: Request, db: Session = Depends(get_db)):
     """
     Login endpoint for Order Booker role.
     
@@ -135,17 +156,36 @@ async def login_order_booker(credentials: OrderBookerLogin, db: Session = Depend
     
     # If service returns None, credentials are invalid
     if not result:
+        # Log failed login attempt
+        ActivityLogService.log_failure(
+            db=db,
+            user_id=None,
+            user_role='system',
+            action_type='LOGIN',
+            entity_type='user',
+            error_message='Invalid phone number or password',
+            request=request
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid phone number or password"
         )
+    
+    # Log successful login
+    ActivityLogService.log_login(
+        db=db,
+        user_id=result['user']['id'],
+        user_role='order_booker',
+        user_name=result['user'].get('name'),
+        request=request
+    )
     
     # Return token and user info
     return result
 
 
 @router.post("/login/delivery-man", response_model=TokenResponse)
-async def login_delivery_man(credentials: DeliveryManLogin, db: Session = Depends(get_db)):
+async def login_delivery_man(credentials: DeliveryManLogin, request: Request, db: Session = Depends(get_db)):
     """
     Login endpoint for Delivery Man role.
     
@@ -170,10 +210,29 @@ async def login_delivery_man(credentials: DeliveryManLogin, db: Session = Depend
     
     # If service returns None, credentials are invalid
     if not result:
+        # Log failed login attempt
+        ActivityLogService.log_failure(
+            db=db,
+            user_id=None,
+            user_role='system',
+            action_type='LOGIN',
+            entity_type='user',
+            error_message='Invalid phone number or password',
+            request=request
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid phone number or password"
         )
+    
+    # Log successful login
+    ActivityLogService.log_login(
+        db=db,
+        user_id=result['user']['id'],
+        user_role='delivery_man',
+        user_name=result['user'].get('name'),
+        request=request
+    )
     
     # Return token and user info
     return result

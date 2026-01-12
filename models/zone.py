@@ -35,7 +35,7 @@ IMPORTANT:
 
 DATABASE TABLE: zones
 """
-from sqlalchemy import Column, BigInteger, String, DateTime
+from sqlalchemy import Column, BigInteger, String, DateTime, Boolean
 from sqlalchemy.sql import func
 from config.database import Base
 
@@ -77,6 +77,25 @@ class Zone(Base):
     - Timezone-aware (stores UTC)
     - Used for auditing and sorting
     - Zones are rarely deleted (historical data preservation)
+    """
+
+    # Soft Delete
+    deleted_at = Column(DateTime(timezone=False), nullable=True)
+    """
+    Soft delete timestamp.
+    - When set, zone is considered deleted but data is preserved
+    - NULL = active record
+    - Used for soft delete functionality
+    """
+
+    # Activation Status
+    is_active = Column(Boolean, nullable=False, default=True)
+    """
+    Activation status.
+    - TRUE = active (zone is operational)
+    - FALSE = inactive (zone is suspended)
+    - Default: TRUE
+    - Used for temporary suspension without deletion
     """
 
 

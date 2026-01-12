@@ -28,32 +28,40 @@ class OrderBookerRepository:
         return order_booker
     
     @staticmethod
-    def get_by_id(db: Session, order_booker_id: int) -> Optional[OrderBooker]:
-        """Get order booker by ID."""
-        return db.query(OrderBooker).filter(OrderBooker.id == order_booker_id).first()
+    def get_by_id(db: Session, order_booker_id: int, include_deleted: bool = False) -> Optional[OrderBooker]:
+        """Get order booker by ID (excludes soft-deleted and inactive by default)."""
+        query = db.query(OrderBooker).filter(OrderBooker.id == order_booker_id)
+        if not include_deleted:
+            query = query.filter(OrderBooker.deleted_at.is_(None), OrderBooker.is_active == True)
+        return query.first()
     
     @staticmethod
-    def get_by_phone(db: Session, phone: str) -> Optional[OrderBooker]:
-        """Get order booker by phone number."""
-        return db.query(OrderBooker).filter(OrderBooker.phone == phone).first()
+    def get_by_phone(db: Session, phone: str, include_deleted: bool = False) -> Optional[OrderBooker]:
+        """Get order booker by phone number (excludes soft-deleted and inactive by default)."""
+        query = db.query(OrderBooker).filter(OrderBooker.phone == phone)
+        if not include_deleted:
+            query = query.filter(OrderBooker.deleted_at.is_(None), OrderBooker.is_active == True)
+        return query.first()
     
     @staticmethod
     def get_by_distributor(db: Session, distributor_id: int, 
-                          skip: int = 0, limit: int = 100) -> List[OrderBooker]:
-        """Get all order bookers for a distributor."""
-        return db.query(OrderBooker).filter(
-            OrderBooker.distributor_id == distributor_id
-        ).offset(skip).limit(limit).all()
+                          skip: int = 0, limit: int = 100, include_deleted: bool = False) -> List[OrderBooker]:
+        """Get all order bookers for a distributor (excludes soft-deleted and inactive by default)."""
+        query = db.query(OrderBooker).filter(OrderBooker.distributor_id == distributor_id)
+        if not include_deleted:
+            query = query.filter(OrderBooker.deleted_at.is_(None), OrderBooker.is_active == True)
+        return query.offset(skip).limit(limit).all()
     
     @staticmethod
-    def get_by_zone(db: Session, zone_id: int, distributor_id: int = None) -> List[OrderBooker]:
+    def get_by_zone(db: Session, zone_id: int, distributor_id: int = None, include_deleted: bool = False) -> List[OrderBooker]:
         """
-        Get all order bookers assigned to a specific zone.
+        Get all order bookers assigned to a specific zone (excludes soft-deleted and inactive by default).
         
         Args:
             db: Database session
             zone_id: Zone ID to filter by
             distributor_id: Optional distributor ID to further filter
+            include_deleted: If True, includes soft-deleted and inactive records
         
         Returns:
             List of order bookers in the specified zone
@@ -61,6 +69,8 @@ class OrderBookerRepository:
         query = db.query(OrderBooker).filter(OrderBooker.zone_id == zone_id)
         if distributor_id:
             query = query.filter(OrderBooker.distributor_id == distributor_id)
+        if not include_deleted:
+            query = query.filter(OrderBooker.deleted_at.is_(None), OrderBooker.is_active == True)
         return query.all()
     
     @staticmethod
@@ -89,11 +99,17 @@ class OrderBookerRepository:
     
     @staticmethod
     def delete(db: Session, order_booker_id: int) -> bool:
-        """Delete an order booker."""
-        order_booker = db.query(OrderBooker).filter(OrderBooker.id == order_booker_id).first()
+        """Soft delete an order booker (sets deleted_at timestamp)."""
+        from datetime import datetime
+        order_booker = db.query(OrderBooker).filter(
+            OrderBooker.id == order_booker_id,
+            OrderBooker.deleted_at.is_(None)
+        ).first()
         if not order_booker:
             return False
-        db.delete(order_booker)
+        order_booker.deleted_at = datetime.utcnow()
+        order_booker.is_active = False  # Also deactivate when soft deleting
         db.commit()
+        db.refresh(order_booker)
         return True
 

@@ -58,9 +58,13 @@ class DeliveryManService:
         Returns:
             Dictionary with access_token and user info, or None if invalid
         """
-        # Get delivery man by phone
-        delivery_man = DeliveryManRepository.get_by_phone(db, phone)
+        # Get delivery man by phone (include_deleted=False to exclude soft-deleted and inactive)
+        delivery_man = DeliveryManRepository.get_by_phone(db, phone, include_deleted=False)
         if not delivery_man:
+            return None
+        
+        # Check if delivery man is active
+        if not delivery_man.is_active:
             return None
         
         # Verify password
@@ -142,10 +146,24 @@ class DeliveryManService:
     
     @staticmethod
     def delete_delivery_man(db: Session, delivery_man_id: int) -> bool:
-        """Delete a delivery man."""
+        """Soft delete a delivery man."""
         delivery_man = DeliveryManRepository.get_by_id(db, delivery_man_id)
         if not delivery_man:
             raise ValueError("Delivery Man not found")
         
-        return DeliveryManRepository.delete(db, delivery_man_id)
+        success = DeliveryManRepository.delete(db, delivery_man_id)
+        if success:
+            # Log the soft delete operation
+            from services.activity_log_service import ActivityLogService
+            ActivityLogService.log_activity(
+                db=db,
+                user_id=None,  # Could be passed as parameter if needed
+                user_role='distributor',
+                action_type='DELETE',
+                entity_type='delivery_man',
+                entity_id=delivery_man_id,
+                changes_summary=f"Delivery Man {delivery_man_id} soft deleted",
+                status='success'
+            )
+        return success
 

@@ -89,6 +89,17 @@ class Payment(Base):
     - Used for tracking when payment was actually received
     """
 
+    # Soft Delete
+    # NOTE: Temporarily commented out until database column is added
+    # Run sql/add_deleted_at_to_payments.sql to add the column, then uncomment this
+    # deleted_at = Column(DateTime(timezone=False), nullable=True)
+    # """
+    # Soft delete timestamp.
+    # - When set, payment is considered deleted but data is preserved for financial audit
+    # - NULL = active record
+    # - Used for soft delete functionality
+    # """
+
 
 
 

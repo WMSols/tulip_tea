@@ -26,22 +26,29 @@ class DeliveryManRepository:
         return delivery_man
     
     @staticmethod
-    def get_by_id(db: Session, delivery_man_id: int) -> Optional[DeliveryMan]:
-        """Get delivery man by ID."""
-        return db.query(DeliveryMan).filter(DeliveryMan.id == delivery_man_id).first()
+    def get_by_id(db: Session, delivery_man_id: int, include_deleted: bool = False) -> Optional[DeliveryMan]:
+        """Get delivery man by ID (excludes soft-deleted and inactive by default)."""
+        query = db.query(DeliveryMan).filter(DeliveryMan.id == delivery_man_id)
+        if not include_deleted:
+            query = query.filter(DeliveryMan.deleted_at.is_(None), DeliveryMan.is_active == True)
+        return query.first()
     
     @staticmethod
-    def get_by_phone(db: Session, phone: str) -> Optional[DeliveryMan]:
-        """Get delivery man by phone number."""
-        return db.query(DeliveryMan).filter(DeliveryMan.phone == phone).first()
+    def get_by_phone(db: Session, phone: str, include_deleted: bool = False) -> Optional[DeliveryMan]:
+        """Get delivery man by phone number (excludes soft-deleted and inactive by default)."""
+        query = db.query(DeliveryMan).filter(DeliveryMan.phone == phone)
+        if not include_deleted:
+            query = query.filter(DeliveryMan.deleted_at.is_(None), DeliveryMan.is_active == True)
+        return query.first()
     
     @staticmethod
     def get_by_distributor(db: Session, distributor_id: int,
-                          skip: int = 0, limit: int = 100) -> List[DeliveryMan]:
-        """Get all delivery men for a distributor."""
-        return db.query(DeliveryMan).filter(
-            DeliveryMan.distributor_id == distributor_id
-        ).offset(skip).limit(limit).all()
+                          skip: int = 0, limit: int = 100, include_deleted: bool = False) -> List[DeliveryMan]:
+        """Get all delivery men for a distributor (excludes soft-deleted and inactive by default)."""
+        query = db.query(DeliveryMan).filter(DeliveryMan.distributor_id == distributor_id)
+        if not include_deleted:
+            query = query.filter(DeliveryMan.deleted_at.is_(None), DeliveryMan.is_active == True)
+        return query.offset(skip).limit(limit).all()
     
     @staticmethod
     def update(db: Session, delivery_man_id: int, name: str = None,
@@ -67,11 +74,17 @@ class DeliveryManRepository:
     
     @staticmethod
     def delete(db: Session, delivery_man_id: int) -> bool:
-        """Delete a delivery man."""
-        delivery_man = db.query(DeliveryMan).filter(DeliveryMan.id == delivery_man_id).first()
+        """Soft delete a delivery man (sets deleted_at timestamp)."""
+        from datetime import datetime
+        delivery_man = db.query(DeliveryMan).filter(
+            DeliveryMan.id == delivery_man_id,
+            DeliveryMan.deleted_at.is_(None)
+        ).first()
         if not delivery_man:
             return False
-        db.delete(delivery_man)
+        delivery_man.deleted_at = datetime.utcnow()
+        delivery_man.is_active = False  # Also deactivate when soft deleting
         db.commit()
+        db.refresh(delivery_man)
         return True
 

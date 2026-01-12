@@ -61,9 +61,13 @@ class DistributorService:
         Returns:
             Dictionary with access_token and user info, or None if invalid
         """
-        # Get distributor by phone
-        distributor = DistributorRepository.get_by_phone(db, phone)
+        # Get distributor by phone (include_deleted=False to exclude soft-deleted and inactive)
+        distributor = DistributorRepository.get_by_phone(db, phone, include_deleted=False)
         if not distributor:
+            return None
+        
+        # Check if distributor is active
+        if not distributor.is_active:
             return None
         
         # Verify password

@@ -11,7 +11,7 @@ from config.database import settings, engine, Base
 import traceback
 
 # Import all models to register them with Base
-from models import distributor, order_booker, delivery_man, zone, route, shop, route_shop, credit_limit_request, daily_collection, payment, shop_visit, visit_type, order, order_item
+from models import distributor, order_booker, delivery_man, zone, route, shop, route_shop, credit_limit_request, daily_collection, payment, shop_visit, visit_type, order, order_item, activity_log
 
 # Import routers
 from routers import auth, distributor as distributor_router, order_booker, delivery_man, zone, route, shop

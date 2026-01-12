@@ -69,10 +69,24 @@ class VisitType(Base):
     - Used for auditing
     """
 
+    # Soft Delete
+    # NOTE: Temporarily commented out until database column is added
+    # Run sql/add_deleted_at_to_visit_types.sql to add the column, then uncomment this
+    # deleted_at = Column(DateTime(timezone=False), nullable=True)
+    # """
+    # Soft delete timestamp.
+    # - When set, visit type link is considered deleted but data is preserved
+    # - NULL = active record
+    # - Used for soft delete functionality
+    # """
+
     # Unique constraint: Prevent duplicate types per visit
     __table_args__ = (
         UniqueConstraint('visit_id', 'visit_type', name='uq_visit_type'),
     )
+
+
+
 
 
 

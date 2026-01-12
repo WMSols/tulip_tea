@@ -665,9 +665,10 @@
                     </select>
                 </div>
                 <button type="submit" class="btn btn-primary">Save Changes</button>
-                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <div style="display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap;">
                     <button type="button" class="btn btn-success" onclick="verifyShop('approved')">Approve Shop</button>
                     <button type="button" class="btn btn-danger" onclick="verifyShop('rejected')">Reject Shop</button>
+                    <button type="button" class="btn btn-danger" onclick="deleteShopFromModal()" style="background: #c82333;">🗑️ Delete Shop</button>
                 </div>
             </form>
             <div id="editShopResult" class="result"></div>
@@ -1003,12 +1004,15 @@
 
                 listDiv.innerHTML = data.map(ob => `
                     <div class="list-item" onclick="openEditModal('order_booker', ${ob.id}, '${ob.name.replace(/'/g, "\\'")}', '${ob.phone}', '${(ob.email || '').replace(/'/g, "\\'")}', ${ob.zone_id || 'null'})">
-                        <div class="list-item-info">
+                        <div class="list-item-info" style="flex: 1;">
                             <strong>${ob.name}</strong><br>
                             Phone: ${ob.phone}<br>
                             Email: ${ob.email || 'N/A'}<br>
                             Zone ID: ${ob.zone_id || 'N/A'}<br>
                             <small>Created: ${new Date(ob.created_at).toLocaleDateString()}</small>
+                        </div>
+                        <div style="display: flex; align-items: center;">
+                            <button class="btn btn-danger" onclick="event.stopPropagation(); if(confirm('Delete ${ob.name.replace(/'/g, "\\'")}? This will soft delete the order booker.')) { deleteUserDirectly('order_booker', ${ob.id}); }" style="padding: 8px 15px; font-size: 14px;">🗑️ Delete</button>
                         </div>
                     </div>
                 `).join('');
@@ -1114,11 +1118,14 @@
 
                 listDiv.innerHTML = data.map(dm => `
                     <div class="list-item" onclick="openEditModal('delivery_man', ${dm.id}, '${dm.name.replace(/'/g, "\\'")}', '${dm.phone}', '', ${dm.zone_id || 'null'})">
-                        <div class="list-item-info">
+                        <div class="list-item-info" style="flex: 1;">
                             <strong>${dm.name}</strong><br>
                             Phone: ${dm.phone}<br>
                             Zone ID: ${dm.zone_id || 'N/A'}<br>
                             <small>Created: ${new Date(dm.created_at).toLocaleDateString()}</small>
+                        </div>
+                        <div style="display: flex; align-items: center;">
+                            <button class="btn btn-danger" onclick="event.stopPropagation(); if(confirm('Delete ${dm.name.replace(/'/g, "\\'")}? This will soft delete the delivery man.')) { deleteUserDirectly('delivery_man', ${dm.id}); }" style="padding: 8px 15px; font-size: 14px;">🗑️ Delete</button>
                         </div>
                     </div>
                 `).join('');
@@ -1583,7 +1590,7 @@
                     
                     return `
                     <div class="list-item" onclick="openEditShopModal(${shop.id}, '${shopName}', '${ownerName}', '${ownerPhone}', ${shop.gps_lat || 0}, ${shop.gps_lng || 0}, ${shop.credit_limit || 0}, ${shop.legacy_balance || 0}, ${shop.zone_id || 'null'}, '${shop.registration_status || 'pending'}', '${(shop.created_at || '').replace(/'/g, "\\'")}', '${cnicFrontPhoto}', '${cnicBackPhoto}')">
-                        <div class="list-item-info">
+                        <div class="list-item-info" style="flex: 1;">
                             <strong>${shop.name}</strong><br>
                             Owner: ${shop.owner_name || 'N/A'}<br>
                             Phone: ${shop.owner_phone || 'N/A'}<br>
@@ -1592,6 +1599,9 @@
                             Status: <span style="color: ${shop.registration_status === 'approved' ? 'green' : 'orange'}">${shop.registration_status || 'pending'}</span><br>
                             ${hasCnicPhotos ? '<span style="color: #667eea; font-weight: bold; background: #e3f2fd; padding: 4px 8px; border-radius: 5px; display: inline-block; margin-top: 5px;">📷 CNIC Photos Available</span><br>' : ''}
                             <small>ID: ${shop.id} | Created: ${new Date(shop.created_at).toLocaleString()}</small>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <button class="btn btn-danger" onclick="event.stopPropagation(); deleteShop(${shop.id}, '${shopName.replace(/'/g, "\\'")}')" style="padding: 8px 15px; font-size: 14px;">🗑️ Delete</button>
                         </div>
                     </div>
                 `;
@@ -1779,6 +1789,20 @@
             const modal = document.getElementById('editShopModal');
             modal.classList.add('hidden');
             modal.style.display = 'none';
+        }
+        
+        // Delete Shop from Modal
+        async function deleteShopFromModal() {
+            const shopId = document.getElementById('editShopId').value;
+            const shopName = document.getElementById('editShopName').value || 'this shop';
+            
+            if (!shopId) {
+                alert('Shop ID not found');
+                return;
+            }
+            
+            await deleteShop(parseInt(shopId), shopName);
+            closeEditShopModal();
         }
 
         // Save Shop Edit
@@ -2046,16 +2070,18 @@
         async function deleteUser() {
             if (!currentEditType || !currentEditId) return;
             
-            const confirmMessage = `Are you sure you want to delete this ${currentEditType === 'order_booker' ? 'Order Booker' : 'Delivery Man'}? This action cannot be undone.`;
+            const confirmMessage = `Are you sure you want to soft delete this ${currentEditType === 'order_booker' ? 'Order Booker' : 'Delivery Man'}?\n\nThis will hide the record from normal operations but preserve data for audit purposes. The user will not be able to login after deletion.`;
             if (!confirm(confirmMessage)) {
                 return;
             }
             
+            const endpoint = currentEditType === 'order_booker' 
+                ? `${API_BASE}/order-bookers/${currentEditId}`
+                : `${API_BASE}/delivery-men/${currentEditId}`;
+            
+            showApiCall('DELETE', endpoint, `Delete ${currentEditType === 'order_booker' ? 'Order Booker' : 'Delivery Man'}`, 'loading');
+            
             try {
-                const endpoint = currentEditType === 'order_booker' 
-                    ? `${API_BASE}/order-bookers/${currentEditId}`
-                    : `${API_BASE}/delivery-men/${currentEditId}`;
-                
                 const response = await fetch(endpoint, {
                     method: 'DELETE',
                     headers: {
@@ -2065,14 +2091,92 @@
                 
                 if (!response.ok) {
                     const data = await response.json();
+                    showApiCall('DELETE', endpoint, `Delete ${currentEditType === 'order_booker' ? 'Order Booker' : 'Delivery Man'}`, 'error');
                     throw new Error(data.detail || 'Failed to delete');
                 }
                 
-                alert(`${currentEditType === 'order_booker' ? 'Order Booker' : 'Delivery Man'} deleted successfully!`);
+                showApiCall('DELETE', endpoint, `Delete ${currentEditType === 'order_booker' ? 'Order Booker' : 'Delivery Man'}`, 'success');
+                alert(`${currentEditType === 'order_booker' ? 'Order Booker' : 'Delivery Man'} soft deleted successfully! The record has been hidden but data is preserved.`);
                 closeEditModal();
                 
                 // Reload lists
                 if (currentEditType === 'order_booker') {
+                    loadOrderBookers();
+                } else {
+                    loadDeliveryMen();
+                }
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        }
+        
+        // Delete Shop
+        async function deleteShop(shopId, shopName) {
+            const confirmMessage = `Are you sure you want to soft delete the shop "${shopName}"?\n\nThis will hide the shop from normal operations but preserve data for audit purposes.`;
+            if (!confirm(confirmMessage)) {
+                return;
+            }
+            
+            const endpoint = `${API_BASE}/shops/${shopId}`;
+            showApiCall('DELETE', endpoint, 'Delete Shop', 'loading');
+            
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+                
+                if (!response.ok) {
+                    const data = await response.json();
+                    showApiCall('DELETE', endpoint, 'Delete Shop', 'error');
+                    throw new Error(data.detail || 'Failed to delete shop');
+                }
+                
+                showApiCall('DELETE', endpoint, 'Delete Shop', 'success');
+                alert(`Shop "${shopName}" soft deleted successfully! The record has been hidden but data is preserved.`);
+                
+                // Reload shops list
+                loadAllShops();
+                loadPendingShops();
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        }
+        
+        // Delete User Directly (without opening modal)
+        async function deleteUserDirectly(type, id) {
+            const confirmMessage = `Are you sure you want to soft delete this ${type === 'order_booker' ? 'Order Booker' : 'Delivery Man'}?\n\nThis will hide the record from normal operations but preserve data for audit purposes. The user will not be able to login after deletion.`;
+            if (!confirm(confirmMessage)) {
+                return;
+            }
+            
+            const endpoint = type === 'order_booker' 
+                ? `${API_BASE}/order-bookers/${id}`
+                : `${API_BASE}/delivery-men/${id}`;
+            
+            showApiCall('DELETE', endpoint, `Delete ${type === 'order_booker' ? 'Order Booker' : 'Delivery Man'}`, 'loading');
+            
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+                
+                if (!response.ok) {
+                    const data = await response.json();
+                    showApiCall('DELETE', endpoint, `Delete ${type === 'order_booker' ? 'Order Booker' : 'Delivery Man'}`, 'error');
+                    throw new Error(data.detail || 'Failed to delete');
+                }
+                
+                showApiCall('DELETE', endpoint, `Delete ${type === 'order_booker' ? 'Order Booker' : 'Delivery Man'}`, 'success');
+                alert(`${type === 'order_booker' ? 'Order Booker' : 'Delivery Man'} soft deleted successfully! The record has been hidden but data is preserved.`);
+                
+                // Reload lists
+                if (type === 'order_booker') {
                     loadOrderBookers();
                 } else {
                     loadDeliveryMen();
@@ -2372,19 +2476,22 @@
                         const hasCnicPhotos = shop.owner_cnic_front_photo || shop.owner_cnic_back_photo;
                         html += `
                             <div class="list-item" onclick="openEditShopModal(${shop.id}, '${(shop.name || '').replace(/'/g, "\\'")}', '${(shop.owner_name || '').replace(/'/g, "\\'")}', '${(shop.owner_phone || '').replace(/'/g, "\\'")}', ${shop.gps_lat || 0}, ${shop.gps_lng || 0}, ${shop.credit_limit || 0}, ${shop.legacy_balance || 0}, ${shop.zone_id || 'null'}, '${statusText}', '${(shop.created_at || '').replace(/'/g, "\\'")}', '${cnicFrontPhoto}', '${cnicBackPhoto}')" style="margin-bottom: 10px;">
-                                <div class="list-item-info">
-                                    <strong>${shop.name}</strong> 
-                                    ${statusText === 'pending' ? '<span style="background: #ffc107; color: #000; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-left: 10px;">PENDING</span>' : ''}
-                                    <br>
-                                    Owner: ${shop.owner_name || 'N/A'}<br>
-                                    Phone: ${shop.owner_phone || 'N/A'}<br>
-                                    Credit Limit: Rs. ${(shop.credit_limit || 0).toLocaleString()}<br>
-                                    Status: <span style="color: ${statusColor}">${statusText}</span>${routeInfo}<br>
-                                    ${hasCnicPhotos ? '<span style="color: #667eea; font-weight: bold;">📷 CNIC Photos Available</span><br>' : ''}
-                                    Created By: ${shop.created_by_order_booker_name || 'N/A'}<br>
-                                    <small>ID: ${shop.id} | Created: ${new Date(shop.created_at).toLocaleString()}</small>
-                                </div>
-                            </div>
+                        <div class="list-item-info" style="flex: 1;">
+                            <strong>${shop.name}</strong> 
+                            ${statusText === 'pending' ? '<span style="background: #ffc107; color: #000; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-left: 10px;">PENDING</span>' : ''}
+                            <br>
+                            Owner: ${shop.owner_name || 'N/A'}<br>
+                            Phone: ${shop.owner_phone || 'N/A'}<br>
+                            Credit Limit: Rs. ${(shop.credit_limit || 0).toLocaleString()}<br>
+                            Status: <span style="color: ${statusColor}">${statusText}</span>${routeInfo}<br>
+                            ${hasCnicPhotos ? '<span style="color: #667eea; font-weight: bold;">📷 CNIC Photos Available</span><br>' : ''}
+                            Created By: ${shop.created_by_order_booker_name || 'N/A'}<br>
+                            <small>ID: ${shop.id} | Created: ${new Date(shop.created_at).toLocaleString()}</small>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <button class="btn btn-danger" onclick="event.stopPropagation(); deleteShop(${shop.id}, '${(shop.name || '').replace(/'/g, "\\'")}')" style="padding: 8px 15px; font-size: 14px;">🗑️ Delete</button>
+                        </div>
+                    </div>
                         `;
                     });
 
@@ -2543,7 +2650,7 @@
                     
                     html += `
                         <div class="list-item" style="margin-bottom: 10px;">
-                            <div class="list-item-info">
+                            <div class="list-item-info" style="flex: 1;">
                                 <strong>${shop.name}</strong><br>
                                 Owner: ${shop.owner_name || 'N/A'}<br>
                                 Phone: ${shop.owner_phone || 'N/A'}<br>
@@ -2554,6 +2661,9 @@
                                 Status: <span style="color: ${shop.registration_status === 'approved' ? 'green' : 'orange'}">${shop.registration_status || 'pending'}</span><br>
                                 Created By: ${shop.created_by_order_booker_name || 'N/A'}<br>
                                 <small>ID: ${shop.id} | Created: ${new Date(shop.created_at).toLocaleString()}</small>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <button class="btn btn-danger" onclick="deleteShop(${shop.id}, '${(shop.name || '').replace(/'/g, "\\'")}')" style="padding: 8px 15px; font-size: 14px;">🗑️ Delete</button>
                             </div>
                         </div>
                     `;
@@ -3496,8 +3606,6 @@
                 const reason = visitItem.getAttribute('data-reason') || '';
                 const orderId = visitItem.getAttribute('data-order-id') || null;
                 const collectionId = visitItem.getAttribute('data-collection-id') || null;
-                let shopRoutesJson = visitItem.getAttribute('data-shop-routes') || '[]';
-                shopRoutesJson = shopRoutesJson.replace(/&quot;/g, '"').replace(/&#39;/g, "'");
                 
                 // Decode HTML entities for text fields
                 const decodedShopName = shopName.replace(/&quot;/g, '"').replace(/&#39;/g, "'");

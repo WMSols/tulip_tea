@@ -174,6 +174,7 @@ class ShopResponse(BaseModel):
     gps_lng: Optional[float] = None
     credit_limit: float
     legacy_balance: float
+    outstanding_balance: Optional[float] = 0
     is_registered: bool
     registration_status: str
     verified_by_distributor: Optional[int] = None

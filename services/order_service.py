@@ -51,8 +51,8 @@ class OrderService:
             raise ValueError(f"Error calculating orders total: {str(e)}")
         
         try:
-            # Get all payments
-            payments = PaymentRepository.get_by_shop(db, shop_id)
+            # Get all payments (exclude soft-deleted)
+            payments = PaymentRepository.get_by_shop(db, shop_id, include_deleted=False)
             total_payments = sum(Decimal(str(p.amount or 0)) for p in payments)
         except Exception as e:
             print(f"ERROR querying payments for shop {shop_id}: {e}")
@@ -60,8 +60,12 @@ class OrderService:
             print(f"Payment model columns: {[c.name for c in Payment.__table__.columns]}")
             raise ValueError(f"Error querying payments: {str(e)}")
         
-        # Outstanding = Orders - Payments
-        outstanding = total_orders - total_payments
+        # Get legacy balance from shop
+        shop = ShopRepository.get_by_id(db, shop_id)
+        legacy_balance = Decimal(str(shop.legacy_balance or 0)) if shop else Decimal('0')
+        
+        # Outstanding = Orders - Payments + Legacy Balance
+        outstanding = total_orders - total_payments + legacy_balance
         return outstanding
     
     @staticmethod
@@ -122,25 +126,17 @@ class OrderService:
         if total_amount <= 0:
             raise ValueError("Order total amount must be greater than 0")
         
-        # Validate credit limit
+        # Validate credit limit using shop's outstanding_balance field
         credit_limit = Decimal(str(shop.credit_limit or 0))
         if credit_limit > 0:  # Only check if shop has a credit limit
-            try:
-                outstanding = OrderService.calculate_outstanding_balance(db, shop_id)
-            except Exception as e:
-                # If there's an error calculating outstanding balance, log it and re-raise with context
-                error_msg = f"Error calculating outstanding balance for shop {shop_id}: {str(e)}"
-                print(f"ERROR: {error_msg}")
-                raise ValueError(error_msg)
+            # Use shop's outstanding_balance field (maintained automatically)
+            current_outstanding = Decimal(str(shop.outstanding_balance or 0))
             
-            legacy_balance = Decimal(str(shop.legacy_balance or 0))
-            total_outstanding = outstanding + legacy_balance
-            
-            if total_outstanding + total_amount > credit_limit:
-                available_credit = credit_limit - total_outstanding
+            if current_outstanding + total_amount > credit_limit:
+                available_credit = credit_limit - current_outstanding
                 raise ValueError(
                     f"Order amount (Rs. {total_amount}) exceeds available credit. "
-                    f"Credit limit: Rs. {credit_limit}, Outstanding: Rs. {total_outstanding}, "
+                    f"Credit limit: Rs. {credit_limit}, Outstanding: Rs. {current_outstanding}, "
                     f"Available: Rs. {available_credit}"
                 )
         
@@ -181,7 +177,21 @@ class OrderService:
                 "total_price": float(order_item.total_price) if order_item.total_price else None
             })
         
-        # Get shop name for response
+        # Update shop's outstanding balance: Increase by order amount
+        # Refresh shop to get latest data
+        shop = ShopRepository.get_by_id(db, shop_id)
+        if shop:
+            current_outstanding = Decimal(str(shop.outstanding_balance or 0))
+            new_outstanding = current_outstanding + total_amount
+            
+            ShopRepository.update(
+                db=db,
+                shop_id=shop_id,
+                outstanding_balance=new_outstanding
+            )
+        
+        # Get shop name for response (refresh to get updated outstanding_balance)
+        shop = ShopRepository.get_by_id(db, shop_id)
         shop_name = shop.name if shop else None
         order_booker_name = order_booker.name if order_booker else None
         

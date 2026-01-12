@@ -113,9 +113,10 @@ class CreditLimitRequestRepository:
         Returns:
             List[CreditLimitRequest]: List of request instances
         """
-        # SQL: SELECT * FROM credit_limit_requests WHERE shop_id = shop_id ORDER BY created_at DESC
+        # SQL: SELECT * FROM credit_limit_requests WHERE shop_id = shop_id AND deleted_at IS NULL ORDER BY created_at DESC
         return db.query(CreditLimitRequest).filter(
-            CreditLimitRequest.shop_id == shop_id
+            CreditLimitRequest.shop_id == shop_id,
+            CreditLimitRequest.deleted_at.is_(None)  # Exclude soft-deleted requests
         ).order_by(CreditLimitRequest.created_at.desc()).all()
     
     @staticmethod
@@ -138,11 +139,12 @@ class CreditLimitRequestRepository:
         Note: Distributors are not assigned to zones, so distributor_id is not used for filtering.
         All pending requests are returned regardless of distributor.
         """
-        # Return all pending requests
+        # Return all pending requests (exclude soft-deleted)
         # Note: Distributors are not assigned to zones, so we return all pending requests
         # If zone filtering is needed, filter by shop.zone_id at the service layer instead
         return db.query(CreditLimitRequest).filter(
-            CreditLimitRequest.status == "pending"
+            CreditLimitRequest.status == "pending",
+            CreditLimitRequest.deleted_at.is_(None)  # Exclude soft-deleted requests
         ).order_by(CreditLimitRequest.created_at.asc()).all()
     
     @staticmethod

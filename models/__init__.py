@@ -27,7 +27,7 @@ USAGE:
 """
 # Import all models to ensure they're registered with Base
 # This is critical for SQLAlchemy to discover all table definitions
-from . import distributor, order_booker, delivery_man, zone, route, shop, route_shop, credit_limit_request, daily_collection, payment, shop_visit, visit_type, order, order_item
+from . import distributor, order_booker, delivery_man, zone, route, shop, route_shop, credit_limit_request, daily_collection, payment, shop_visit, visit_type, order, order_item, activity_log
 
 # Export all models for easy importing
-__all__ = ["distributor", "order_booker", "delivery_man", "zone", "route", "shop", "route_shop", "credit_limit_request", "daily_collection", "payment", "shop_visit", "visit_type", "order", "order_item"]
+__all__ = ["distributor", "order_booker", "delivery_man", "zone", "route", "shop", "route_shop", "credit_limit_request", "daily_collection", "payment", "shop_visit", "visit_type", "order", "order_item", "activity_log"]

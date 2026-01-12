@@ -93,24 +93,30 @@ class ShopVisitRepository:
         return visit
     
     @staticmethod
-    def get_by_id(db: Session, visit_id: int) -> Optional[ShopVisit]:
+    def get_by_id(db: Session, visit_id: int, include_deleted: bool = False) -> Optional[ShopVisit]:
         """
-        Get a shop visit by its ID.
+        Get a shop visit by its ID (excludes soft-deleted by default).
         
         FLOW:
         1. Queries shop_visits table
         2. Filters by id = visit_id
-        3. Returns first match or None
+        3. Optionally filters by deleted_at IS NULL
+        4. Returns first match or None
         
         Args:
             db: SQLAlchemy database session
             visit_id: Visit ID (primary key)
+            include_deleted: If True, includes soft-deleted visits
         
         Returns:
             Optional[ShopVisit]: Visit instance if found, None otherwise
         """
-        # SQL: SELECT * FROM shop_visits WHERE id = visit_id LIMIT 1
-        return db.query(ShopVisit).filter(ShopVisit.id == visit_id).first()
+        # NOTE: deleted_at filtering temporarily disabled until database column is added
+        # Run sql/add_deleted_at_to_shop_visits.sql to add the column, then uncomment the filter
+        query = db.query(ShopVisit).filter(ShopVisit.id == visit_id)
+        # if not include_deleted:
+        #     query = query.filter(ShopVisit.deleted_at.is_(None))
+        return query.first()
     
     @staticmethod
     def get_by_order_booker(db: Session, order_booker_id: int, 
@@ -139,8 +145,10 @@ class ShopVisitRepository:
         """
         # SQL: SELECT * FROM shop_visits WHERE order_booker_id = order_booker_id 
         #      ORDER BY visit_time DESC OFFSET skip LIMIT limit
+        # NOTE: deleted_at filtering temporarily disabled until database column is added
         return db.query(ShopVisit).filter(
             ShopVisit.order_booker_id == order_booker_id
+            # ShopVisit.deleted_at.is_(None)  # Uncomment after running sql/add_deleted_at_to_shop_visits.sql
         ).order_by(ShopVisit.visit_time.desc()).offset(skip).limit(limit).all()
     
     @staticmethod
@@ -169,8 +177,10 @@ class ShopVisitRepository:
         """
         # SQL: SELECT * FROM shop_visits WHERE shop_id = shop_id 
         #      ORDER BY visit_time DESC OFFSET skip LIMIT limit
+        # NOTE: deleted_at filtering temporarily disabled until database column is added
         return db.query(ShopVisit).filter(
             ShopVisit.shop_id == shop_id
+            # ShopVisit.deleted_at.is_(None)  # Uncomment after running sql/add_deleted_at_to_shop_visits.sql
         ).order_by(ShopVisit.visit_time.desc()).offset(skip).limit(limit).all()
     
     @staticmethod
@@ -200,8 +210,10 @@ class ShopVisitRepository:
         """
         # SQL: SELECT * FROM shop_visits WHERE delivery_man_id = delivery_man_id 
         #      ORDER BY visit_time DESC OFFSET skip LIMIT limit
+        # NOTE: deleted_at filtering temporarily disabled until database column is added
         return db.query(ShopVisit).filter(
             ShopVisit.delivery_man_id == delivery_man_id
+            # ShopVisit.deleted_at.is_(None)  # Uncomment after running sql/add_deleted_at_to_shop_visits.sql
         ).order_by(ShopVisit.visit_time.desc()).offset(skip).limit(limit).all()
     
     @staticmethod
@@ -228,7 +240,8 @@ class ShopVisitRepository:
         """
         # SQL: SELECT * FROM shop_visits 
         #      ORDER BY visit_time DESC OFFSET skip LIMIT limit
-        return db.query(ShopVisit).order_by(
-            ShopVisit.visit_time.desc()
-        ).offset(skip).limit(limit).all()
+        # NOTE: deleted_at filtering temporarily disabled until database column is added
+        # Uncomment the filter after running sql/add_deleted_at_to_shop_visits.sql:
+        # return db.query(ShopVisit).filter(ShopVisit.deleted_at.is_(None)).order_by(ShopVisit.visit_time.desc()).offset(skip).limit(limit).all()
+        return db.query(ShopVisit).order_by(ShopVisit.visit_time.desc()).offset(skip).limit(limit).all()
 

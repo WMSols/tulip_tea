@@ -20,14 +20,20 @@ class ZoneRepository:
         return zone
     
     @staticmethod
-    def get_by_id(db: Session, zone_id: int) -> Optional[Zone]:
-        """Get zone by ID."""
-        return db.query(Zone).filter(Zone.id == zone_id).first()
+    def get_by_id(db: Session, zone_id: int, include_deleted: bool = False) -> Optional[Zone]:
+        """Get zone by ID (excludes soft-deleted and inactive by default)."""
+        query = db.query(Zone).filter(Zone.id == zone_id)
+        if not include_deleted:
+            query = query.filter(Zone.deleted_at.is_(None), Zone.is_active == True)
+        return query.first()
     
     @staticmethod
-    def get_all(db: Session, skip: int = 0, limit: int = 100) -> List[Zone]:
-        """Get all zones with pagination."""
-        return db.query(Zone).offset(skip).limit(limit).all()
+    def get_all(db: Session, skip: int = 0, limit: int = 100, include_deleted: bool = False) -> List[Zone]:
+        """Get all zones with pagination (excludes soft-deleted and inactive by default)."""
+        query = db.query(Zone)
+        if not include_deleted:
+            query = query.filter(Zone.deleted_at.is_(None), Zone.is_active == True)
+        return query.offset(skip).limit(limit).all()
     
     @staticmethod
     def get_by_name(db: Session, name: str) -> Optional[Zone]:

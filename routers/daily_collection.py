@@ -10,7 +10,7 @@ API ENDPOINTS:
 - POST /daily-collections/{id}/approve - Approve collection (Distributor)
 - POST /daily-collections/{id}/reject - Reject collection (Distributor)
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from typing import List
 from config.database import get_db
@@ -19,6 +19,8 @@ from models.schemas import (
     DailyCollectionApprove, DailyCollectionReject
 )
 from services.daily_collection_service import DailyCollectionService
+from services.activity_log_service import ActivityLogService
+from utils.auth_helpers import get_current_user_from_request
 
 router = APIRouter(prefix="/daily-collections", tags=["Daily Collections"])
 
@@ -27,6 +29,7 @@ router = APIRouter(prefix="/daily-collections", tags=["Daily Collections"])
 async def submit_daily_collection(
     order_booker_id: int,
     collection: DailyCollectionCreate,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """
@@ -65,6 +68,29 @@ async def submit_daily_collection(
             collected_at=collected_at,
             remarks=collection.remarks
         )
+        
+        # Log collection creation
+        ActivityLogService.log_create(
+            db=db,
+            user_id=order_booker_id,
+            user_role='order_booker',
+            entity_type='daily_collection',
+            entity_id=result['id'],
+            new_values={
+                'shop_id': result.get('shop_id'),
+                'shop_name': result.get('shop_name'),
+                'amount': str(result.get('amount', 0)),
+                'status': result.get('status')
+            },
+            metadata={
+                'visit_id': result.get('visit_id'),
+                'order_id': result.get('order_id')
+            },
+            changes_summary=f"Collection recorded: {result.get('shop_name')} - Rs. {result.get('amount', 0)}",
+            reason=collection.remarks,
+            request=request
+        )
+        
         return result
     except ValueError as e:
         raise HTTPException(
@@ -189,6 +215,7 @@ async def approve_daily_collection(
     collection_id: int,
     approval_data: DailyCollectionApprove,
     distributor_id: int,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """
@@ -212,19 +239,70 @@ async def approve_daily_collection(
         Approved collection and created payment data
     """
     try:
+        # Get collection before approval for logging
+        from repositories.daily_collection_repository import DailyCollectionRepository
+        collection_before = DailyCollectionRepository.get_by_id(db, collection_id)
+        if not collection_before:
+            raise ValueError("Collection not found")
+        
+        old_status = collection_before.status
+        old_amount = float(collection_before.amount) if collection_before.amount else 0
+        
         result = DailyCollectionService.approve_collection(
             db=db,
             collection_id=collection_id,
             distributor_id=distributor_id,
             remarks=approval_data.remarks
         )
+        
+        # Log collection approval
+        ActivityLogService.log_approve(
+            db=db,
+            user_id=distributor_id,
+            user_role='distributor',
+            entity_type='daily_collection',
+            entity_id=collection_id,
+            old_values={'status': old_status, 'amount': str(old_amount)},
+            new_values={
+                'status': result.get('collection', {}).get('status'),
+                'amount': str(result.get('collection', {}).get('amount', 0)),
+                'payment_id': result.get('payment', {}).get('id')
+            },
+            changes_summary=f"Collection approved: Rs. {old_amount} - Payment ID: {result.get('payment', {}).get('id')}",
+            reason=approval_data.remarks,
+            metadata={'payment_id': result.get('payment', {}).get('id')},
+            request=request
+        )
+        
         return result
     except ValueError as e:
+        # Log failure
+        ActivityLogService.log_failure(
+            db=db,
+            user_id=distributor_id,
+            user_role='distributor',
+            action_type='APPROVE',
+            entity_type='daily_collection',
+            entity_id=collection_id,
+            error_message=str(e),
+            request=request
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except Exception as e:
+        # Log failure
+        ActivityLogService.log_failure(
+            db=db,
+            user_id=distributor_id,
+            user_role='distributor',
+            action_type='APPROVE',
+            entity_type='daily_collection',
+            entity_id=collection_id,
+            error_message=str(e),
+            request=request
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error approving collection: {str(e)}"
@@ -236,6 +314,7 @@ async def reject_daily_collection(
     collection_id: int,
     rejection_data: DailyCollectionReject,
     distributor_id: int,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """
@@ -257,12 +336,36 @@ async def reject_daily_collection(
         Rejected collection data
     """
     try:
+        # Get collection before rejection for logging
+        from repositories.daily_collection_repository import DailyCollectionRepository
+        collection_before = DailyCollectionRepository.get_by_id(db, collection_id)
+        if not collection_before:
+            raise ValueError("Collection not found")
+        
+        old_status = collection_before.status
+        old_amount = float(collection_before.amount) if collection_before.amount else 0
+        
         result = DailyCollectionService.reject_collection(
             db=db,
             collection_id=collection_id,
             distributor_id=distributor_id,
             remarks=rejection_data.remarks
         )
+        
+        # Log collection rejection
+        ActivityLogService.log_reject(
+            db=db,
+            user_id=distributor_id,
+            user_role='distributor',
+            entity_type='daily_collection',
+            entity_id=collection_id,
+            old_values={'status': old_status, 'amount': str(old_amount)},
+            new_values={'status': result.get('status')},
+            changes_summary=f"Collection rejected: Rs. {old_amount}",
+            reason=rejection_data.remarks,
+            request=request
+        )
+        
         return result
     except ValueError as e:
         raise HTTPException(

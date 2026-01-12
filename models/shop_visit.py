@@ -134,6 +134,17 @@ class ShopVisit(Base):
     - Can include visit purpose, issues found, etc.
     - Example: "Regular order booking visit", "Shop owner requested meeting"
     """
+
+    # Soft Delete
+    # NOTE: Temporarily commented out until database column is added
+    # Run sql/add_deleted_at_to_shop_visits.sql to add the column, then uncomment this
+    # deleted_at = Column(DateTime(timezone=False), nullable=True)
+    # """
+    # Soft delete timestamp.
+    # - When set, visit is considered deleted but data is preserved for audit
+    # - NULL = active record
+    # - Used for soft delete functionality
+    # """
     
     # Note: The database table does not have a created_at column
     # If you need timestamps, use visit_time field or add created_at to the database schema

@@ -28,6 +28,7 @@ class ShopRepository:
             registration_status: Status of registration ("pending", "approved", "rejected")
             created_by_order_booker: Order booker who is registering the shop
         """
+        legacy_balance_val = legacy_balance or Decimal('0')
         shop = Shop(
             name=name,
             owner_name=owner_name,
@@ -35,7 +36,8 @@ class ShopRepository:
             gps_lat=gps_lat,
             gps_lng=gps_lng,
             credit_limit=credit_limit or Decimal('0'),
-            legacy_balance=legacy_balance or Decimal('0'),
+            legacy_balance=legacy_balance_val,
+            outstanding_balance=legacy_balance_val,  # Initially equals legacy_balance (no orders, no payments yet)
             is_registered=False,  # Start as not registered
             registration_status=registration_status,  # New field
             created_by_order_booker=created_by_order_booker,
@@ -48,24 +50,30 @@ class ShopRepository:
         return shop
     
     @staticmethod
-    def get_by_id(db: Session, shop_id: int) -> Optional[Shop]:
-        """Get shop by ID."""
-        return db.query(Shop).filter(Shop.id == shop_id).first()
+    def get_by_id(db: Session, shop_id: int, include_deleted: bool = False) -> Optional[Shop]:
+        """Get shop by ID (excludes soft-deleted and inactive by default)."""
+        query = db.query(Shop).filter(Shop.id == shop_id)
+        if not include_deleted:
+            query = query.filter(Shop.deleted_at.is_(None), Shop.is_active == True)
+        return query.first()
     
     @staticmethod
-    def get_by_order_booker(db: Session, order_booker_id: int) -> List[Shop]:
+    def get_by_order_booker(db: Session, order_booker_id: int, include_deleted: bool = False) -> List[Shop]:
         """
-        Get all shops created by an order booker.
+        Get all shops created by an order booker (excludes soft-deleted and inactive by default).
         
         Note: This returns shops based on created_by_order_booker (historical).
         For current assignments, use get_by_assigned_order_booker().
         """
-        return db.query(Shop).filter(Shop.created_by_order_booker == order_booker_id).all()
+        query = db.query(Shop).filter(Shop.created_by_order_booker == order_booker_id)
+        if not include_deleted:
+            query = query.filter(Shop.deleted_at.is_(None), Shop.is_active == True)
+        return query.all()
     
     @staticmethod
-    def get_by_assigned_order_booker(db: Session, order_booker_id: int) -> List[Shop]:
+    def get_by_assigned_order_booker(db: Session, order_booker_id: int, include_deleted: bool = False) -> List[Shop]:
         """
-        Get all shops currently assigned to an order booker.
+        Get all shops currently assigned to an order booker (excludes soft-deleted and inactive by default).
         
         This method returns shops based on assigned_to_order_booker, which represents
         the current responsibility. This is different from get_by_order_booker() which
@@ -74,11 +82,15 @@ class ShopRepository:
         Args:
             db: Database session
             order_booker_id: Order booker ID to filter by
+            include_deleted: If True, includes soft-deleted and inactive records
         
         Returns:
             List of shops currently assigned to this order booker
         """
-        return db.query(Shop).filter(Shop.assigned_to_order_booker == order_booker_id).all()
+        query = db.query(Shop).filter(Shop.assigned_to_order_booker == order_booker_id)
+        if not include_deleted:
+            query = query.filter(Shop.deleted_at.is_(None), Shop.is_active == True)
+        return query.all()
     
     @staticmethod
     def reassign_shops_to_order_booker(db: Session, from_order_booker_id: int, 
@@ -108,31 +120,46 @@ class ShopRepository:
         return count
     
     @staticmethod
-    def get_by_zone(db: Session, zone_id: int) -> List[Shop]:
-        """Get all shops in a zone."""
-        return db.query(Shop).filter(Shop.zone_id == zone_id).all()
+    def get_by_zone(db: Session, zone_id: int, include_deleted: bool = False) -> List[Shop]:
+        """Get all shops in a zone (excludes soft-deleted and inactive by default)."""
+        query = db.query(Shop).filter(Shop.zone_id == zone_id)
+        if not include_deleted:
+            query = query.filter(Shop.deleted_at.is_(None), Shop.is_active == True)
+        return query.all()
     
     @staticmethod
-    def get_by_route(db: Session, route_id: int) -> List[Shop]:
-        """Get all shops in a route."""
+    def get_by_route(db: Session, route_id: int, include_deleted: bool = False) -> List[Shop]:
+        """Get all shops in a route (excludes soft-deleted and inactive by default)."""
         from models.route_shop import RouteShop
-        route_shops = db.query(RouteShop).filter(RouteShop.route_id == route_id).all()
+        route_shops = db.query(RouteShop).filter(
+            RouteShop.route_id == route_id,
+            # RouteShop.deleted_at.is_(None)  # Uncomment after running sql/add_deleted_at_to_route_shops.sql
+        ).all()
         shop_ids = [rs.shop_id for rs in route_shops]
-        return db.query(Shop).filter(Shop.id.in_(shop_ids)).all() if shop_ids else []
+        if not shop_ids:
+            return []
+        query = db.query(Shop).filter(Shop.id.in_(shop_ids))
+        if not include_deleted:
+            query = query.filter(Shop.deleted_at.is_(None), Shop.is_active == True)
+        return query.all()
     
     @staticmethod
-    def get_by_registration_status(db: Session, status: str) -> List[Shop]:
+    def get_by_registration_status(db: Session, status: str, include_deleted: bool = False) -> List[Shop]:
         """
-        Get all shops by registration status.
+        Get all shops by registration status (excludes soft-deleted and inactive by default).
         
         Args:
             db: Database session
             status: Registration status ("pending", "approved", "rejected")
+            include_deleted: If True, includes soft-deleted and inactive records
         
         Returns:
             List of shops with the specified status
         """
-        return db.query(Shop).filter(Shop.registration_status == status).order_by(Shop.created_at.desc()).all()
+        query = db.query(Shop).filter(Shop.registration_status == status)
+        if not include_deleted:
+            query = query.filter(Shop.deleted_at.is_(None), Shop.is_active == True)
+        return query.order_by(Shop.created_at.desc()).all()
     
     @staticmethod
     def update_registration_status(db: Session, shop_id: int, is_registered: bool) -> bool:
@@ -200,4 +227,20 @@ class ShopRepository:
         db.commit()
         db.refresh(shop)
         return shop
+    
+    @staticmethod
+    def delete(db: Session, shop_id: int) -> bool:
+        """Soft delete a shop (sets deleted_at timestamp)."""
+        from datetime import datetime
+        shop = db.query(Shop).filter(
+            Shop.id == shop_id,
+            Shop.deleted_at.is_(None)
+        ).first()
+        if not shop:
+            return False
+        shop.deleted_at = datetime.utcnow()
+        shop.is_active = False  # Also deactivate when soft deleting
+        db.commit()
+        db.refresh(shop)
+        return True
 

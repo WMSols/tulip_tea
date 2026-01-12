@@ -13,7 +13,7 @@ Orders ←→ Order Items (One-to-Many)
 
 DATABASE TABLE: order_items
 """
-from sqlalchemy import Column, BigInteger, Integer, Numeric, ForeignKey, String, Text
+from sqlalchemy import Column, BigInteger, Integer, Numeric, ForeignKey, String, Text, DateTime
 from config.database import Base
 
 
@@ -76,6 +76,20 @@ class OrderItem(Base):
     - Example: 5000.00 (10 × 500.00 = Rs. 5,000)
     - Used for order total calculation
     """
+
+    # Soft Delete
+    # NOTE: Temporarily commented out until database column is added
+    # Run sql/add_deleted_at_to_order_items.sql to add the column, then uncomment this
+    # deleted_at = Column(DateTime(timezone=False), nullable=True)
+    # """
+    # Soft delete timestamp.
+    # - When set, order item is considered deleted but data is preserved
+    # - NULL = active record
+    # - Used for soft delete functionality
+    # """
+
+
+
 
 
 

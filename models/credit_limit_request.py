@@ -140,6 +140,16 @@ class CreditLimitRequest(Base):
     - Used for sorting and filtering requests
     """
 
+    # Soft Delete
+    deleted_at = Column(DateTime(timezone=False), nullable=True)
+    """
+    Soft delete timestamp.
+    - When set, request is considered deleted but data is preserved for audit
+    - NULL = active record
+    - Used for soft delete functionality
+    - Typically set when associated shop is soft deleted
+    """
+
 
 
 

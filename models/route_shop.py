@@ -29,7 +29,7 @@ USAGE:
 
 DATABASE TABLE: route_shops
 """
-from sqlalchemy import Column, BigInteger, Integer, ForeignKey
+from sqlalchemy import Column, BigInteger, Integer, ForeignKey, DateTime
 from config.database import Base
 
 
@@ -84,6 +84,17 @@ class RouteShop(Base):
       * Delivery planning
       * Generating delivery lists in order
     """
+
+    # Soft Delete
+    # NOTE: Temporarily commented out until database column is added
+    # Run sql/add_deleted_at_to_route_shops.sql to add the column, then uncomment this
+    # deleted_at = Column(DateTime(timezone=False), nullable=True)
+    # """
+    # Soft delete timestamp.
+    # - When set, shop-route relationship is considered deleted but data is preserved
+    # - NULL = active record
+    # - Used for soft delete functionality
+    # """
 
 
 

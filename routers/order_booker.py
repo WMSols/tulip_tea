@@ -2,12 +2,13 @@
 Order Booker router.
 Handles order booker CRUD operations.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from config.database import get_db
 from models.schemas import OrderBookerCreate, OrderBookerResponse, OrderBookerUpdate
 from services.order_booker_service import OrderBookerService
+from utils.auth_helpers import get_current_user_from_request
 
 router = APIRouter(prefix="/order-bookers", tags=["Order Bookers"])
 
@@ -90,44 +91,59 @@ async def update_order_booker(
 @router.delete("/{order_booker_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_order_booker(
     order_booker_id: int,
-    reassign_shops_to: int = None,
-    reassign_routes_to: int = None,
+    reassign_shops_to: Optional[int] = Query(None, description="Optional Order Booker ID to reassign shops to"),
+    reassign_routes_to: Optional[int] = Query(None, description="Optional Order Booker ID to reassign routes to"),
+    request: Request = None,
     db: Session = Depends(get_db)
 ):
     """
-    Delete an order booker with optional reassignment of shops and routes.
+    Soft delete an order booker with optional reassignment of shops and routes.
     
-    This endpoint allows deleting an order booker while preserving data integrity.
-    Shops and routes can be automatically reassigned to another order booker.
+    This endpoint allows soft deleting an order booker while preserving data integrity.
+    Shops and routes can be automatically reassigned to another order booker, or unassigned if not provided.
     
     QUERY PARAMETERS:
-        reassign_shops_to: Optional - Order booker ID to reassign shops to
-        reassign_routes_to: Optional - Order booker ID to reassign routes to
+        reassign_shops_to: Optional - Order booker ID to reassign shops to. If not provided, shops will be unassigned.
+        reassign_routes_to: Optional - Order booker ID to reassign routes to. If not provided, routes will be unassigned.
     
     BEHAVIOR:
     - If shops exist and reassign_shops_to is provided:
       * All shops' assigned_to_order_booker is updated to new order booker
       * created_by_order_booker remains unchanged (for audit trail)
+    - If shops exist but reassign_shops_to is NOT provided:
+      * Shops' assigned_to_order_booker is set to NULL (unassigned)
     - If routes exist and reassign_routes_to is provided:
       * All routes' order_booker_id is updated to new order booker
-    - If shops/routes exist but no reassignment is provided:
-      * Returns 400 Bad Request with error message
+    - If routes exist but reassign_routes_to is NOT provided:
+      * Routes' order_booker_id is set to NULL (unassigned)
+    - Order booker is soft deleted (deleted_at set, is_active=False)
     
     EXAMPLE USAGE:
         DELETE /order-bookers/1?reassign_shops_to=2&reassign_routes_to=2
-        This will delete order booker 1 and reassign all shops and routes to order booker 2.
+        This will soft delete order booker 1 and reassign all shops and routes to order booker 2.
+        
+        DELETE /order-bookers/1
+        This will soft delete order booker 1 and unassign all shops and routes.
     
     Returns:
         204 No Content on success
-        400 Bad Request if shops/routes exist without reassignment
         404 Not Found if order booker doesn't exist
     """
     try:
+        user_info = get_current_user_from_request(request)
+        if user_info['user_role'] != 'distributor':
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only distributors can delete order bookers."
+            )
+        
         OrderBookerService.delete_order_booker(
             db=db, 
             order_booker_id=order_booker_id,
             reassign_shops_to=reassign_shops_to,
-            reassign_routes_to=reassign_routes_to
+            reassign_routes_to=reassign_routes_to,
+            deleter_id=user_info['user_id'],
+            request=request
         )
         return None
     except ValueError as e:

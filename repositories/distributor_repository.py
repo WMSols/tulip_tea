@@ -77,38 +77,44 @@ class DistributorRepository:
         return distributor
     
     @staticmethod
-    def get_by_id(db: Session, distributor_id: int) -> Optional[Distributor]:
+    def get_by_id(db: Session, distributor_id: int, include_deleted: bool = False) -> Optional[Distributor]:
         """
-        Get a distributor by their ID.
+        Get a distributor by their ID (excludes soft-deleted and inactive by default).
         
         FLOW:
         1. Queries distributors table
         2. Filters by id = distributor_id
-        3. Returns first match or None
+        3. Optionally filters by deleted_at IS NULL and is_active = TRUE
+        4. Returns first match or None
         
         Args:
             db: SQLAlchemy database session
             distributor_id: Distributor ID (primary key)
+            include_deleted: If True, includes soft-deleted and inactive records
         
         Returns:
             Optional[Distributor]: Distributor instance if found, None otherwise
         """
-        # SQL: SELECT * FROM distributors WHERE id = distributor_id LIMIT 1
-        return db.query(Distributor).filter(Distributor.id == distributor_id).first()
+        query = db.query(Distributor).filter(Distributor.id == distributor_id)
+        if not include_deleted:
+            query = query.filter(Distributor.deleted_at.is_(None), Distributor.is_active == True)
+        return query.first()
     
     @staticmethod
-    def get_by_phone(db: Session, phone: str) -> Optional[Distributor]:
+    def get_by_phone(db: Session, phone: str, include_deleted: bool = False) -> Optional[Distributor]:
         """
-        Get a distributor by their phone number.
+        Get a distributor by their phone number (excludes soft-deleted and inactive by default).
         
         FLOW:
         1. Queries distributors table
         2. Filters by phone = phone
-        3. Returns first match or None
+        3. Optionally filters by deleted_at IS NULL and is_active = TRUE
+        4. Returns first match or None
         
         Args:
             db: SQLAlchemy database session
             phone: Phone number (unique, indexed)
+            include_deleted: If True, includes soft-deleted and inactive records
         
         Returns:
             Optional[Distributor]: Distributor instance if found, None otherwise
@@ -116,8 +122,10 @@ class DistributorRepository:
         Usage:
             Used during login to find user by phone number
         """
-        # SQL: SELECT * FROM distributors WHERE phone = phone LIMIT 1
-        return db.query(Distributor).filter(Distributor.phone == phone).first()
+        query = db.query(Distributor).filter(Distributor.phone == phone)
+        if not include_deleted:
+            query = query.filter(Distributor.deleted_at.is_(None), Distributor.is_active == True)
+        return query.first()
     
     @staticmethod
     def get_by_email(db: Session, email: str) -> Optional[Distributor]:

@@ -12,13 +12,14 @@ class DeliveryManRepository:
     
     @staticmethod
     def create(db: Session, distributor_id: int, name: str, phone: str,
-              password_hash: str) -> DeliveryMan:
+              password_hash: str, zone_id: int = None) -> DeliveryMan:
         """Create a new delivery man."""
         delivery_man = DeliveryMan(
             distributor_id=distributor_id,
             name=name,
             phone=phone,
-            password_hash=password_hash
+            password_hash=password_hash,
+            zone_id=zone_id
         )
         db.add(delivery_man)
         db.commit()

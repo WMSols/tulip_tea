@@ -13,17 +13,71 @@ class DeliveryManService:
     
     @staticmethod
     def create_delivery_man(db: Session, distributor_id: int, name: str, phone: str,
-                           password: str) -> Dict:
+                           password: str, zone_id: int = None, route_ids: List[int] = None) -> Dict:
         """
-        Create a new delivery man (only by distributor).
+        Create a new delivery man with zone and route assignments.
+        
+        FLOW:
+        1. Validates distributor exists
+        2. Validates zone exists (if provided)
+        3. Validates routes exist and belong to the same zone (if provided)
+        4. Creates delivery man with zone_id
+        5. Assigns routes to delivery man
+        6. Returns delivery man data with route assignments
+        
+        Args:
+            db: Database session
+            distributor_id: Distributor ID creating the delivery man
+            name: Delivery man name
+            phone: Delivery man phone
+            password: Plain text password (will be hashed)
+            zone_id: Optional zone ID to assign
+            route_ids: Optional list of route IDs to assign
         
         Returns:
-            Dictionary with delivery man data
+            Dictionary with delivery man data including route_ids
         """
+        from repositories.zone_repository import ZoneRepository
+        from repositories.route_repository import RouteRepository
+        from repositories.delivery_man_route_repository import DeliveryManRouteRepository
+        
         # Verify distributor exists
         distributor = DistributorRepository.get_by_id(db, distributor_id)
         if not distributor:
             raise ValueError("Distributor not found")
+        
+        # Verify zone exists (if provided)
+        if zone_id:
+            zone = ZoneRepository.get_by_id(db, zone_id)
+            if not zone:
+                raise ValueError(f"Zone with ID {zone_id} not found")
+        
+        # Verify routes exist and belong to the same zone (if provided)
+        assigned_route_ids = []
+        if route_ids:
+            for route_id in route_ids:
+                route = RouteRepository.get_by_id(db, route_id)
+                if not route:
+                    raise ValueError(f"Route with ID {route_id} not found")
+                
+                # Validate zone matching: route's zone must match delivery man's zone
+                if zone_id and route.zone_id:
+                    if route.zone_id != zone_id:
+                        raise ValueError(
+                            f"Cannot assign route '{route.name}': Route belongs to zone {route.zone_id}, "
+                            f"but delivery man is assigned to zone {zone_id}. They must be in the same zone."
+                        )
+                elif zone_id and not route.zone_id:
+                    raise ValueError(
+                        f"Cannot assign route '{route.name}': Route has no zone assigned, "
+                        f"but delivery man is assigned to zone {zone_id}."
+                    )
+                elif not zone_id and route.zone_id:
+                    # Auto-assign delivery man to route's zone if not specified
+                    zone_id = route.zone_id
+                    zone = ZoneRepository.get_by_id(db, zone_id)
+                    if not zone:
+                        raise ValueError(f"Route's zone {zone_id} not found")
         
         # Check if phone already exists
         existing = DeliveryManRepository.get_by_phone(db, phone)
@@ -39,14 +93,26 @@ class DeliveryManService:
             distributor_id=distributor_id,
             name=name,
             phone=phone,
-            password_hash=password_hash
+            password_hash=password_hash,
+            zone_id=zone_id
         )
+        
+        # Assign routes to delivery man
+        if route_ids:
+            DeliveryManRouteRepository.assign_routes_to_delivery_man(
+                db=db,
+                delivery_man_id=delivery_man.id,
+                route_ids=route_ids
+            )
+            assigned_route_ids = route_ids
         
         return {
             "id": delivery_man.id,
             "name": delivery_man.name,
             "phone": delivery_man.phone,
             "distributor_id": delivery_man.distributor_id,
+            "zone_id": delivery_man.zone_id,
+            "route_ids": assigned_route_ids,
             "created_at": delivery_man.created_at.isoformat() if delivery_man.created_at else None
         }
     
@@ -93,17 +159,24 @@ class DeliveryManService:
     
     @staticmethod
     def get_delivery_men_by_distributor(db: Session, distributor_id: int) -> List[Dict]:
-        """Get all delivery men for a distributor."""
+        """Get all delivery men for a distributor with their route assignments."""
+        from repositories.delivery_man_route_repository import DeliveryManRouteRepository
+        
         try:
             delivery_men = DeliveryManRepository.get_by_distributor(db, distributor_id)
             result = []
             for dm in delivery_men:
+                # Get assigned routes
+                route_assignments = DeliveryManRouteRepository.get_routes_by_delivery_man(db, dm.id)
+                route_ids = [ra.route_id for ra in route_assignments]
+                
                 result.append({
                     "id": dm.id,
                     "name": dm.name,
                     "phone": dm.phone,
                     "zone_id": dm.zone_id,
                     "distributor_id": dm.distributor_id,
+                    "route_ids": route_ids,
                     "created_at": dm.created_at.isoformat() if dm.created_at else None
                 })
             return result

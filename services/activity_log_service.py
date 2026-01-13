@@ -156,9 +156,11 @@ class ActivityLogService:
         user_role: str,
         entity_type: str,
         entity_id: int,
-        old_values: Dict[str, Any],
+        old_values: Optional[Dict[str, Any]] = None,
         user_name: Optional[str] = None,
         reason: Optional[str] = None,
+        changes_summary: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
         request: Optional[Request] = None
     ) -> None:
         """Helper method to log DELETE operations."""
@@ -172,6 +174,8 @@ class ActivityLogService:
             user_name=user_name,
             old_values=old_values,
             reason=reason,
+            changes_summary=changes_summary,
+            metadata=metadata,
             request=request
         )
     
@@ -284,6 +288,9 @@ class ActivityLogService:
             error_message=error_message,
             request=request
         )
+
+
+
 
 
 

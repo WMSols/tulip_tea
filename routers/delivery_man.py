@@ -90,7 +90,9 @@ async def create_delivery_man(
             distributor_id=distributor_id,
             name=delivery_man.name,
             phone=delivery_man.phone,
-            password=delivery_man.password
+            password=delivery_man.password,
+            zone_id=delivery_man.zone_id,
+            route_ids=delivery_man.route_ids
         )
         return result
     except ValueError as e:

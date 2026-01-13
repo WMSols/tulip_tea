@@ -19,6 +19,12 @@ class DistributorLogin(BaseModel):
     password: str
 
 
+# Super Admin Schemas
+class SuperAdminLogin(BaseModel):
+    email: str
+    password: str
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str
@@ -80,6 +86,8 @@ class DeliveryManCreate(BaseModel):
     name: str
     phone: str
     password: str
+    zone_id: Optional[int] = None
+    route_ids: Optional[List[int]] = None  # List of route IDs to assign
 
 
 class DeliveryManLogin(BaseModel):
@@ -92,6 +100,8 @@ class DeliveryManResponse(BaseModel):
     name: str
     phone: str
     distributor_id: int
+    zone_id: Optional[int] = None
+    route_ids: Optional[List[int]] = None  # List of assigned route IDs
     created_at: Optional[str]
 
     class Config:

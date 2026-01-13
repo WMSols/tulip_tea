@@ -166,7 +166,7 @@ class ActivityLog(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "user_role IN ('distributor', 'order_booker', 'delivery_man', 'system')",
+            "user_role IN ('distributor', 'order_booker', 'delivery_man', 'system', 'super_admin')",
             name='check_user_role'
         ),
         CheckConstraint(

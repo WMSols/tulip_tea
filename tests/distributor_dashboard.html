@@ -529,6 +529,20 @@
                             <label>Password</label>
                             <input type="password" id="dmPassword" required placeholder="Password">
                         </div>
+                        <div class="form-group">
+                            <label>Zone (Required for Route Assignment)</label>
+                            <select id="dmZoneId" onchange="updateDeliveryManRoutes()">
+                                <option value="">Select Zone</option>
+                            </select>
+                            <small style="color: #666;">Select a zone to enable route assignment</small>
+                        </div>
+                        <div class="form-group">
+                            <label>Routes (Optional - Select routes in the selected zone)</label>
+                            <select id="dmRouteIds" multiple size="5" style="min-height: 100px;">
+                                <option value="">-- Select Zone First --</option>
+                            </select>
+                            <small style="color: #666;">Hold Ctrl/Cmd to select multiple routes. Routes are filtered by selected zone.</small>
+                        </div>
                         <button type="submit" class="btn btn-primary">Create Delivery Man</button>
                     </form>
                     <div id="dmResult" class="result"></div>
@@ -879,7 +893,10 @@
                 showApiCall('POST', endpoint, 'Distributor Login', 'success');
 
                 // Load initial data
-                loadZones();
+                loadZones().then(() => {
+                    // Populate zone dropdowns after zones are loaded
+                    populateZoneDropdowns();
+                });
                 loadRoutes();
                 loadOrderBookers();
                 loadDeliveryMen();
@@ -1028,6 +1045,39 @@
             }
         }
 
+        // Update routes dropdown when zone is selected for delivery man
+        function updateDeliveryManRoutes() {
+            const zoneId = document.getElementById('dmZoneId').value;
+            const routeSelect = document.getElementById('dmRouteIds');
+            
+            routeSelect.innerHTML = '<option value="">-- Select Zone First --</option>';
+            
+            if (!zoneId) {
+                return;
+            }
+            
+            // Filter routes by selected zone
+            if (window.routesJson && Array.isArray(window.routesJson)) {
+                const zoneRoutes = window.routesJson.filter(route => 
+                    route.zone_id && parseInt(route.zone_id) === parseInt(zoneId)
+                );
+                
+                if (zoneRoutes.length === 0) {
+                    routeSelect.innerHTML = '<option value="">No routes in this zone</option>';
+                } else {
+                    zoneRoutes.forEach(route => {
+                        const option = document.createElement('option');
+                        option.value = route.id;
+                        option.textContent = `${route.name} (ID: ${route.id})`;
+                        routeSelect.appendChild(option);
+                    });
+                }
+            } else {
+                routeSelect.innerHTML = '<option value="">Loading routes...</option>';
+                loadRoutes().then(() => updateDeliveryManRoutes());
+            }
+        }
+
         // Create Delivery Man
         async function createDeliveryMan(event) {
             event.preventDefault();
@@ -1039,10 +1089,18 @@
                 return;
             }
 
+            // Get selected route IDs (multi-select)
+            const routeSelect = document.getElementById('dmRouteIds');
+            const selectedRouteIds = Array.from(routeSelect.selectedOptions)
+                .map(option => parseInt(option.value))
+                .filter(id => !isNaN(id) && id > 0);
+
             const deliveryManData = {
                 name: document.getElementById('dmName').value,
                 phone: document.getElementById('dmPhone').value,
-                password: document.getElementById('dmPassword').value
+                password: document.getElementById('dmPassword').value,
+                zone_id: document.getElementById('dmZoneId').value ? parseInt(document.getElementById('dmZoneId').value) : null,
+                route_ids: selectedRouteIds.length > 0 ? selectedRouteIds : null
             };
 
             const endpoint = `${API_BASE}/delivery-men/${currentDistributorId}`;
@@ -1116,19 +1174,43 @@
                     return;
                 }
 
-                listDiv.innerHTML = data.map(dm => `
+                // Get zone names for display
+                const zoneMap = {};
+                if (allZones) {
+                    allZones.forEach(zone => {
+                        zoneMap[zone.id] = zone.name;
+                    });
+                }
+                
+                // Get route names for display
+                const routeMap = {};
+                if (window.routesJson) {
+                    window.routesJson.forEach(route => {
+                        routeMap[route.id] = route.name;
+                    });
+                }
+                
+                listDiv.innerHTML = data.map(dm => {
+                    const zoneName = dm.zone_id && zoneMap[dm.zone_id] ? zoneMap[dm.zone_id] : (dm.zone_id ? `Zone ${dm.zone_id}` : 'N/A');
+                    const routeNames = dm.route_ids && dm.route_ids.length > 0 
+                        ? dm.route_ids.map(rid => routeMap[rid] || `Route ${rid}`).join(', ')
+                        : 'No routes assigned';
+                    
+                    return `
                     <div class="list-item" onclick="openEditModal('delivery_man', ${dm.id}, '${dm.name.replace(/'/g, "\\'")}', '${dm.phone}', '', ${dm.zone_id || 'null'})">
                         <div class="list-item-info" style="flex: 1;">
                             <strong>${dm.name}</strong><br>
                             Phone: ${dm.phone}<br>
-                            Zone ID: ${dm.zone_id || 'N/A'}<br>
+                            Zone: ${zoneName}<br>
+                            Routes: ${routeNames}<br>
                             <small>Created: ${new Date(dm.created_at).toLocaleDateString()}</small>
                         </div>
                         <div style="display: flex; align-items: center;">
                             <button class="btn btn-danger" onclick="event.stopPropagation(); if(confirm('Delete ${dm.name.replace(/'/g, "\\'")}? This will soft delete the delivery man.')) { deleteUserDirectly('delivery_man', ${dm.id}); }" style="padding: 8px 15px; font-size: 14px;">🗑️ Delete</button>
                         </div>
                     </div>
-                `).join('');
+                `;
+                }).join('');
             } catch (error) {
                 listDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
             }
@@ -1171,6 +1253,12 @@
                 const obZoneSelect = document.getElementById('obZoneId');
                 if (obZoneSelect) {
                     obZoneSelect.innerHTML = '<option value="">Select Zone (Optional)</option>' + 
+                        data.map(z => `<option value="${z.id}">${z.name}</option>`).join('');
+                }
+                
+                const dmZoneSelect = document.getElementById('dmZoneId');
+                if (dmZoneSelect) {
+                    dmZoneSelect.innerHTML = '<option value="">Select Zone</option>' + 
                         data.map(z => `<option value="${z.id}">${z.name}</option>`).join('');
                 }
             } catch (error) {
@@ -1219,6 +1307,7 @@
                 
                 // Store routes data
                 allRoutesData = data;
+                window.routesJson = data; // Store globally for delivery man route selection
                 
                 const listDiv = document.getElementById('routesList');
                 if (data.length === 0) {

@@ -110,6 +110,38 @@ class OrderService:
         if shop.registration_status != "approved":
             raise ValueError(f"Orders can only be placed for approved shops. Shop status: {shop.registration_status}")
         
+        # Validate credit limit approval
+        # If shop has ANY credit_limit_request (pending or approved), at least one must be approved
+        # This covers both cases:
+        # 1. Shop with credit_limit = 0 but has pending credit_limit_request
+        # 2. Shop with credit_limit > 0 (should have approved request)
+        from repositories.credit_limit_request_repository import CreditLimitRequestRepository
+        credit_requests = CreditLimitRequestRepository.get_by_shop(db, shop_id)
+        
+        # Filter out soft-deleted requests
+        active_requests = [req for req in credit_requests if req.deleted_at is None]
+        
+        # If there are any active credit limit requests, check approval status
+        if active_requests:
+            # Check if there's at least one approved request
+            has_approved_request = any(req.status == "approved" for req in active_requests)
+            
+            if not has_approved_request:
+                # Check if there are any pending requests
+                has_pending_request = any(req.status == "pending" for req in active_requests)
+                
+                if has_pending_request:
+                    raise ValueError(
+                        "Orders cannot be placed for this shop. Credit limit request is pending approval. "
+                        "Please wait for distributor to approve the credit limit request."
+                    )
+                else:
+                    # No approved request found - could be rejected or never created
+                    raise ValueError(
+                        "Orders cannot be placed for this shop. Credit limit request has not been approved. "
+                        "Please ensure the credit limit request is approved by the distributor before placing orders."
+                    )
+        
         # Validate order booker exists
         order_booker = OrderBookerRepository.get_by_id(db, order_booker_id)
         if not order_booker:

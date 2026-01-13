@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Super Admin Dashboard - Tulip Tea</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        .login-section {
+            padding: 40px;
+            max-width: 400px;
+            margin: 0 auto;
+        }
+        .content {
+            padding: 30px;
+            display: none;
+        }
+        .content.active {
+            display: block;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 600;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+        .btn {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 600;
+            width: 100%;
+        }
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #5568d3;
+        }
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 14px;
+            width: auto;
+        }
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .tab {
+            padding: 12px 24px;
+            background: #f8f9fa;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        .tab.active {
+            background: #667eea;
+            color: white;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .entity-list {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .entity-item {
+            background: white;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            border-left: 4px solid #667eea;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .entity-info {
+            flex: 1;
+        }
+        .entity-info strong {
+            color: #333;
+            font-size: 1.1em;
+        }
+        .entity-info p {
+            color: #666;
+            margin: 5px 0;
+            font-size: 0.9em;
+        }
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+        .status-active {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status-inactive {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .status-deleted {
+            background: #e2e3e5;
+            color: #383d41;
+        }
+        .error {
+            color: #dc3545;
+            background: #f8d7da;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .success {
+            color: #155724;
+            background: #d4edda;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .user-info {
+            background: rgba(255,255,255,0.1);
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔐 Super Admin Dashboard</h1>
+            <p>Tulip Tea WMS - System Administration</p>
+            <div class="user-info" id="userInfo" style="display: none;">
+                <p><strong>Logged in as:</strong> <span id="userName"></span></p>
+                <button class="btn btn-danger btn-sm" onclick="logout()" style="margin-top: 10px;">Logout</button>
+            </div>
+        </div>
+
+        <div class="login-section" id="loginSection">
+            <h2 style="text-align: center; margin-bottom: 30px;">Login</h2>
+            <div id="loginError" class="error" style="display: none;"></div>
+            <form id="loginForm" onsubmit="login(event)">
+                <div class="form-group">
+                    <label>Email:</label>
+                    <input type="email" id="loginEmail" required placeholder="admin@tuliptea.com">
+                </div>
+                <div class="form-group">
+                    <label>Password:</label>
+                    <input type="password" id="loginPassword" required placeholder="Enter password">
+                </div>
+                <button type="submit" class="btn btn-primary">Login</button>
+            </form>
+        </div>
+
+        <div class="content" id="dashboardContent">
+            <div class="tabs">
+                <button class="tab active" onclick="switchTab('distributors')">Distributors</button>
+                <button class="tab" onclick="switchTab('order_bookers')">Order Bookers</button>
+                <button class="tab" onclick="switchTab('delivery_men')">Delivery Men</button>
+                <button class="tab" onclick="switchTab('shops')">Shops</button>
+                <button class="tab" onclick="switchTab('zones')">Zones</button>
+                <button class="tab" onclick="switchTab('routes')">Routes</button>
+            </div>
+
+            <div id="message" style="display: none;"></div>
+
+            <div id="distributors" class="tab-content active">
+                <h2>Distributors</h2>
+                <div class="entity-list" id="distributorsList">Loading...</div>
+            </div>
+
+            <div id="order_bookers" class="tab-content">
+                <h2>Order Bookers</h2>
+                <div class="entity-list" id="orderBookersList">Loading...</div>
+            </div>
+
+            <div id="delivery_men" class="tab-content">
+                <h2>Delivery Men</h2>
+                <div class="entity-list" id="deliveryMenList">Loading...</div>
+            </div>
+
+            <div id="shops" class="tab-content">
+                <h2>Shops</h2>
+                <div class="entity-list" id="shopsList">Loading...</div>
+            </div>
+
+            <div id="zones" class="tab-content">
+                <h2>Zones</h2>
+                <div class="entity-list" id="zonesList">Loading...</div>
+            </div>
+
+            <div id="routes" class="tab-content">
+                <h2>Routes</h2>
+                <div class="entity-list" id="routesList">Loading...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        let currentToken = null;
+        let currentUser = null;
+        let entitiesData = null;
+
+        // Handle CORS preflight requests
+        if (window.location.protocol === 'file:') {
+            console.warn('Opening HTML file directly. CORS may be an issue. Consider using a local server.');
+        }
+
+        // Check if already logged in
+        window.onload = function() {
+            const savedToken = localStorage.getItem('super_admin_token');
+            const savedUser = localStorage.getItem('super_admin_user');
+            if (savedToken && savedUser) {
+                currentToken = savedToken;
+                currentUser = JSON.parse(savedUser);
+                showDashboard();
+            }
+        };
+
+        async function login(event) {
+            event.preventDefault();
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            const errorDiv = document.getElementById('loginError');
+
+            try {
+                const response = await fetch(`${API_BASE}/super-admin/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ email, password })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    errorDiv.textContent = data.detail || 'Login failed';
+                    errorDiv.style.display = 'block';
+                    return;
+                }
+
+                currentToken = data.access_token;
+                currentUser = data.user;
+                localStorage.setItem('super_admin_token', currentToken);
+                localStorage.setItem('super_admin_user', JSON.stringify(currentUser));
+                
+                showDashboard();
+            } catch (error) {
+                errorDiv.textContent = 'Error: ' + error.message;
+                errorDiv.style.display = 'block';
+            }
+        }
+
+        function showDashboard() {
+            document.getElementById('loginSection').style.display = 'none';
+            document.getElementById('dashboardContent').classList.add('active');
+            document.getElementById('userInfo').style.display = 'block';
+            document.getElementById('userName').textContent = currentUser.name + ' (' + currentUser.email + ')';
+            loadAllEntities();
+        }
+
+        function logout() {
+            currentToken = null;
+            currentUser = null;
+            localStorage.removeItem('super_admin_token');
+            localStorage.removeItem('super_admin_user');
+            document.getElementById('loginSection').style.display = 'block';
+            document.getElementById('dashboardContent').classList.remove('active');
+            document.getElementById('userInfo').style.display = 'none';
+        }
+
+        function switchTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            
+            // Show selected tab
+            event.target.classList.add('active');
+            document.getElementById(tabName).classList.add('active');
+            
+            // Load data if not already loaded
+            if (entitiesData) {
+                renderEntities(tabName);
+            }
+        }
+
+        async function loadAllEntities() {
+            try {
+                const response = await fetch(`${API_BASE}/super-admin/entities`, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+                    throw new Error(errorData.detail || 'Failed to load entities');
+                }
+
+                entitiesData = await response.json();
+                console.log('Loaded entities data:', entitiesData);
+                console.log('Delivery men count:', entitiesData.delivery_men?.length || 0);
+                console.log('Shops count:', entitiesData.shops?.length || 0);
+                console.log('Zones count:', entitiesData.zones?.length || 0);
+                console.log('Routes count:', entitiesData.routes?.length || 0);
+                renderEntities('distributors');
+            } catch (error) {
+                console.error('Error loading entities:', error);
+                showMessage('Error loading entities: ' + error.message, 'error');
+            }
+        }
+
+        function renderEntities(entityType) {
+            // Map entity type names to HTML element IDs
+            const idMap = {
+                'distributors': 'distributorsList',
+                'order_bookers': 'orderBookersList',
+                'delivery_men': 'deliveryMenList',
+                'shops': 'shopsList',
+                'zones': 'zonesList',
+                'routes': 'routesList'
+            };
+            
+            const listId = idMap[entityType] || (entityType + 'List');
+            const listDiv = document.getElementById(listId);
+            
+            if (!listDiv) {
+                console.error(`Element with ID '${listId}' not found for entity type '${entityType}'`);
+                return;
+            }
+            
+            if (!entitiesData) {
+                listDiv.innerHTML = 'No data loaded';
+                return;
+            }
+            
+            // Check if the entity type exists in the data
+            if (!(entityType in entitiesData)) {
+                console.warn(`Entity type '${entityType}' not found in entitiesData`);
+                listDiv.innerHTML = 'No data available for this entity type';
+                return;
+            }
+            
+            const entities = entitiesData[entityType];
+            
+            // Handle empty arrays
+            if (!entities || entities.length === 0) {
+                listDiv.innerHTML = 'No ' + entityType.replace('_', ' ') + ' found';
+                return;
+            }
+            
+            listDiv.innerHTML = '';
+
+            entities.forEach(entity => {
+                const item = document.createElement('div');
+                item.className = 'entity-item';
+                
+                const isDeleted = entity.deleted_at !== null;
+                const statusClass = isDeleted ? 'status-deleted' : (entity.is_active ? 'status-active' : 'status-inactive');
+                const statusText = isDeleted ? 'Deleted' : (entity.is_active ? 'Active' : 'Inactive');
+                
+                let infoHtml = '';
+                if (entityType === 'distributors') {
+                    infoHtml = `
+                        <strong>${entity.name}</strong>
+                        <p>Email: ${entity.email || 'N/A'} | Phone: ${entity.phone || 'N/A'}</p>
+                        <p>ID: ${entity.id} | Created: ${entity.created_at ? new Date(entity.created_at).toLocaleString() : 'N/A'}</p>
+                    `;
+                } else if (entityType === 'order_bookers') {
+                    infoHtml = `
+                        <strong>${entity.name}</strong>
+                        <p>Phone: ${entity.phone || 'N/A'} | Email: ${entity.email || 'N/A'}</p>
+                        <p>Zone ID: ${entity.zone_id || 'N/A'} | Distributor ID: ${entity.distributor_id || 'N/A'}</p>
+                        <p>ID: ${entity.id} | Created: ${entity.created_at ? new Date(entity.created_at).toLocaleString() : 'N/A'}</p>
+                    `;
+                } else if (entityType === 'delivery_men') {
+                    infoHtml = `
+                        <strong>${entity.name}</strong>
+                        <p>Phone: ${entity.phone || 'N/A'}</p>
+                        <p>Distributor ID: ${entity.distributor_id || 'N/A'}</p>
+                        <p>ID: ${entity.id} | Created: ${entity.created_at ? new Date(entity.created_at).toLocaleString() : 'N/A'}</p>
+                    `;
+                } else if (entityType === 'shops') {
+                    infoHtml = `
+                        <strong>${entity.name}</strong>
+                        <p>Owner: ${entity.owner_name || 'N/A'} | Phone: ${entity.owner_phone || 'N/A'}</p>
+                        <p>Credit Limit: Rs. ${entity.credit_limit || 0} | Status: ${entity.registration_status || 'N/A'}</p>
+                        <p>Zone ID: ${entity.zone_id || 'N/A'} | ID: ${entity.id}</p>
+                    `;
+                } else if (entityType === 'zones') {
+                    infoHtml = `
+                        <strong>${entity.name}</strong>
+                        <p>ID: ${entity.id} | Created: ${entity.created_at ? new Date(entity.created_at).toLocaleString() : 'N/A'}</p>
+                    `;
+                } else if (entityType === 'routes') {
+                    infoHtml = `
+                        <strong>${entity.name}</strong>
+                        <p>Zone ID: ${entity.zone_id || 'N/A'} | Order Booker ID: ${entity.order_booker_id || 'N/A'}</p>
+                        <p>ID: ${entity.id} | Created: ${entity.created_at ? new Date(entity.created_at).toLocaleString() : 'N/A'}</p>
+                    `;
+                }
+                
+                item.innerHTML = `
+                    <div class="entity-info">
+                        ${infoHtml}
+                    </div>
+                    <div>
+                        <span class="status-badge ${statusClass}">${statusText}</span>
+                        ${isDeleted ? `
+                            <button class="btn btn-sm btn-success" 
+                                    onclick="reactivateEntity('${entityType}', ${entity.id})">
+                                Reactivate
+                            </button>
+                        ` : `
+                            <button class="btn btn-sm ${entity.is_active ? 'btn-danger' : 'btn-success'}" 
+                                    onclick="toggleActive('${entityType}', ${entity.id}, ${entity.is_active})">
+                                ${entity.is_active ? 'Deactivate' : 'Activate'}
+                            </button>
+                        `}
+                    </div>
+                `;
+                
+                listDiv.appendChild(item);
+            });
+        }
+
+        async function toggleActive(entityType, entityId, currentStatus) {
+            // Map plural entity types to singular (backend expects singular)
+            const entityTypeMap = {
+                'distributors': 'distributor',
+                'order_bookers': 'order_booker',
+                'delivery_men': 'delivery_man',
+                'shops': 'shop',
+                'zones': 'zone',
+                'routes': 'route'
+            };
+            
+            const singularEntityType = entityTypeMap[entityType] || entityType;
+            
+            if (!confirm(`Are you sure you want to ${currentStatus ? 'deactivate' : 'activate'} this ${entityType.replace('_', ' ')}?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/super-admin/entities/${singularEntityType}/${entityId}/toggle-active`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+
+                if (!response.ok) {
+                    const data = await response.json();
+                    throw new Error(data.detail || 'Failed to update status');
+                }
+
+                const data = await response.json();
+                showMessage(data.message, 'success');
+                
+                // Reload entities
+                await loadAllEntities();
+                
+                // Re-render current tab
+                const activeTab = document.querySelector('.tab-content.active').id;
+                renderEntities(activeTab);
+            } catch (error) {
+                showMessage('Error: ' + error.message, 'error');
+            }
+        }
+
+        async function reactivateEntity(entityType, entityId) {
+            console.log('=== REACTIVATE ENTITY DEBUG ===');
+            console.log('Entity Type (plural):', entityType);
+            console.log('Entity ID:', entityId);
+            console.log('Current Token:', currentToken ? 'Present' : 'Missing');
+            
+            // Map plural entity types to singular (backend expects singular)
+            const entityTypeMap = {
+                'distributors': 'distributor',
+                'order_bookers': 'order_booker',
+                'delivery_men': 'delivery_man',
+                'shops': 'shop',
+                'zones': 'zone',
+                'routes': 'route'
+            };
+            
+            const singularEntityType = entityTypeMap[entityType] || entityType;
+            console.log('Entity Type (singular):', singularEntityType);
+            
+            if (!confirm(`Are you sure you want to reactivate this ${entityType.replace('_', ' ')}? This will restore it from deletion and activate it.`)) {
+                return;
+            }
+
+            const url = `${API_BASE}/super-admin/entities/${singularEntityType}/${entityId}/reactivate`;
+            console.log('Request URL:', url);
+            console.log('Request Method: PUT');
+            
+            try {
+                console.log('Sending fetch request...');
+                const response = await fetch(url, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                console.log('Response Status:', response.status);
+                console.log('Response Status Text:', response.statusText);
+                console.log('Response OK:', response.ok);
+                
+                let responseData;
+                try {
+                    responseData = await response.json();
+                    console.log('Response Data:', responseData);
+                } catch (jsonError) {
+                    console.error('Failed to parse JSON response:', jsonError);
+                    const text = await response.text();
+                    console.log('Response Text:', text);
+                    throw new Error(`Server returned ${response.status}: ${text || response.statusText}`);
+                }
+
+                if (!response.ok) {
+                    console.error('Request failed:', responseData);
+                    throw new Error(responseData.detail || responseData.error || `Failed to reactivate entity (${response.status})`);
+                }
+
+                console.log('Reactivate successful:', responseData);
+                showMessage(responseData.message || 'Entity reactivated successfully', 'success');
+                
+                // Reload entities
+                console.log('Reloading entities...');
+                await loadAllEntities();
+                
+                // Re-render current tab
+                const activeTab = document.querySelector('.tab-content.active').id;
+                console.log('Re-rendering tab:', activeTab);
+                renderEntities(activeTab);
+                console.log('=== REACTIVATE COMPLETE ===');
+            } catch (error) {
+                console.error('=== REACTIVATE ERROR ===');
+                console.error('Error Type:', error.constructor.name);
+                console.error('Error Message:', error.message);
+                console.error('Error Stack:', error.stack);
+                console.error('Full Error:', error);
+                showMessage('Error: ' + error.message, 'error');
+            }
+        }
+
+        function showMessage(message, type) {
+            const messageDiv = document.getElementById('message');
+            messageDiv.textContent = message;
+            messageDiv.className = type;
+            messageDiv.style.display = 'block';
+            
+            setTimeout(() => {
+                messageDiv.style.display = 'none';
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
+

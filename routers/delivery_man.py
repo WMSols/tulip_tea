@@ -74,6 +74,77 @@ async def delete_delivery_man(
 
 
 # Create route last (less specific path)
+@router.get("/{delivery_man_id}/routes", response_model=List[dict])
+async def get_delivery_man_routes(
+    delivery_man_id: int,
+    db: Session = Depends(get_db)
+):
+    """Get all routes assigned to a delivery man."""
+    try:
+        from repositories.delivery_man_route_repository import DeliveryManRouteRepository
+        from repositories.route_repository import RouteRepository
+        from repositories.zone_repository import ZoneRepository
+        
+        route_assignments = DeliveryManRouteRepository.get_routes_by_delivery_man(db, delivery_man_id)
+        result = []
+        
+        for assignment in route_assignments:
+            route = RouteRepository.get_by_id(db, assignment.route_id)
+            if route:
+                zone = ZoneRepository.get_by_id(db, route.zone_id) if route.zone_id else None
+                result.append({
+                    "id": route.id,
+                    "name": route.name,
+                    "zone_id": route.zone_id,
+                    "zone_name": zone.name if zone else None,
+                    "order_booker_id": route.order_booker_id,
+                    "created_at": route.created_at.isoformat() if route.created_at else None
+                })
+        
+        return result
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching routes: {str(e)}"
+        )
+
+
+@router.get("/{delivery_man_id}/warehouses", response_model=List[dict])
+async def get_delivery_man_warehouses(
+    delivery_man_id: int,
+    db: Session = Depends(get_db)
+):
+    """Get all warehouses assigned to a delivery man."""
+    try:
+        from repositories.delivery_man_warehouse_repository import DeliveryManWarehouseRepository
+        from repositories.warehouse_repository import WarehouseRepository
+        from repositories.zone_repository import ZoneRepository
+        
+        assignments = DeliveryManWarehouseRepository.get_by_delivery_man(db, delivery_man_id)
+        result = []
+        
+        for assignment in assignments:
+            warehouse = WarehouseRepository.get_by_id(db, assignment.warehouse_id)
+            if warehouse:
+                zone = ZoneRepository.get_by_id(db, warehouse.zone_id) if warehouse.zone_id else None
+                result.append({
+                    "id": warehouse.id,
+                    "name": warehouse.name,
+                    "zone_id": warehouse.zone_id,
+                    "zone_name": zone.name if zone else None,
+                    "address": warehouse.address,
+                    "is_active": warehouse.is_active,
+                    "created_at": warehouse.created_at.isoformat() if warehouse.created_at else None
+                })
+        
+        return result
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching warehouses: {str(e)}"
+        )
+
+
 @router.post("/{distributor_id}", response_model=DeliveryManResponse, status_code=status.HTTP_201_CREATED)
 async def create_delivery_man(
     distributor_id: int,

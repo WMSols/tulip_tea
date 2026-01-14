@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 from typing import List
 from config.database import get_db
-from models.schemas import OrderCreate, OrderResponse
+from models.schemas import OrderCreate, OrderResponse, OrderDeliveryUpdate
 from services.order_service import OrderService
 from services.activity_log_service import ActivityLogService
 from utils.auth_helpers import get_current_user_from_request
@@ -208,6 +208,153 @@ async def list_orders_by_visit(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error fetching orders: {str(e)}"
+        )
+
+
+@router.put("/{order_id}/deliver", response_model=OrderResponse)
+async def deliver_order(
+    order_id: int,
+    delivery_data: "OrderDeliveryUpdate",
+    request: Request = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Mark order as delivered or cancelled (by Delivery Man) with delivery proof.
+    
+    API: PUT /orders/{order_id}/deliver
+    
+    Request Body:
+        {
+            "status": "delivered" or "cancelled",
+            "delivery_gps_lat": 33.684422 (optional),
+            "delivery_gps_lng": 73.047905 (optional),
+            "delivery_remarks": "Delivered to shop owner" (optional),
+            "delivery_images": ["https://.../image1.jpg", "https://.../image2.jpg"] (optional)
+        }
+    
+    Note: Images should be uploaded to Supabase storage bucket "deliveries" first,
+    then URLs should be provided in delivery_images array.
+    """
+    try:
+        from repositories.order_repository import OrderRepository
+        from decimal import Decimal
+        import json
+        
+        order = OrderRepository.get_by_id(db, order_id)
+        if not order:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Order not found"
+            )
+        
+        old_status = order.status
+        
+        # Convert delivery_images list to JSON string if provided
+        delivery_images_json = None
+        if delivery_data.delivery_images:
+            delivery_images_json = json.dumps(delivery_data.delivery_images)
+        
+        # Create shop visit for delivery
+        from repositories.shop_visit_repository import ShopVisitRepository
+        from repositories.visit_type_repository import VisitTypeRepository
+        from datetime import datetime
+        
+        visit_type = "delivery" if delivery_data.status == "delivered" else "cancelled"
+        
+        # Create shop visit with GPS and images
+        visit_photos_json = None
+        if delivery_data.delivery_images:
+            visit_photos_json = json.dumps(delivery_data.delivery_images)
+        
+        shop_visit = ShopVisitRepository.create(
+            db=db,
+            shop_id=order.shop_id,
+            delivery_man_id=order.delivery_man_id,
+            visit_type=visit_type,
+            gps_lat=Decimal(str(delivery_data.delivery_gps_lat)) if delivery_data.delivery_gps_lat is not None else None,
+            gps_lng=Decimal(str(delivery_data.delivery_gps_lng)) if delivery_data.delivery_gps_lng is not None else None,
+            visit_time=datetime.utcnow(),
+            photos=visit_photos_json,  # Multiple images as JSON
+            reason=delivery_data.delivery_remarks  # Delivery remarks stored in reason field
+        )
+        
+        # Create visit type in junction table
+        try:
+            VisitTypeRepository.create(db, shop_visit.id, visit_type)
+        except Exception as e:
+            print(f"Warning: Failed to create visit type '{visit_type}': {e}")
+        
+        # Update order with delivery proof (without GPS - GPS is in shop_visits now)
+        updated_order = OrderRepository.update_delivery_proof(
+            db=db,
+            order_id=order_id,
+            status=delivery_data.status,
+            delivery_gps_lat=None,  # GPS removed from orders - stored in shop_visits
+            delivery_gps_lng=None,  # GPS removed from orders - stored in shop_visits
+            delivery_remarks=delivery_data.delivery_remarks,
+            delivery_images=delivery_images_json
+        )
+        if not updated_order:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Order not found"
+            )
+        
+        # Get full order data
+        orders = OrderService._format_orders(db, [updated_order])
+        order_data = orders[0] if orders else None
+        
+        # Parse delivery_images JSON string back to list for response
+        if updated_order.delivery_images:
+            try:
+                # delivery_images is stored as JSON string in TEXT column
+                if isinstance(updated_order.delivery_images, str):
+                    order_data['delivery_images'] = json.loads(updated_order.delivery_images)
+                elif isinstance(updated_order.delivery_images, list):
+                    # If already a list (shouldn't happen, but handle it)
+                    order_data['delivery_images'] = updated_order.delivery_images
+                else:
+                    order_data['delivery_images'] = []
+            except Exception as e:
+                print(f"Error parsing delivery_images in response: {e}")
+                order_data['delivery_images'] = []
+        
+        # Log order delivery
+        if request:
+            try:
+                current_user = get_current_user_from_request(request, db)
+                changes_summary = f"Order marked as {delivery_data.status} by delivery man"
+                if delivery_data.delivery_remarks:
+                    changes_summary += f" - Remarks: {delivery_data.delivery_remarks[:50]}"
+                if delivery_data.delivery_images:
+                    changes_summary += f" - {len(delivery_data.delivery_images)} image(s) uploaded"
+                
+                ActivityLogService.log_update(
+                    db=db,
+                    user_id=current_user.get('id') or updated_order.delivery_man_id,
+                    user_role=current_user.get('role', 'delivery_man'),
+                    entity_type='order',
+                    entity_id=order_id,
+                    old_values={'status': old_status},
+                    new_values={
+                        'status': delivery_data.status,
+                        'delivery_gps_lat': delivery_data.delivery_gps_lat,
+                        'delivery_gps_lng': delivery_data.delivery_gps_lng,
+                        'delivery_remarks': delivery_data.delivery_remarks,
+                        'delivery_images_count': len(delivery_data.delivery_images) if delivery_data.delivery_images else 0
+                    },
+                    changes_summary=changes_summary
+                )
+            except Exception as log_error:
+                print(f"Warning: Failed to log order delivery: {log_error}")
+        
+        return order_data
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error delivering order: {str(e)}"
         )
 
 

@@ -11,11 +11,11 @@ from config.database import settings, engine, Base
 import traceback
 
 # Import all models to register them with Base
-from models import distributor, order_booker, delivery_man, zone, route, shop, route_shop, credit_limit_request, daily_collection, payment, shop_visit, visit_type, order, order_item, activity_log, super_admin, delivery_man_route
+from models import distributor, order_booker, delivery_man, zone, route, shop, route_shop, credit_limit_request, daily_collection, payment, shop_visit, visit_type, order, order_item, activity_log, super_admin, delivery_man_route, warehouse, inventory, delivery_man_warehouse, product
 
 # Import routers
 from routers import auth, distributor as distributor_router, order_booker, delivery_man, zone, route, shop
-from routers import credit_limit_request as credit_limit_request_router, daily_collection as daily_collection_router, shop_visit as shop_visit_router, order as order_router, super_admin as super_admin_router
+from routers import credit_limit_request as credit_limit_request_router, daily_collection as daily_collection_router, shop_visit as shop_visit_router, order as order_router, super_admin as super_admin_router, warehouse as warehouse_router, product as product_router
 
 app = FastAPI(
     title=settings.app_name,
@@ -88,6 +88,8 @@ app.include_router(order_booker.router)
 app.include_router(delivery_man.router)
 app.include_router(zone.router)
 app.include_router(route.router)
+app.include_router(warehouse_router.router)
+app.include_router(product_router.router)
 app.include_router(shop.router)
 app.include_router(credit_limit_request_router.router)
 app.include_router(daily_collection_router.router)

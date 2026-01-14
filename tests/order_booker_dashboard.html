@@ -1526,13 +1526,15 @@
         }
 
         // Toggle Order Booking Form
-        function toggleOrderForm() {
+        async function toggleOrderForm() {
             const checkbox = document.getElementById('visitTypeOrderBooking');
             const form = document.getElementById('orderBookingForm');
             const orderItemsContainer = document.getElementById('orderItemsContainer');
             
             if (checkbox.checked) {
                 form.style.display = 'block';
+                // Load products when order form is shown
+                await loadActiveProducts();
                 // Ensure at least one order item exists
                 if (orderItemsContainer.children.length === 0) {
                     addOrderItem();
@@ -1579,6 +1581,39 @@
             }
         }
 
+        // Load active products for order booker
+        let availableProducts = [];
+        async function loadActiveProducts() {
+            try {
+                const response = await fetch(`${API_BASE}/products/active`, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+                if (response.ok) {
+                    availableProducts = await response.json();
+                }
+            } catch (error) {
+                console.error('Error loading products:', error);
+                availableProducts = [];
+            }
+        }
+
+        // Update product info when product is selected
+        function updateProductInfo(selectElement) {
+            const itemDiv = selectElement.closest('.order-item-form');
+            const productId = selectElement.value;
+            const selectedOption = selectElement.options[selectElement.selectedIndex];
+            const productName = selectedOption.getAttribute('data-product-name') || '';
+            const productUnit = selectedOption.getAttribute('data-product-unit') || '';
+            
+            // Store product_id and product_name in hidden fields
+            const productIdInput = itemDiv.querySelector('.order-item-product-id');
+            const productNameInput = itemDiv.querySelector('.order-item-product-name');
+            if (productIdInput) productIdInput.value = productId;
+            if (productNameInput) productNameInput.value = productName;
+        }
+
         // Add Order Item
         function addOrderItem() {
             const container = document.getElementById('orderItemsContainer');
@@ -1592,11 +1627,21 @@
             // Only add required attribute if order booking is selected
             const requiredAttr = isOrderBookingSelected ? 'required' : '';
             
+            // Build product options
+            const productOptions = '<option value="">Select Product</option>' + 
+                availableProducts.map(p => 
+                    `<option value="${p.id}" data-product-name="${(p.name || '').replace(/"/g, '&quot;')}" data-product-unit="${(p.unit || '').replace(/"/g, '&quot;')}">${p.code} - ${p.name}${p.unit ? ` (${p.unit})` : ''}</option>`
+                ).join('');
+            
             itemDiv.innerHTML = `
                 <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr auto; gap: 10px; align-items: end;">
                     <div>
-                        <label style="font-size: 12px; color: #666;">Product Name</label>
-                        <input type="text" class="order-item-product" placeholder="e.g., Tulip Tea Premium" ${requiredAttr}>
+                        <label style="font-size: 12px; color: #666;">Product *</label>
+                        <select class="order-item-product" ${requiredAttr} onchange="updateProductInfo(this)">
+                            ${productOptions}
+                        </select>
+                        <input type="hidden" class="order-item-product-id" value="">
+                        <input type="hidden" class="order-item-product-name" value="">
                     </div>
                     <div>
                         <label style="font-size: 12px; color: #666;">Quantity</label>
@@ -1704,22 +1749,27 @@
                 orderItems = [];
                 let hasValidItem = false;
                 items.forEach(item => {
-                    const productName = item.querySelector('.order-item-product').value.trim();
+                    const productSelect = item.querySelector('.order-item-product');
+                    const productIdInput = item.querySelector('.order-item-product-id');
+                    const productNameInput = item.querySelector('.order-item-product-name');
                     const quantityInput = item.querySelector('.order-item-quantity');
                     const unitPriceInput = item.querySelector('.order-item-unit-price');
                     
                     // Ensure we have valid inputs
-                    if (!productName || !quantityInput || !unitPriceInput) {
+                    if (!productSelect || !productSelect.value || !quantityInput || !unitPriceInput) {
                         return; // Skip invalid items
                     }
                     
+                    const productId = parseInt(productIdInput?.value || productSelect.value, 10);
+                    const productName = productNameInput?.value || productSelect.options[productSelect.selectedIndex]?.text || '';
                     const quantity = parseInt(quantityInput.value, 10);
                     const unitPrice = parseFloat(unitPriceInput.value);
                     
                     // Validate numeric values
-                    if (productName && !isNaN(quantity) && quantity > 0 && !isNaN(unitPrice) && unitPrice > 0) {
+                    if (productId && !isNaN(quantity) && quantity > 0 && !isNaN(unitPrice) && unitPrice > 0) {
                         hasValidItem = true;
                         orderItems.push({
+                            product_id: productId,
                             product_name: productName,
                             quantity: quantity,  // Ensure it's a number, not string
                             unit_price: unitPrice,  // Ensure it's a number, not string

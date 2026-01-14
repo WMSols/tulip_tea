@@ -1,0 +1,228 @@
+"""
+Warehouse router.
+Handles warehouse CRUD operations, inventory management, and delivery man assignments.
+"""
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from typing import List
+from config.database import get_db
+from models.schemas import (
+    WarehouseCreate, WarehouseResponse, WarehouseUpdate,
+    InventoryCreate, InventoryResponse, InventoryUpdate
+)
+from services.warehouse_service import WarehouseService
+
+router = APIRouter(prefix="/warehouses", tags=["Warehouses"])
+
+
+@router.post("/", response_model=WarehouseResponse, status_code=status.HTTP_201_CREATED)
+async def create_warehouse(
+    warehouse: WarehouseCreate,
+    db: Session = Depends(get_db)
+):
+    """Create a new warehouse."""
+    try:
+        result = WarehouseService.create_warehouse(
+            db=db,
+            name=warehouse.name,
+            zone_id=warehouse.zone_id,
+            address=warehouse.address
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+
+@router.get("/", response_model=List[WarehouseResponse])
+async def list_warehouses(db: Session = Depends(get_db)):
+    """List all warehouses."""
+    try:
+        warehouses = WarehouseService.get_all_warehouses(db)
+        return warehouses
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching warehouses: {str(e)}"
+        )
+
+
+@router.get("/{warehouse_id}/inventory", response_model=List[InventoryResponse])
+async def get_warehouse_inventory(
+    warehouse_id: int,
+    db: Session = Depends(get_db)
+):
+    """Get all inventory items for a warehouse."""
+    try:
+        inventory = WarehouseService.get_warehouse_inventory(db, warehouse_id)
+        return inventory
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching inventory: {str(e)}"
+        )
+
+
+@router.post("/{warehouse_id}/inventory", response_model=InventoryResponse, status_code=status.HTTP_201_CREATED)
+async def add_inventory_item(
+    warehouse_id: int,
+    inventory: InventoryCreate,
+    db: Session = Depends(get_db)
+):
+    """Add inventory item to warehouse from active product."""
+    try:
+        result = WarehouseService.add_inventory_item(
+            db=db,
+            warehouse_id=warehouse_id,
+            product_id=inventory.product_id,
+            quantity=inventory.quantity
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error adding inventory item: {str(e)}"
+        )
+
+
+@router.put("/{warehouse_id}/inventory/{inventory_id}", response_model=InventoryResponse)
+async def update_inventory_item(
+    warehouse_id: int,
+    inventory_id: int,
+    inventory: InventoryUpdate,
+    db: Session = Depends(get_db)
+):
+    """Update inventory item (can change product or quantity)."""
+    try:
+        result = WarehouseService.update_inventory_item(
+            db=db,
+            warehouse_id=warehouse_id,
+            inventory_id=inventory_id,
+            product_id=inventory.product_id,
+            quantity=inventory.quantity
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error updating inventory item: {str(e)}"
+        )
+
+
+@router.delete("/{warehouse_id}/inventory/{inventory_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_inventory_item(
+    warehouse_id: int,
+    inventory_id: int,
+    db: Session = Depends(get_db)
+):
+    """Delete inventory item."""
+    try:
+        success = WarehouseService.delete_inventory_item(db, warehouse_id, inventory_id)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Inventory item not found"
+            )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+
+@router.get("/{warehouse_id}/delivery-men", response_model=List[dict])
+async def get_warehouse_delivery_men(
+    warehouse_id: int,
+    db: Session = Depends(get_db)
+):
+    """Get all delivery men assigned to a warehouse."""
+    try:
+        delivery_men = WarehouseService.get_warehouse_delivery_men(db, warehouse_id)
+        return delivery_men
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching delivery men: {str(e)}"
+        )
+
+
+@router.post("/{warehouse_id}/delivery-men/{delivery_man_id}", status_code=status.HTTP_201_CREATED)
+async def assign_delivery_man(
+    warehouse_id: int,
+    delivery_man_id: int,
+    db: Session = Depends(get_db)
+):
+    """Assign a delivery man to a warehouse."""
+    try:
+        result = WarehouseService.assign_delivery_man(db, warehouse_id, delivery_man_id)
+        return result
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+
+@router.delete("/{warehouse_id}/delivery-men/{delivery_man_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def unassign_delivery_man(
+    warehouse_id: int,
+    delivery_man_id: int,
+    db: Session = Depends(get_db)
+):
+    """Unassign a delivery man from a warehouse."""
+    try:
+        success = WarehouseService.unassign_delivery_man(db, warehouse_id, delivery_man_id)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Assignment not found"
+            )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+
+@router.delete("/{warehouse_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_warehouse(
+    warehouse_id: int,
+    db: Session = Depends(get_db)
+):
+    """Soft delete warehouse."""
+    try:
+        success = WarehouseService.delete_warehouse(db, warehouse_id)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Warehouse not found"
+            )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+

@@ -153,6 +153,102 @@
         .hidden {
             display: none;
         }
+        .tabs {
+            display: flex;
+            border-bottom: 2px solid #ddd;
+            margin-bottom: 20px;
+        }
+        .tab {
+            padding: 15px 30px;
+            cursor: pointer;
+            background: #f8f9fa;
+            border: none;
+            font-size: 16px;
+            font-weight: 600;
+            color: #666;
+            transition: all 0.3s;
+        }
+        .tab.active {
+            background: white;
+            color: #f5576c;
+            border-bottom: 3px solid #f5576c;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .list-item {
+            background: white;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            border-left: 3px solid #f5576c;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .list-item:hover {
+            background: #f8f9fa;
+            transform: translateX(5px);
+            transition: all 0.3s;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            overflow: auto;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal.active {
+            display: flex;
+        }
+        .modal-content {
+            background-color: white;
+            margin: auto;
+            padding: 30px;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 700px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            position: relative;
+        }
+        .close-button {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            position: absolute;
+            right: 20px;
+            top: 15px;
+            cursor: pointer;
+        }
+        .close-button:hover {
+            color: #000;
+        }
+        .form-group textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            resize: vertical;
+            min-height: 80px;
+        }
+        .form-group select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+        }
     </style>
 </head>
 <body>
@@ -186,38 +282,147 @@
             <div id="dashboardSection" class="section hidden">
                 <h2>Welcome, <span id="welcomeName"></span>!</h2>
                 
-                <!-- User Information Card -->
-                <div class="info-card">
-                    <h3>📊 Your Information</h3>
-                    <div class="info-row">
-                        <span class="info-label">Name:</span>
-                        <span class="info-value" id="infoName"></span>
-                    </div>
-                    <div class="info-row">
-                        <span class="info-label">Phone:</span>
-                        <span class="info-value" id="infoPhone"></span>
-                    </div>
-                    <div class="info-row">
-                        <span class="info-label">Distributor ID:</span>
-                        <span class="info-value" id="infoDistributorId"></span>
-                    </div>
-                    <div class="info-row">
-                        <span class="info-label">Account Created:</span>
-                        <span class="info-value" id="infoCreatedAt"></span>
+                <!-- Tabs Navigation -->
+                <div class="tabs" style="display: flex; border-bottom: 2px solid #ddd; margin-bottom: 20px;">
+                    <button class="tab active" onclick="switchTab('dashboard')" style="padding: 15px 30px; cursor: pointer; background: #f8f9fa; border: none; font-size: 16px; font-weight: 600; color: #666; transition: all 0.3s;">📊 Dashboard</button>
+                    <button class="tab" onclick="switchTab('routes')" style="padding: 15px 30px; cursor: pointer; background: #f8f9fa; border: none; font-size: 16px; font-weight: 600; color: #666; transition: all 0.3s;">🛣️ My Routes</button>
+                    <button class="tab" onclick="switchTab('orders')" style="padding: 15px 30px; cursor: pointer; background: #f8f9fa; border: none; font-size: 16px; font-weight: 600; color: #666; transition: all 0.3s;">📦 Orders <span id="ordersBadge" style="background: #e74c3c; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 5px;">0</span></button>
+                    <button class="tab" onclick="switchTab('deliveries')" style="padding: 15px 30px; cursor: pointer; background: #f8f9fa; border: none; font-size: 16px; font-weight: 600; color: #666; transition: all 0.3s;">🚚 Deliveries</button>
+                    <button class="tab" onclick="switchTab('warehouses')" style="padding: 15px 30px; cursor: pointer; background: #f8f9fa; border: none; font-size: 16px; font-weight: 600; color: #666; transition: all 0.3s;">🏭 Warehouses</button>
+                </div>
+
+                <!-- Dashboard Tab -->
+                <div id="dashboardTab" class="tab-content active">
+                    <!-- User Information Card -->
+                    <div class="info-card">
+                        <h3>📊 Your Information</h3>
+                        <div class="info-row">
+                            <span class="info-label">Name:</span>
+                            <span class="info-value" id="infoName"></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Phone:</span>
+                            <span class="info-value" id="infoPhone"></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Zone:</span>
+                            <span class="info-value" id="infoZone"></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Distributor ID:</span>
+                            <span class="info-value" id="infoDistributorId"></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Account Created:</span>
+                            <span class="info-value" id="infoCreatedAt"></span>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Operations Section (To be added in next steps) -->
-                <div class="info-card">
-                    <h3>🚀 Available Operations</h3>
-                    <p style="color: #666; padding: 10px 0;">
-                        Operations will be available here in the next steps.
-                    </p>
-                    <p style="color: #999; font-size: 14px;">
-                        Coming soon: Delivery Management, Route Viewing, Stock Collection, Payment Collection, etc.
-                    </p>
+                <!-- Routes Tab -->
+                <div id="routesTab" class="tab-content" style="display: none;">
+                    <h3>🛣️ My Assigned Routes</h3>
+                    <button class="btn btn-primary" onclick="loadMyRoutes()" style="margin-bottom: 20px;">Refresh Routes</button>
+                    <div id="routesList" style="margin-top: 20px;"></div>
+                </div>
+
+                <!-- Orders Tab -->
+                <div id="ordersTab" class="tab-content" style="display: none;">
+                    <h3>📦 Pending Orders</h3>
+                    <p style="color: #666; margin-bottom: 20px;">View and verify pending orders from shops on your assigned routes. Once confirmed or delivered, orders will move to the Deliveries tab.</p>
+                    <button class="btn btn-primary" onclick="loadMyOrders()" style="margin-bottom: 20px;">Refresh Orders</button>
+                    <div id="ordersList" style="margin-top: 20px;"></div>
+                </div>
+
+                <!-- Deliveries Tab -->
+                <div id="deliveriesTab" class="tab-content" style="display: none;">
+                    <h3>🚚 My Deliveries</h3>
+                    <p style="color: #666; margin-bottom: 20px;">View all your deliveries with their status (Pending, Delivered, Cancelled).</p>
+                    <button class="btn btn-primary" onclick="loadMyDeliveries()" style="margin-bottom: 20px;">Refresh Deliveries</button>
+                    
+                    <!-- Filter by Status (All non-pending orders) -->
+                    <div class="form-group" style="max-width: 300px; margin-bottom: 20px;">
+                        <label>Filter by Status</label>
+                        <select id="deliveryStatusFilter" onchange="filterDeliveriesByStatus()">
+                            <option value="">All Deliveries</option>
+                            <option value="confirmed">Confirmed</option>
+                            <option value="delivered">Delivered</option>
+                            <option value="cancelled">Cancelled</option>
+                        </select>
+                    </div>
+                    
+                    <div id="deliveriesList" style="margin-top: 20px;"></div>
+                </div>
+
+                <!-- Warehouses Tab -->
+                <div id="warehousesTab" class="tab-content" style="display: none;">
+                    <h3>🏭 My Assigned Warehouses</h3>
+                    <button class="btn btn-primary" onclick="loadMyWarehouses()" style="margin-bottom: 20px;">Refresh Warehouses</button>
+                    <div id="warehousesList" style="margin-top: 20px;"></div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Order Details Modal -->
+    <div id="orderDetailsModal" class="modal hidden">
+        <div class="modal-content" style="max-width: 800px;">
+            <span class="close-button" onclick="closeOrderDetailsModal()">&times;</span>
+            <h2 id="orderDetailsModalTitle">Order Details</h2>
+            <div id="orderDetailsContent">
+                <!-- Order details will be populated here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Order Delivery Modal -->
+    <div id="deliverOrderModal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeDeliverOrderModal()">&times;</span>
+            <h2 id="deliverOrderModalTitle">Verify & Deliver Order</h2>
+            <div id="deliverOrderContent">
+                <!-- Order details will be populated here -->
+            </div>
+            <form id="deliverOrderForm" onsubmit="deliverOrder(event)">
+                <input type="hidden" id="deliverOrderId">
+                <div class="form-group">
+                    <label>Delivery Status *</label>
+                    <select id="deliveryStatus" required>
+                        <option value="delivered">Delivered</option>
+                        <option value="cancelled">Cancelled</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>GPS Location (Optional)</label>
+                    <div style="display: flex; gap: 10px; align-items: flex-end;">
+                        <div style="flex: 1;">
+                            <label style="font-size: 12px; color: #666;">Latitude</label>
+                            <input type="number" id="deliveryGpsLat" step="any" placeholder="e.g., 33.6844">
+                        </div>
+                        <div style="flex: 1;">
+                            <label style="font-size: 12px; color: #666;">Longitude</label>
+                            <input type="number" id="deliveryGpsLng" step="any" placeholder="e.g., 73.0479">
+                        </div>
+                        <button type="button" class="btn btn-primary" onclick="getCurrentLocationForDelivery()" style="padding: 12px 20px; font-size: 14px;">📍 Get Location</button>
+                    </div>
+                    <small style="color: #666; display: block; margin-top: 5px;">Click the button to automatically capture your current GPS coordinates</small>
+                </div>
+                <div class="form-group">
+                    <label>Delivery Proof Images (Optional)</label>
+                    <input type="file" id="deliveryImages" accept="image/*" multiple onchange="handleDeliveryImageUpload(event)">
+                    <small style="color: #666; display: block; margin-top: 5px;">Upload images as proof of delivery. Multiple images can be selected.</small>
+                    <div id="deliveryImagesPreview" style="margin-top: 10px; display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px;">
+                        <!-- Image previews will be shown here -->
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Delivery Remarks (Optional)</label>
+                    <textarea id="deliveryNotes" rows="3" placeholder="Add any notes about the delivery (e.g., delivered to shop owner, shop was closed, etc.)..."></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary">Confirm Delivery</button>
+                <button type="button" class="btn btn-danger" onclick="closeDeliverOrderModal()" style="margin-left: 10px;">Cancel</button>
+            </form>
+            <div id="deliverOrderResult" class="result"></div>
         </div>
     </div>
 
@@ -225,6 +430,51 @@
         const API_BASE = 'http://localhost:8000';
         let currentToken = null;
         let currentUser = null;
+        let currentDeliveryManId = null;
+
+        // Tab switching
+        function switchTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+                tab.style.display = 'none';
+            });
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+
+            // Show selected tab
+            const tabContents = {
+                'dashboard': 'dashboardTab',
+                'routes': 'routesTab',
+                'orders': 'ordersTab',
+                'deliveries': 'deliveriesTab',
+                'warehouses': 'warehousesTab'
+            };
+            
+            const tabElement = document.getElementById(tabContents[tabName]);
+            if (tabElement) {
+                tabElement.classList.add('active');
+                tabElement.style.display = 'block';
+            }
+            
+            const tabButtons = document.querySelectorAll('.tab');
+            const tabIndex = ['dashboard', 'routes', 'orders', 'deliveries', 'warehouses'].indexOf(tabName);
+            if (tabButtons[tabIndex]) {
+                tabButtons[tabIndex].classList.add('active');
+            }
+            
+            // Load data when switching to these tabs
+            if (tabName === 'routes') {
+                loadMyRoutes();
+            } else if (tabName === 'orders') {
+                loadMyOrders();
+            } else if (tabName === 'deliveries') {
+                loadMyDeliveries();
+            } else if (tabName === 'warehouses') {
+                loadMyWarehouses();
+            }
+        }
 
         // Login function
         async function login() {
@@ -255,6 +505,7 @@
 
                 currentToken = data.access_token;
                 currentUser = data.user;
+                currentDeliveryManId = data.user.id;
 
                 // Show dashboard
                 document.getElementById('loginSection').classList.add('hidden');
@@ -269,6 +520,7 @@
                 document.getElementById('welcomeName').textContent = data.user.name;
                 document.getElementById('infoName').textContent = data.user.name;
                 document.getElementById('infoPhone').textContent = data.user.phone;
+                document.getElementById('infoZone').textContent = data.user.zone_id ? `Zone ${data.user.zone_id}` : 'N/A';
                 document.getElementById('infoDistributorId').textContent = data.user.distributor_id;
                 document.getElementById('infoCreatedAt').textContent = data.user.created_at ? 
                     new Date(data.user.created_at).toLocaleString() : 'N/A';
@@ -285,6 +537,7 @@
         function logout() {
             currentToken = null;
             currentUser = null;
+            currentDeliveryManId = null;
             document.getElementById('loginSection').classList.remove('hidden');
             document.getElementById('dashboardSection').classList.add('hidden');
             document.getElementById('userInfo').classList.remove('active');
@@ -293,9 +546,901 @@
             document.getElementById('loginPhone').value = '';
             document.getElementById('loginPassword').value = '';
         }
+
+        // Load My Routes
+        async function loadMyRoutes() {
+            const listDiv = document.getElementById('routesList');
+            if (!currentDeliveryManId) {
+                listDiv.innerHTML = '<p>Please login first</p>';
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/delivery-men/${currentDeliveryManId}/routes`, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Failed to load routes');
+                }
+
+                if (data.length === 0) {
+                    listDiv.innerHTML = '<p>No routes assigned to you yet.</p>';
+                    return;
+                }
+
+                listDiv.innerHTML = data.map(route => `
+                    <div class="list-item">
+                        <div class="info-row">
+                            <span class="info-label"><strong>Route Name:</strong></span>
+                            <span class="info-value">${route.name}</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Zone:</span>
+                            <span class="info-value">${route.zone_name || `Zone ${route.zone_id || 'N/A'}`}</span>
+                        </div>
+                        ${route.order_booker_id ? `
+                        <div class="info-row">
+                            <span class="info-label">Order Booker ID:</span>
+                            <span class="info-value">${route.order_booker_id}</span>
+                        </div>
+                        ` : ''}
+                        <div class="info-row">
+                            <span class="info-label">Route ID:</span>
+                            <span class="info-value">${route.id}</span>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                listDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+
+        // Load My Orders (Only pending orders)
+        async function loadMyOrders() {
+            const listDiv = document.getElementById('ordersList');
+            if (!currentDeliveryManId) {
+                listDiv.innerHTML = '<p>Please login first</p>';
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/orders/delivery-man/${currentDeliveryManId}`, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Failed to load orders');
+                }
+
+                // Filter to only show pending orders
+                // Confirmed, delivered, and cancelled orders will appear in Deliveries tab
+                const pendingOrders = data.filter(o => o.status === 'pending');
+
+                // Update badge with pending orders count only
+                document.getElementById('ordersBadge').textContent = pendingOrders.length;
+
+                if (pendingOrders.length === 0) {
+                    listDiv.innerHTML = '<p>No pending orders assigned to you. All orders have been confirmed or completed.</p>';
+                    return;
+                }
+
+                let html = '<h4 style="color: #f5576c; margin-bottom: 15px;">📦 Pending Orders</h4>';
+                html += '<p style="color: #666; margin-bottom: 20px; font-size: 14px;">These orders are waiting to be confirmed or delivered. Once confirmed or delivered, they will move to the Deliveries tab.</p>';
+
+                html += pendingOrders.map(order => {
+                    return `
+                        <div class="list-item" onclick="openDeliverOrderModal(${order.id})" style="cursor: pointer;">
+                            <div class="info-row">
+                                <span class="info-label"><strong>Shop:</strong></span>
+                                <span class="info-value">${order.shop_name || 'N/A'}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Order ID:</span>
+                                <span class="info-value">${order.id}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Total Amount:</span>
+                                <span class="info-value"><strong style="color: #f5576c;">Rs. ${parseFloat(order.total_amount || 0).toFixed(2)}</strong></span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Status:</span>
+                                <span class="info-value">
+                                    <span style="background: #f39c12; color: white; padding: 4px 10px; border-radius: 15px; font-size: 12px; font-weight: bold;">
+                                        PENDING
+                                    </span>
+                                </span>
+                            </div>
+                            ${order.scheduled_date ? `
+                            <div class="info-row">
+                                <span class="info-label">Scheduled Date:</span>
+                                <span class="info-value">${new Date(order.scheduled_date).toLocaleDateString()}</span>
+                            </div>
+                            ` : ''}
+                            <div class="info-row">
+                                <span class="info-label">Order Date:</span>
+                                <span class="info-value">${new Date(order.created_at).toLocaleString()}</span>
+                            </div>
+                            <div style="margin-top: 10px;">
+                                <button class="btn btn-primary" onclick="event.stopPropagation(); openDeliverOrderModal(${order.id})">✓ Verify & Deliver</button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                listDiv.innerHTML = html;
+            } catch (error) {
+                listDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+
+        // Load My Warehouses
+        async function loadMyWarehouses() {
+            const listDiv = document.getElementById('warehousesList');
+            if (!currentDeliveryManId) {
+                listDiv.innerHTML = '<p>Please login first</p>';
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/delivery-men/${currentDeliveryManId}/warehouses`, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Failed to load warehouses');
+                }
+
+                if (data.length === 0) {
+                    listDiv.innerHTML = '<p>No warehouses assigned to you yet.</p>';
+                    return;
+                }
+
+                listDiv.innerHTML = data.map(warehouse => `
+                    <div class="list-item">
+                        <div class="info-row">
+                            <span class="info-label"><strong>Warehouse Name:</strong></span>
+                            <span class="info-value">${warehouse.name}</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Zone:</span>
+                            <span class="info-value">${warehouse.zone_name || `Zone ${warehouse.zone_id || 'N/A'}`}</span>
+                        </div>
+                        ${warehouse.address ? `
+                        <div class="info-row">
+                            <span class="info-label">Address:</span>
+                            <span class="info-value">${warehouse.address}</span>
+                        </div>
+                        ` : ''}
+                        <div class="info-row">
+                            <span class="info-label">Status:</span>
+                            <span class="info-value">
+                                <span style="color: ${warehouse.is_active ? 'green' : 'red'}">
+                                    ${warehouse.is_active ? 'Active' : 'Inactive'}
+                                </span>
+                            </span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Warehouse ID:</span>
+                            <span class="info-value">${warehouse.id}</span>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                listDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+
+        // Open Deliver Order Modal
+        async function openDeliverOrderModal(orderId) {
+            const modal = document.getElementById('deliverOrderModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('active');
+            
+            document.getElementById('deliverOrderId').value = orderId;
+            
+            // Load order details
+            try {
+                const response = await fetch(`${API_BASE}/orders/${orderId}`, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+                
+                const order = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(order.detail || 'Failed to load order');
+                }
+                
+                document.getElementById('deliverOrderModalTitle').textContent = `Deliver Order #${order.id} - ${order.shop_name || 'Shop'}`;
+                
+                const contentDiv = document.getElementById('deliverOrderContent');
+                contentDiv.innerHTML = `
+                    <div class="info-card" style="margin-bottom: 20px;">
+                        <h3 style="color: #f5576c; margin-bottom: 15px;">Order Details</h3>
+                        <div class="info-row">
+                            <span class="info-label">Shop:</span>
+                            <span class="info-value"><strong>${order.shop_name || 'N/A'}</strong></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Total Amount:</span>
+                            <span class="info-value"><strong style="color: #f5576c; font-size: 1.2em;">Rs. ${parseFloat(order.total_amount || 0).toFixed(2)}</strong></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Current Status:</span>
+                            <span class="info-value">
+                                <span style="background: ${order.status === 'pending' ? '#f39c12' : order.status === 'confirmed' ? '#3498db' : '#27ae60'}; color: white; padding: 6px 15px; border-radius: 15px; font-size: 14px; font-weight: bold;">
+                                    ${(order.status || 'pending').toUpperCase()}
+                                </span>
+                            </span>
+                        </div>
+                        ${order.order_items && order.order_items.length > 0 ? `
+                        <div style="margin-top: 15px;">
+                            <strong>Order Items (${order.order_items.length}):</strong>
+                            <ul style="margin-top: 10px; padding-left: 20px;">
+                                ${order.order_items.map(item => `
+                                    <li>${item.product_name || 'N/A'} - Qty: ${item.quantity || 0} - Rs. ${parseFloat(item.total_price || 0).toFixed(2)}</li>
+                                `).join('')}
+                            </ul>
+                        </div>
+                        ` : ''}
+                    </div>
+                `;
+            } catch (error) {
+                document.getElementById('deliverOrderContent').innerHTML = `<p style="color: red;">Error loading order: ${error.message}</p>`;
+            }
+        }
+
+        // Close Deliver Order Modal
+        function closeDeliverOrderModal() {
+            const modal = document.getElementById('deliverOrderModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('active');
+            document.getElementById('deliverOrderForm').reset();
+            document.getElementById('deliverOrderResult').className = 'result';
+            document.getElementById('deliverOrderResult').textContent = '';
+            // Reset image uploads
+            deliveryImagesToUpload = [];
+            deliveryImagePreviews = [];
+            document.getElementById('deliveryImagesPreview').innerHTML = '';
+        }
+
+        // Store delivery images for upload
+        let deliveryImagesToUpload = [];
+        let deliveryImagePreviews = [];
+
+        // Get Current Location for Delivery
+        function getCurrentLocationForDelivery() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    function(position) {
+                        document.getElementById('deliveryGpsLat').value = position.coords.latitude.toFixed(8);
+                        document.getElementById('deliveryGpsLng').value = position.coords.longitude.toFixed(8);
+                    },
+                    function(error) {
+                        alert('Error getting location: ' + error.message);
+                    }
+                );
+            } else {
+                alert('Geolocation is not supported by your browser.');
+            }
+        }
+
+        // Handle Delivery Image Upload
+        function handleDeliveryImageUpload(event) {
+            const files = event.target.files;
+            const previewDiv = document.getElementById('deliveryImagesPreview');
+            previewDiv.innerHTML = '';
+            deliveryImagesToUpload = [];
+            deliveryImagePreviews = [];
+
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                if (file.type.startsWith('image/')) {
+                    deliveryImagesToUpload.push(file);
+                    
+                    // Create preview
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        const previewItem = document.createElement('div');
+                        previewItem.style.cssText = 'position: relative; border: 2px solid #ddd; border-radius: 5px; overflow: hidden;';
+                        previewItem.innerHTML = `
+                            <img src="${e.target.result}" alt="Preview" style="width: 100%; height: 100px; object-fit: cover;">
+                            <button type="button" onclick="removeDeliveryImage(${deliveryImagePreviews.length})" style="position: absolute; top: 5px; right: 5px; background: #e74c3c; color: white; border: none; border-radius: 50%; width: 25px; height: 25px; cursor: pointer; font-size: 14px;">×</button>
+                        `;
+                        previewDiv.appendChild(previewItem);
+                        deliveryImagePreviews.push(previewItem);
+                    };
+                    reader.readAsDataURL(file);
+                }
+            }
+        }
+
+        // Remove Delivery Image
+        function removeDeliveryImage(index) {
+            deliveryImagesToUpload.splice(index, 1);
+            if (deliveryImagePreviews[index]) {
+                deliveryImagePreviews[index].remove();
+                deliveryImagePreviews.splice(index, 1);
+            }
+            // Re-render previews
+            const previewDiv = document.getElementById('deliveryImagesPreview');
+            previewDiv.innerHTML = '';
+            deliveryImagePreviews.forEach((preview, idx) => {
+                previewDiv.appendChild(preview);
+            });
+        }
+
+        // Upload Image to Supabase Storage
+        async function uploadImageToSupabase(file, orderId) {
+            // NOTE: You need to configure your Supabase credentials
+            // Replace these with your actual Supabase project URL and anon key
+            // Find these in Supabase Dashboard → Settings → API
+            const SUPABASE_URL = 'YOUR_SUPABASE_URL'; // e.g., 'https://your-project.supabase.co'
+            const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
+            const BUCKET_NAME = 'deliveries';
+            
+            // Check if credentials are configured
+            if (SUPABASE_URL === 'YOUR_SUPABASE_URL' || SUPABASE_ANON_KEY === 'YOUR_SUPABASE_ANON_KEY') {
+                throw new Error('Supabase credentials not configured. Please update SUPABASE_URL and SUPABASE_ANON_KEY in delivery_man_dashboard.html');
+            }
+            
+            // Generate unique filename
+            const timestamp = Date.now();
+            const randomSuffix = Math.random().toString(36).substring(2, 8);
+            const sanitizedFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+            const filename = `order_${orderId}_delivery_${timestamp}_${randomSuffix}_${sanitizedFileName}`;
+            const filePath = filename;
+            
+            try {
+                // Upload to Supabase Storage using the correct API endpoint
+                // Supabase Storage API: POST /storage/v1/object/{bucket}/{path}
+                const uploadResponse = await fetch(
+                    `${SUPABASE_URL}/storage/v1/object/${BUCKET_NAME}/${filePath}`,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+                            'apikey': SUPABASE_ANON_KEY,
+                            'Content-Type': file.type || 'image/jpeg'
+                        },
+                        body: file
+                    }
+                );
+                
+                if (!uploadResponse.ok) {
+                    const errorText = await uploadResponse.text();
+                    console.error('Supabase upload error:', errorText);
+                    throw new Error(`Failed to upload image: ${uploadResponse.status} ${uploadResponse.statusText}`);
+                }
+                
+                // Return public URL
+                const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/${BUCKET_NAME}/${filePath}`;
+                return publicUrl;
+            } catch (error) {
+                console.error('Error uploading image to Supabase:', error);
+                throw error;
+            }
+        }
+
+        // Deliver Order
+        async function deliverOrder(event) {
+            event.preventDefault();
+            const resultDiv = document.getElementById('deliverOrderResult');
+            const orderId = document.getElementById('deliverOrderId').value;
+            const status = document.getElementById('deliveryStatus').value;
+            const notes = document.getElementById('deliveryNotes').value;
+            const gpsLat = document.getElementById('deliveryGpsLat').value;
+            const gpsLng = document.getElementById('deliveryGpsLng').value;
+
+            resultDiv.className = 'result';
+            resultDiv.textContent = 'Processing delivery...';
+            resultDiv.style.display = 'block';
+
+            try {
+                // Upload images to Supabase storage first
+                let imageUrls = [];
+                if (deliveryImagesToUpload.length > 0) {
+                    resultDiv.textContent = `Uploading ${deliveryImagesToUpload.length} image(s)...`;
+                    
+                    for (const file of deliveryImagesToUpload) {
+                        try {
+                            const imageUrl = await uploadImageToSupabase(file, orderId);
+                            imageUrls.push(imageUrl);
+                        } catch (uploadError) {
+                            console.error('Error uploading image:', uploadError);
+                            // Continue with other images even if one fails
+                        }
+                    }
+                }
+
+                // Prepare delivery data
+                const deliveryData = {
+                    status: status,
+                    delivery_gps_lat: gpsLat ? parseFloat(gpsLat) : null,
+                    delivery_gps_lng: gpsLng ? parseFloat(gpsLng) : null,
+                    delivery_remarks: notes || null,
+                    delivery_images: imageUrls.length > 0 ? imageUrls : null
+                };
+
+                resultDiv.textContent = 'Submitting delivery...';
+
+                const response = await fetch(`${API_BASE}/orders/${orderId}/deliver`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify(deliveryData)
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Failed to deliver order');
+                }
+
+                resultDiv.className = 'result success';
+                resultDiv.textContent = `Order marked as ${status} successfully!${imageUrls.length > 0 ? ` ${imageUrls.length} image(s) uploaded.` : ''}`;
+                
+                // Reset form
+                deliveryImagesToUpload = [];
+                deliveryImagePreviews = [];
+                document.getElementById('deliveryImagesPreview').innerHTML = '';
+                
+                // Reload both Orders and Deliveries tabs after a delay
+                // Order will disappear from Orders tab and appear in Deliveries tab
+                setTimeout(() => {
+                    closeDeliverOrderModal();
+                    loadMyOrders();  // Refresh Orders tab (order will be gone)
+                    // If currently on Deliveries tab, refresh it too
+                    const deliveriesTab = document.getElementById('deliveriesTab');
+                    if (deliveriesTab && deliveriesTab.style.display !== 'none') {
+                        loadMyDeliveries();  // Refresh Deliveries tab (order will appear)
+                    }
+                }, 2000);
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // Open Order Details Modal
+        async function openOrderDetailsModal(orderIdOrJson) {
+            const modal = document.getElementById('orderDetailsModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('active');
+            
+            let order;
+            
+            // Check if it's a JSON string or order ID
+            if (typeof orderIdOrJson === 'string' && orderIdOrJson.startsWith('{')) {
+                // It's a JSON string
+                try {
+                    order = JSON.parse(orderIdOrJson.replace(/&quot;/g, '"'));
+                } catch (e) {
+                    console.error('Error parsing order JSON:', e);
+                    document.getElementById('orderDetailsContent').innerHTML = '<p style="color: red;">Error loading order details.</p>';
+                    return;
+                }
+            } else {
+                // It's an order ID - fetch from API
+                try {
+                    const response = await fetch(`${API_BASE}/orders/${orderIdOrJson}`, {
+                        headers: {
+                            'Authorization': `Bearer ${currentToken}`
+                        }
+                    });
+                    
+                    order = await response.json();
+                    
+                    if (!response.ok) {
+                        throw new Error(order.detail || 'Failed to load order');
+                    }
+                } catch (error) {
+                    document.getElementById('orderDetailsContent').innerHTML = `<p style="color: red;">Error loading order: ${error.message}</p>`;
+                    return;
+                }
+            }
+            
+            document.getElementById('orderDetailsModalTitle').textContent = `Order #${order.id} - ${order.shop_name || 'Shop'}`;
+            
+            const contentDiv = document.getElementById('orderDetailsContent');
+            contentDiv.innerHTML = `
+                    <div class="info-card" style="margin-bottom: 20px;">
+                        <h3 style="color: #f5576c; margin-bottom: 15px;">Order Information</h3>
+                        <div class="info-row">
+                            <span class="info-label">Shop:</span>
+                            <span class="info-value"><strong>${order.shop_name || 'N/A'}</strong></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Order Booker:</span>
+                            <span class="info-value">${order.order_booker_name || 'N/A'}</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Total Amount:</span>
+                            <span class="info-value"><strong style="color: #f5576c; font-size: 1.2em;">Rs. ${parseFloat(order.total_amount || 0).toFixed(2)}</strong></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Status:</span>
+                            <span class="info-value">
+                                <span style="background: ${order.status === 'pending' ? '#f39c12' : order.status === 'confirmed' ? '#3498db' : order.status === 'delivered' ? '#27ae60' : order.status === 'cancelled' ? '#e74c3c' : '#95a5a6'}; color: white; padding: 6px 15px; border-radius: 15px; font-size: 14px; font-weight: bold;">
+                                    ${(order.status || 'pending').toUpperCase()}
+                                </span>
+                            </span>
+                        </div>
+                        ${order.scheduled_date ? `
+                        <div class="info-row">
+                            <span class="info-label">Scheduled Date:</span>
+                            <span class="info-value">${new Date(order.scheduled_date).toLocaleDateString()}</span>
+                        </div>
+                        ` : ''}
+                        <div class="info-row">
+                            <span class="info-label">Order Date:</span>
+                            <span class="info-value">${new Date(order.created_at).toLocaleString()}</span>
+                        </div>
+                    </div>
+                    
+                    ${order.order_items && order.order_items.length > 0 ? `
+                    <div class="info-card" style="margin-bottom: 20px;">
+                        <h3 style="color: #f5576c; margin-bottom: 15px;">Order Items (${order.order_items.length})</h3>
+                        <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+                            <thead>
+                                <tr style="background: #f8f9fa;">
+                                    <th style="padding: 12px; text-align: left; border-bottom: 2px solid #ddd; font-weight: 600;">Product</th>
+                                    <th style="padding: 12px; text-align: right; border-bottom: 2px solid #ddd; font-weight: 600;">Quantity</th>
+                                    <th style="padding: 12px; text-align: right; border-bottom: 2px solid #ddd; font-weight: 600;">Unit Price</th>
+                                    <th style="padding: 12px; text-align: right; border-bottom: 2px solid #ddd; font-weight: 600;">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${order.order_items.map((item, index) => `
+                                    <tr style="${index % 2 === 0 ? 'background: #f8f9fa;' : 'background: white;'}">
+                                        <td style="padding: 12px; border-bottom: 1px solid #eee; font-weight: 500;">${item.product_name || 'N/A'}</td>
+                                        <td style="padding: 12px; text-align: right; border-bottom: 1px solid #eee;">${item.quantity || 0}</td>
+                                        <td style="padding: 12px; text-align: right; border-bottom: 1px solid #eee;">Rs. ${parseFloat(item.unit_price || 0).toFixed(2)}</td>
+                                        <td style="padding: 12px; text-align: right; border-bottom: 1px solid #eee; font-weight: 600; color: #f5576c;">Rs. ${parseFloat(item.total_price || 0).toFixed(2)}</td>
+                                    </tr>
+                                `).join('')}
+                                <tr style="background: #e3f2fd; font-weight: bold;">
+                                    <td colspan="3" style="padding: 12px; text-align: right; border-top: 2px solid #f5576c;">Grand Total:</td>
+                                    <td style="padding: 12px; text-align: right; border-top: 2px solid #f5576c; color: #f5576c; font-size: 1.1em;">Rs. ${parseFloat(order.total_amount || 0).toFixed(2)}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    ` : ''}
+                    
+                    <!-- GPS removed from orders - stored in shop_visits -->
+                    
+                    ${order.delivery_remarks ? `
+                    <div class="info-card" style="margin-bottom: 20px;">
+                        <h3 style="color: #f5576c; margin-bottom: 15px;">📝 Delivery Remarks</h3>
+                        <p style="color: #333; padding: 10px; background: #f8f9fa; border-radius: 5px;">${order.delivery_remarks}</p>
+                    </div>
+                    ` : ''}
+                    
+                    ${order.delivery_images && order.delivery_images.length > 0 ? `
+                    <div class="info-card" style="margin-bottom: 20px;">
+                        <h3 style="color: #f5576c; margin-bottom: 15px;">📷 Delivery Proof Images (${order.delivery_images.length})</h3>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; margin-top: 10px;">
+                            ${order.delivery_images.map((img, idx) => `
+                                <div style="border: 2px solid #ddd; border-radius: 5px; overflow: hidden;">
+                                    <img src="${img}" alt="Delivery Proof ${idx + 1}" style="width: 100%; height: 150px; object-fit: cover; cursor: pointer;" onclick="window.open('${img}', '_blank')">
+                                    <div style="padding: 8px; text-align: center; background: #f8f9fa;">
+                                        <a href="${img}" target="_blank" style="color: #f5576c; text-decoration: none; font-size: 12px;">View Full Size</a>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                    ` : ''}
+                `;
+        }
+
+        // Close Order Details Modal
+        function closeOrderDetailsModal() {
+            const modal = document.getElementById('orderDetailsModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('active');
+        }
+
+        // Store deliveries data for filtering
+        let allDeliveriesData = [];
+
+        // Load My Deliveries (All non-pending orders: confirmed, delivered, cancelled)
+        async function loadMyDeliveries() {
+            const listDiv = document.getElementById('deliveriesList');
+            if (!currentDeliveryManId) {
+                listDiv.innerHTML = '<p>Please login first</p>';
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/orders/delivery-man/${currentDeliveryManId}`, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Failed to load deliveries');
+                }
+
+                // Filter to show all non-pending orders (confirmed, delivered, cancelled)
+                // Pending orders appear in Orders tab
+                const nonPendingOrders = data.filter(o => 
+                    o.status === 'confirmed' || o.status === 'delivered' || o.status === 'cancelled'
+                );
+
+                // Store data for filtering
+                allDeliveriesData = nonPendingOrders;
+
+                if (nonPendingOrders.length === 0) {
+                    listDiv.innerHTML = '<p>No confirmed or completed deliveries yet. Orders will appear here once they are confirmed or delivered.</p>';
+                    return;
+                }
+
+                // Apply status filter if selected
+                const selectedStatus = document.getElementById('deliveryStatusFilter')?.value;
+                displayDeliveries(nonPendingOrders, selectedStatus);
+            } catch (error) {
+                listDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+
+        // Display Deliveries with Status Filter (All non-pending orders: confirmed, delivered, cancelled)
+        function displayDeliveries(data, filterStatus = null) {
+            const listDiv = document.getElementById('deliveriesList');
+            
+            // Filter by status if specified (confirmed, delivered, or cancelled)
+            let filteredData = data;
+            if (filterStatus) {
+                filteredData = data.filter(order => order.status === filterStatus);
+            }
+
+            if (filteredData.length === 0) {
+                listDiv.innerHTML = '<p>No deliveries found with the selected status.</p>';
+                return;
+            }
+
+            // Group deliveries by status (confirmed, delivered, cancelled)
+            const confirmedDeliveries = filteredData.filter(o => o.status === 'confirmed');
+            const deliveredDeliveries = filteredData.filter(o => o.status === 'delivered');
+            const cancelledDeliveries = filteredData.filter(o => o.status === 'cancelled');
+
+            let html = '';
+
+            // Confirmed Deliveries
+            if (confirmedDeliveries.length > 0) {
+                html += `
+                    <div style="margin-bottom: 30px; border: 2px solid #3498db; border-radius: 8px; padding: 20px; background: #ebf5fb;">
+                        <h3 style="color: #3498db; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #3498db;">
+                            ✓ Confirmed (${confirmedDeliveries.length})
+                        </h3>
+                `;
+                html += confirmedDeliveries.map(order => {
+                    const orderJson = JSON.stringify(order).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                    return `
+                        <div class="list-item" onclick="openOrderDetailsModal('${orderJson}')" style="cursor: pointer; margin-bottom: 10px;">
+                            <div class="info-row">
+                                <span class="info-label"><strong>Shop:</strong></span>
+                                <span class="info-value">${order.shop_name || 'N/A'}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Order ID:</span>
+                                <span class="info-value">${order.id}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Total Amount:</span>
+                                <span class="info-value"><strong style="color: #3498db;">Rs. ${parseFloat(order.total_amount || 0).toFixed(2)}</strong></span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Status:</span>
+                                <span class="info-value">
+                                    <span style="background: #3498db; color: white; padding: 4px 10px; border-radius: 15px; font-size: 12px; font-weight: bold;">
+                                        CONFIRMED
+                                    </span>
+                                </span>
+                            </div>
+                            ${order.scheduled_date ? `
+                            <div class="info-row">
+                                <span class="info-label">Scheduled Date:</span>
+                                <span class="info-value">${new Date(order.scheduled_date).toLocaleDateString()}</span>
+                            </div>
+                            ` : ''}
+                            <div class="info-row">
+                                <span class="info-label">Order Date:</span>
+                                <span class="info-value">${new Date(order.created_at).toLocaleString()}</span>
+                            </div>
+                            <div style="margin-top: 10px;">
+                                <button class="btn btn-primary" onclick="event.stopPropagation(); openDeliverOrderModal(${order.id})">✓ Deliver Now</button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                html += `</div>`;
+            }
+
+            // Delivered Deliveries
+            if (deliveredDeliveries.length > 0) {
+                html += `
+                    <div style="margin-bottom: 30px; border: 2px solid #27ae60; border-radius: 8px; padding: 20px; background: #e8f8f5;">
+                        <h3 style="color: #27ae60; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #27ae60;">
+                            ✅ Delivered (${deliveredDeliveries.length})
+                        </h3>
+                `;
+                html += deliveredDeliveries.map(order => {
+                    const orderJson = JSON.stringify(order).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                    return `
+                        <div class="list-item" onclick="openOrderDetailsModal('${orderJson}')" style="cursor: pointer; margin-bottom: 10px;">
+                            <div class="info-row">
+                                <span class="info-label"><strong>Shop:</strong></span>
+                                <span class="info-value">${order.shop_name || 'N/A'}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Order ID:</span>
+                                <span class="info-value">${order.id}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Total Amount:</span>
+                                <span class="info-value"><strong style="color: #27ae60;">Rs. ${parseFloat(order.total_amount || 0).toFixed(2)}</strong></span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Status:</span>
+                                <span class="info-value">
+                                    <span style="background: #27ae60; color: white; padding: 4px 10px; border-radius: 15px; font-size: 12px; font-weight: bold;">
+                                        DELIVERED
+                                    </span>
+                                </span>
+                            </div>
+                            ${order.delivery_remarks ? `
+                            <div class="info-row">
+                                <span class="info-label">📝 Remarks:</span>
+                                <span class="info-value">${order.delivery_remarks.substring(0, 60)}${order.delivery_remarks.length > 60 ? '...' : ''}</span>
+                            </div>
+                            ` : ''}
+                            ${order.delivery_images && order.delivery_images.length > 0 ? `
+                            <div class="info-row">
+                                <span class="info-label">📷 Proof Images:</span>
+                                <span class="info-value">
+                                    ${order.delivery_images.length} image(s) uploaded
+                                </span>
+                            </div>
+                            ` : ''}
+                            <div class="info-row">
+                                <span class="info-label">Delivered Date:</span>
+                                <span class="info-value">${order.updated_at ? new Date(order.updated_at).toLocaleString() : 'N/A'}</span>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                html += `</div>`;
+            }
+
+            // Cancelled Deliveries
+            if (cancelledDeliveries.length > 0) {
+                html += `
+                    <div style="margin-bottom: 30px; border: 2px solid #e74c3c; border-radius: 8px; padding: 20px; background: #fde8e8;">
+                        <h3 style="color: #e74c3c; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #e74c3c;">
+                            ❌ Cancelled (${cancelledDeliveries.length})
+                        </h3>
+                `;
+                html += cancelledDeliveries.map(order => {
+                    const orderJson = JSON.stringify(order).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                    return `
+                        <div class="list-item" onclick="openOrderDetailsModal('${orderJson}')" style="cursor: pointer; margin-bottom: 10px;">
+                            <div class="info-row">
+                                <span class="info-label"><strong>Shop:</strong></span>
+                                <span class="info-value">${order.shop_name || 'N/A'}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Order ID:</span>
+                                <span class="info-value">${order.id}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Total Amount:</span>
+                                <span class="info-value"><strong style="color: #e74c3c;">Rs. ${parseFloat(order.total_amount || 0).toFixed(2)}</strong></span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Status:</span>
+                                <span class="info-value">
+                                    <span style="background: #e74c3c; color: white; padding: 4px 10px; border-radius: 15px; font-size: 12px; font-weight: bold;">
+                                        CANCELLED
+                                    </span>
+                                </span>
+                            </div>
+                            ${order.delivery_remarks ? `
+                            <div class="info-row">
+                                <span class="info-label">📝 Cancellation Reason:</span>
+                                <span class="info-value">${order.delivery_remarks.substring(0, 60)}${order.delivery_remarks.length > 60 ? '...' : ''}</span>
+                            </div>
+                            ` : ''}
+                            ${order.delivery_images && order.delivery_images.length > 0 ? `
+                            <div class="info-row">
+                                <span class="info-label">📷 Proof Images:</span>
+                                <span class="info-value">
+                                    ${order.delivery_images.length} image(s) uploaded
+                                </span>
+                            </div>
+                            ` : ''}
+                            <div class="info-row">
+                                <span class="info-label">Cancelled Date:</span>
+                                <span class="info-value">${order.updated_at ? new Date(order.updated_at).toLocaleString() : 'N/A'}</span>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                html += `</div>`;
+            }
+
+            listDiv.innerHTML = html || '<p>No deliveries found.</p>';
+        }
+
+        // Filter Deliveries by Status (All non-pending orders)
+        function filterDeliveriesByStatus() {
+            const status = document.getElementById('deliveryStatusFilter').value;
+            
+            if (!status) {
+                // Show all non-pending deliveries
+                if (allDeliveriesData.length > 0) {
+                    displayDeliveries(allDeliveriesData, null);
+                } else {
+                    loadMyDeliveries();
+                }
+                return;
+            }
+            
+            // Only allow filtering by 'confirmed', 'delivered', or 'cancelled'
+            if (status !== 'confirmed' && status !== 'delivered' && status !== 'cancelled') {
+                // Invalid status for deliveries tab - reset to show all
+                document.getElementById('deliveryStatusFilter').value = '';
+                if (allDeliveriesData.length > 0) {
+                    displayDeliveries(allDeliveriesData, null);
+                } else {
+                    loadMyDeliveries();
+                }
+                return;
+            }
+            
+            // Filter using stored data
+            if (allDeliveriesData.length > 0) {
+                displayDeliveries(allDeliveriesData, status);
+            } else {
+                loadMyDeliveries();
+            }
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const deliverModal = document.getElementById('deliverOrderModal');
+            if (event.target === deliverModal) {
+                closeDeliverOrderModal();
+            }
+            const orderDetailsModal = document.getElementById('orderDetailsModal');
+            if (event.target === orderDetailsModal) {
+                closeOrderDetailsModal();
+            }
+        }
     </script>
 </body>
 </html>
+
 
 
 

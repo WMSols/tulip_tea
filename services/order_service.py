@@ -257,8 +257,46 @@ class OrderService:
     
     @staticmethod
     def get_orders_by_delivery_man(db: Session, delivery_man_id: int) -> List[Dict]:
-        """Get all orders assigned to a delivery man."""
-        orders = OrderRepository.get_by_delivery_man(db, delivery_man_id)
+        """
+        Get all orders for a delivery man.
+        
+        Includes:
+        1. Orders explicitly assigned to the delivery man (delivery_man_id = delivery_man_id)
+        2. Orders from shops in routes assigned to the delivery man
+        """
+        from models.order import Order
+        from sqlalchemy import or_
+        from repositories.delivery_man_route_repository import DeliveryManRouteRepository
+        from repositories.route_shop_repository import RouteShopRepository
+        
+        # Get all routes assigned to this delivery man
+        route_assignments = DeliveryManRouteRepository.get_routes_by_delivery_man(db, delivery_man_id)
+        route_ids = [assignment.route_id for assignment in route_assignments]
+        
+        # Get all shops in those routes
+        shop_ids = set()
+        for route_id in route_ids:
+            route_shops = RouteShopRepository.get_shops_by_route(db, route_id)
+            for route_shop in route_shops:
+                # Check if route_shop has deleted_at attribute and if it's not deleted
+                if not hasattr(route_shop, 'deleted_at') or route_shop.deleted_at is None:
+                    shop_ids.add(route_shop.shop_id)
+        
+        # Build query: orders explicitly assigned OR orders from shops in assigned routes
+        conditions = [Order.delivery_man_id == delivery_man_id]
+        
+        if shop_ids:
+            conditions.append(Order.shop_id.in_(shop_ids))
+        
+        # Query orders matching any condition
+        if len(conditions) > 1:
+            orders = db.query(Order).filter(
+                or_(*conditions)
+            ).order_by(Order.created_at.desc()).all()
+        else:
+            # Only explicitly assigned orders
+            orders = OrderRepository.get_by_delivery_man(db, delivery_man_id)
+        
         return OrderService._format_orders(db, orders)
     
     @staticmethod
@@ -293,6 +331,21 @@ class OrderService:
                 "total_price": float(item.total_price) if item.total_price else None
             } for item in items]
             
+            # Parse delivery_images JSON string to list
+            import json
+            delivery_images_list = []
+            if order.delivery_images:
+                try:
+                    # delivery_images is stored as JSON string in TEXT column
+                    if isinstance(order.delivery_images, str):
+                        delivery_images_list = json.loads(order.delivery_images)
+                    elif isinstance(order.delivery_images, list):
+                        # If already a list (shouldn't happen, but handle it)
+                        delivery_images_list = order.delivery_images
+                except Exception as e:
+                    print(f"Error parsing delivery_images: {e}")
+                    delivery_images_list = []
+            
             result.append({
                 "id": order.id,
                 "shop_id": order.shop_id,
@@ -307,6 +360,11 @@ class OrderService:
                 "status": order.status,
                 "scheduled_date": order.scheduled_date.isoformat() if order.scheduled_date else None,
                 "order_items": order_items,
+                # GPS removed from orders - stored in shop_visits instead
+                # "delivery_gps_lat": float(order.delivery_gps_lat) if order.delivery_gps_lat else None,
+                # "delivery_gps_lng": float(order.delivery_gps_lng) if order.delivery_gps_lng else None,
+                "delivery_remarks": order.delivery_remarks,
+                "delivery_images": delivery_images_list,
                 "created_at": order.created_at.isoformat() if order.created_at else None,
                 "updated_at": order.updated_at.isoformat() if order.updated_at else None
             })

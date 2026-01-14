@@ -42,6 +42,15 @@ class OrderItem(Base):
     - Example: Order ID 1 = "Order #12345"
     """
 
+    product_id = Column(BigInteger, ForeignKey("products.id", ondelete="SET NULL"), nullable=True)
+    """
+    Foreign key to products table.
+    - Links item to the product (if product exists in products table)
+    - SET NULL on delete: If product is deleted, product_id is set to NULL but order_item remains
+    - Nullable: For backward compatibility with existing data
+    - Example: Product ID 1 = "Tulip Tea Premium 500g"
+    """
+
     # Product Information
     product_name = Column(Text, nullable=True)
     """

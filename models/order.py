@@ -137,6 +137,32 @@ class Order(Base):
     - Null on initial creation
     """
 
+    # Delivery Proof Information
+    # NOTE: GPS coordinates removed from orders table - now stored in shop_visits table
+    # delivery_gps_lat = Column(Numeric(10, 8), nullable=True)  # REMOVED - use shop_visits.gps_lat
+    # delivery_gps_lng = Column(Numeric(11, 8), nullable=True)  # REMOVED - use shop_visits.gps_lng
+
+    delivery_remarks = Column(Text, nullable=True)
+    """
+    Remarks/notes added by delivery man when delivering or cancelling order.
+    - Free text field for delivery notes
+    - Example: "Delivered to shop owner. Payment received."
+    - Example: "Cancelled - Shop closed"
+    - Used for delivery documentation
+    """
+
+    delivery_images = Column(Text, nullable=True)  # Will store JSON array as string
+    """
+    Delivery proof images (Supabase storage URLs).
+    - JSON array of image URLs from Supabase storage bucket "deliveries"
+    - Format: JSON string array, e.g., '["https://.../image1.jpg", "https://.../image2.jpg"]'
+    - Example: ["https://your-project.supabase.co/storage/v1/object/public/deliveries/order_123_delivery_1.jpg"]
+    - Used for delivery verification and proof
+    - Images are stored in Supabase storage bucket named "deliveries"
+    - Stored as TEXT column containing JSON array string (PostgreSQL TEXT[] can be stored as JSON string)
+    """
+
+
 
 
 

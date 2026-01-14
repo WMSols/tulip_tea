@@ -317,7 +317,8 @@ class ShopVisitResponse(BaseModel):
     gps_lat: Optional[float] = None
     gps_lng: Optional[float] = None
     visit_time: Optional[str] = None
-    photo: Optional[str] = None
+    photo: Optional[str] = None  # Legacy single photo
+    photos: Optional[List[str]] = None  # Multiple photos (JSON array)
     reason: Optional[str] = None
     # Linked data
     order_id: Optional[int] = None  # Order created during this visit (if order_booking type)
@@ -362,11 +363,25 @@ class OrderResponse(BaseModel):
     status: Optional[str] = None
     scheduled_date: Optional[str] = None
     order_items: Optional[List[OrderItemResponse]] = []
+    # GPS removed from orders - stored in shop_visits instead
+    # delivery_gps_lat: Optional[float] = None
+    # delivery_gps_lng: Optional[float] = None
+    delivery_remarks: Optional[str] = None
+    delivery_images: Optional[List[str]] = None  # Array of image URLs
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+
+class OrderDeliveryUpdate(BaseModel):
+    """Schema for updating order with delivery proof information."""
+    status: str  # "delivered" or "cancelled"
+    delivery_gps_lat: Optional[float] = None
+    delivery_gps_lng: Optional[float] = None
+    delivery_remarks: Optional[str] = None
+    delivery_images: Optional[List[str]] = None  # Array of Supabase storage URLs
 
 
 # Credit Limit Request Schemas
@@ -406,3 +421,87 @@ class CreditLimitRequestApprove(BaseModel):
 
 class CreditLimitRequestReject(BaseModel):
     remarks: Optional[str] = None
+
+
+# Warehouse Schemas
+class WarehouseCreate(BaseModel):
+    name: str
+    zone_id: int
+    address: Optional[str] = None
+
+
+class WarehouseResponse(BaseModel):
+    id: int
+    name: str
+    zone_id: int
+    address: Optional[str] = None
+    is_active: bool
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class WarehouseUpdate(BaseModel):
+    name: Optional[str] = None
+    zone_id: Optional[int] = None
+    address: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+# Inventory Schemas
+class InventoryCreate(BaseModel):
+    product_id: int  # Required: Must select from active products
+    quantity: int = 0
+    # item_name, item_code, unit will be auto-filled from product
+
+
+class InventoryResponse(BaseModel):
+    id: int
+    warehouse_id: int
+    product_id: Optional[int] = None
+    product_name: Optional[str] = None  # From products table
+    product_code: Optional[str] = None  # From products table
+    item_name: str  # Kept for backward compatibility
+    item_code: Optional[str] = None  # Kept for backward compatibility
+    unit: Optional[str] = None
+    quantity: int
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class InventoryUpdate(BaseModel):
+    product_id: Optional[int] = None  # Can change product
+    quantity: Optional[int] = None
+    # item_name, item_code, unit will be auto-updated from product if product_id changes
+
+
+# Product Schemas
+class ProductCreate(BaseModel):
+    code: str
+    name: str
+    unit: Optional[str] = None
+
+
+class ProductResponse(BaseModel):
+    id: int
+    code: str
+    name: str
+    unit: Optional[str] = None
+    is_active: bool
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ProductUpdate(BaseModel):
+    code: Optional[str] = None
+    name: Optional[str] = None
+    unit: Optional[str] = None
+    is_active: Optional[bool] = None

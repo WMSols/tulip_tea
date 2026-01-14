@@ -50,3 +50,8 @@ SHOP_REASSIGNMENT_IMPLEMENTATION.md
 supabase/.temp/cli-latest
 supabase/.branches/_current_branch
 backups
+docs/DELIVERY_PROOF_SETUP.md
+docs/PRODUCT_DEACTIVATION_ANALYSIS.md
+docs/PRODUCTS_TABLE_INTEGRATION.md
+docs/SCHEMA_ANALYSIS_WAREHOUSE.md
+scripts/README_HARD_DELETE.md

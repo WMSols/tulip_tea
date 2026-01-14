@@ -38,7 +38,7 @@ class ShopVisitRepository:
               delivery_man_id: int = None, visit_type: str = None,
               gps_lat: Decimal = None, gps_lng: Decimal = None,
               visit_time: datetime = None, photo: str = None,
-              reason: str = None) -> ShopVisit:
+              photos: str = None, reason: str = None) -> ShopVisit:
         """
         Create a new shop visit record in the database.
         
@@ -82,6 +82,7 @@ class ShopVisitRepository:
             gps_lng=gps_lng,
             visit_time=visit_time,
             photo=photo,
+            photos=photos,
             reason=reason
         )
         # Add to session (staged, not yet saved)

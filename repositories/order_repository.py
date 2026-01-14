@@ -105,6 +105,55 @@ class OrderRepository:
         db.commit()
         db.refresh(order)
         return order
+    
+    @staticmethod
+    def update_delivery_proof(db: Session, order_id: int, status: str,
+                              delivery_gps_lat: Decimal = None,
+                              delivery_gps_lng: Decimal = None,
+                              delivery_remarks: str = None,
+                              delivery_images: str = None) -> Optional[Order]:
+        """
+        Update order with delivery proof information.
+        
+        Args:
+            db: Database session
+            order_id: Order ID
+            status: Order status ("delivered" or "cancelled")
+            delivery_gps_lat: GPS latitude when delivered/cancelled
+            delivery_gps_lng: GPS longitude when delivered/cancelled
+            delivery_remarks: Remarks/notes from delivery man
+            delivery_images: JSON string or list of image URLs (PostgreSQL TEXT[] array)
+        
+        Returns:
+            Updated order instance or None if not found
+        """
+        import json
+        from sqlalchemy import text
+        order = db.query(Order).filter(Order.id == order_id).first()
+        if not order:
+            return None
+        
+        order.status = status
+        # GPS removed from orders - stored in shop_visits instead
+        # if delivery_gps_lat is not None:
+        #     order.delivery_gps_lat = delivery_gps_lat
+        # if delivery_gps_lng is not None:
+        #     order.delivery_gps_lng = delivery_gps_lng
+        if delivery_remarks is not None:
+            order.delivery_remarks = delivery_remarks
+        if delivery_images is not None:
+            # Store as JSON string in TEXT column
+            if isinstance(delivery_images, list):
+                # Convert list to JSON string
+                order.delivery_images = json.dumps(delivery_images)
+            else:
+                # If it's already a string (JSON format), store directly
+                order.delivery_images = delivery_images
+        
+        db.commit()
+        db.refresh(order)
+        return order
+
 
 
 

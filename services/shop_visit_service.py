@@ -102,6 +102,19 @@ class ShopVisitService:
             collections = db.query(DailyCollection).filter(DailyCollection.visit_id == visit.id).all()
             collection_id = collections[0].id if collections else None
         
+        # Parse photos JSON string to list
+        photos_list = []
+        if visit.photos:
+            try:
+                import json
+                if isinstance(visit.photos, str):
+                    photos_list = json.loads(visit.photos)
+                elif isinstance(visit.photos, list):
+                    photos_list = visit.photos
+            except Exception as e:
+                print(f"Error parsing photos: {e}")
+                photos_list = []
+        
         return {
             "id": visit.id,
             "shop_id": visit.shop_id,
@@ -116,7 +129,8 @@ class ShopVisitService:
             "gps_lat": float(visit.gps_lat) if visit.gps_lat else None,
             "gps_lng": float(visit.gps_lng) if visit.gps_lng else None,
             "visit_time": visit.visit_time.isoformat() if visit.visit_time else None,
-            "photo": visit.photo,
+            "photo": visit.photo,  # Legacy single photo
+            "photos": photos_list,  # Multiple photos (JSON array)
             "reason": visit.reason,
             "order_id": order_id,
             "collection_id": collection_id

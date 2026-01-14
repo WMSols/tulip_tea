@@ -120,11 +120,23 @@ class ShopVisit(Base):
 
     photo = Column(Text, nullable=True)
     """
-    Photo proof of visit.
+    Photo proof of visit (legacy single photo field).
     - Can be stored as base64 string or URL
     - Used to verify visit actually occurred
     - Optional but recommended for important visits
     - Example: "data:image/jpeg;base64,..." or "https://..."
+    - Note: For multiple images, use photos field instead
+    """
+    
+    photos = Column(Text, nullable=True)  # Will store JSON array as string
+    """
+    Multiple photos proof of visit (JSON array of Supabase storage URLs).
+    - JSON array of image URLs from Supabase storage bucket "deliveries"
+    - Format: JSON string array, e.g., '["https://.../image1.jpg", "https://.../image2.jpg"]'
+    - Example: ["https://your-project.supabase.co/storage/v1/object/public/deliveries/visit_123_1.jpg"]
+    - Used for delivery verification and proof
+    - Images are stored in Supabase storage bucket named "deliveries"
+    - Stored as TEXT column containing JSON array string
     """
 
     reason = Column(Text, nullable=True)

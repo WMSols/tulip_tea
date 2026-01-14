@@ -68,13 +68,21 @@
             color: #555;
             font-weight: 600;
         }
-        .form-group input, .form-group select {
+        .form-group input, .form-group select, .form-group textarea {
             width: 100%;
             padding: 12px;
             border: 2px solid #ddd;
             border-radius: 5px;
             font-size: 16px;
             transition: border-color 0.3s;
+        }
+        .form-group textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+            outline: none;
+            border-color: #667eea;
         }
         .form-group input:focus, .form-group select:focus {
             outline: none;
@@ -415,6 +423,8 @@
                     <button class="tab" onclick="switchTab('routes')">Routes</button>
                     <button class="tab" onclick="switchTab('orderBookers')">Order Bookers</button>
                     <button class="tab" onclick="switchTab('deliveryMen')">Delivery Men</button>
+                    <button class="tab" onclick="switchTab('warehouses')">🏭 Warehouses</button>
+                    <button class="tab" onclick="switchTab('products')">📦 Products</button>
                     <button class="tab" onclick="switchTab('shops')">Shops <span id="pendingShopsBadge" style="background: #e74c3c; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 5px;">0</span></button>
                     <button class="tab" onclick="switchTab('creditLimits')">Credit Limits <span id="creditRequestsBadge" style="background: #e74c3c; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 5px;">0</span></button>
                     <button class="tab" onclick="switchTab('visits')">📍 Visits</button>
@@ -613,10 +623,70 @@
                     <div id="creditLimitRequestsList" style="margin-top: 20px;"></div>
                 </div>
 
+                <!-- Warehouses Tab -->
+                <div id="warehousesTab" class="tab-content">
+                    <h2>🏭 Create Warehouse</h2>
+                    <form id="warehouseForm" onsubmit="createWarehouse(event)">
+                        <div class="form-group">
+                            <label>Warehouse Name *</label>
+                            <input type="text" id="warehouseName" required placeholder="e.g., Islamabad Main Warehouse">
+                        </div>
+                        <div class="form-group">
+                            <label>Zone *</label>
+                            <select id="warehouseZoneId" required>
+                                <option value="">Select Zone</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Address</label>
+                            <textarea id="warehouseAddress" rows="3" placeholder="Warehouse physical address"></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Create Warehouse</button>
+                    </form>
+                    <div id="warehouseResult" class="result"></div>
+                    
+                    <h2 style="margin-top: 40px;">Existing Warehouses</h2>
+                    <button class="btn btn-success" onclick="loadWarehouses()">Refresh List</button>
+                    <div id="warehousesList" style="margin-top: 20px;"></div>
+                </div>
+
+                <!-- Products Tab -->
+                <div id="productsTab" class="tab-content">
+                    <h2>📦 Create Product</h2>
+                    <form id="productForm" onsubmit="createProduct(event)">
+                        <div class="form-group">
+                            <label>Product Code *</label>
+                            <input type="text" id="productCode" required placeholder="e.g., TTP-500" maxlength="50">
+                            <small style="color: #666;">Unique code for the product (e.g., TTP-500, TTR-250)</small>
+                        </div>
+                        <div class="form-group">
+                            <label>Product Name *</label>
+                            <input type="text" id="productName" required placeholder="e.g., Tulip Tea Premium 500g" maxlength="255">
+                        </div>
+                        <div class="form-group">
+                            <label>Unit (Optional)</label>
+                            <input type="text" id="productUnit" placeholder="e.g., kg, pcs, box, pack" maxlength="20">
+                            <small style="color: #666;">Unit of measurement for this product</small>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Create Product</button>
+                    </form>
+                    <div id="productResult" class="result"></div>
+                    
+                    <h2 style="margin-top: 40px;">Existing Products</h2>
+                    <div style="margin-bottom: 20px;">
+                        <button class="btn btn-success" onclick="loadProducts()" style="margin-right: 10px;">Refresh List</button>
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="includeInactiveProducts" onchange="loadProducts()" style="width: auto;">
+                            <span>Include Inactive Products</span>
+                        </label>
+                    </div>
+                    <div id="productsList" style="margin-top: 20px;"></div>
+                </div>
+
                 <!-- Visits Tab -->
                 <div id="visitsTab" class="tab-content">
                     <h2>📍 All Shop Visits</h2>
-                    <p style="color: #666; margin-bottom: 20px;">View all visits registered by order bookers and delivery men, categorized by zones.</p>
+                    <p style="color: #666; margin-bottom: 20px;">View all visits registered by order bookers and delivery men, categorized by visit type (Order Booker Visits vs Delivery Man Visits).</p>
                     
                     <div style="margin-bottom: 20px;">
                         <button class="btn btn-success" onclick="loadAllVisits()">Refresh Visits</button>
@@ -816,10 +886,10 @@
             });
 
             // Show selected tab
-            const tabs = ['zones', 'routes', 'orderBookers', 'deliveryMen', 'shops', 'creditLimits', 'visits'];
+            const tabs = ['zones', 'routes', 'orderBookers', 'deliveryMen', 'warehouses', 'products', 'shops', 'creditLimits', 'visits'];
             const tabIndex = tabs.indexOf(tabName);
             if (tabIndex !== -1) {
-                const tabContents = ['zonesTab', 'routesTab', 'orderBookersTab', 'deliveryMenTab', 'shopsTab', 'creditLimitsTab', 'visitsTab'];
+                const tabContents = ['zonesTab', 'routesTab', 'orderBookersTab', 'deliveryMenTab', 'warehousesTab', 'productsTab', 'shopsTab', 'creditLimitsTab', 'visitsTab'];
                 const tabContentElement = document.getElementById(tabContents[tabIndex]);
                 if (tabContentElement) {
                     tabContentElement.classList.add('active');
@@ -833,7 +903,11 @@
                 }
                 
                 // Load data when switching to these tabs
-                if (tabName === 'shops') {
+                if (tabName === 'warehouses') {
+                    loadWarehouses();
+                } else if (tabName === 'products') {
+                    loadProducts();
+                } else if (tabName === 'shops') {
                     loadAllShops();
                     loadPendingShops();
                 } else if (tabName === 'creditLimits') {
@@ -893,10 +967,7 @@
                 showApiCall('POST', endpoint, 'Distributor Login', 'success');
 
                 // Load initial data
-                loadZones().then(() => {
-                    // Populate zone dropdowns after zones are loaded
-                    populateZoneDropdowns();
-                });
+                loadZones();
                 loadRoutes();
                 loadOrderBookers();
                 loadDeliveryMen();
@@ -1259,6 +1330,12 @@
                 const dmZoneSelect = document.getElementById('dmZoneId');
                 if (dmZoneSelect) {
                     dmZoneSelect.innerHTML = '<option value="">Select Zone</option>' + 
+                        data.map(z => `<option value="${z.id}">${z.name}</option>`).join('');
+                }
+                
+                const warehouseZoneSelect = document.getElementById('warehouseZoneId');
+                if (warehouseZoneSelect) {
+                    warehouseZoneSelect.innerHTML = '<option value="">Select Zone</option>' + 
                         data.map(z => `<option value="${z.id}">${z.name}</option>`).join('');
                 }
             } catch (error) {
@@ -2159,7 +2236,7 @@
         async function deleteUser() {
             if (!currentEditType || !currentEditId) return;
             
-            const confirmMessage = `Are you sure you want to soft delete this ${currentEditType === 'order_booker' ? 'Order Booker' : 'Delivery Man'}?\n\nThis will hide the record from normal operations but preserve data for audit purposes. The user will not be able to login after deletion.`;
+            const confirmMessage = `Are you sure you want to soft delete this ${currentEditType === 'order_booker' ? 'Order Booker' : 'Delivery Man'}?\n\n`;
             if (!confirm(confirmMessage)) {
                 return;
             }
@@ -2201,7 +2278,7 @@
         
         // Delete Shop
         async function deleteShop(shopId, shopName) {
-            const confirmMessage = `Are you sure you want to soft delete the shop "${shopName}"?\n\nThis will hide the shop from normal operations but preserve data for audit purposes.`;
+            const confirmMessage = `Are you sure you want to soft delete the shop "${shopName}"?\n\n.`;
             if (!confirm(confirmMessage)) {
                 return;
             }
@@ -2236,7 +2313,7 @@
         
         // Delete User Directly (without opening modal)
         async function deleteUserDirectly(type, id) {
-            const confirmMessage = `Are you sure you want to soft delete this ${type === 'order_booker' ? 'Order Booker' : 'Delivery Man'}?\n\nThis will hide the record from normal operations but preserve data for audit purposes. The user will not be able to login after deletion.`;
+            const confirmMessage = `Are you sure you want to soft delete this ${type === 'order_booker' ? 'Order Booker' : 'Delivery Man'}?\n\n.`;
             if (!confirm(confirmMessage)) {
                 return;
             }
@@ -2262,7 +2339,7 @@
                 }
                 
                 showApiCall('DELETE', endpoint, `Delete ${type === 'order_booker' ? 'Order Booker' : 'Delivery Man'}`, 'success');
-                alert(`${type === 'order_booker' ? 'Order Booker' : 'Delivery Man'} soft deleted successfully! The record has been hidden but data is preserved.`);
+                alert(`${type === 'order_booker' ? 'Order Booker' : 'Delivery Man'} soft deleted successfully! .`);
                 
                 // Reload lists
                 if (type === 'order_booker') {
@@ -2853,7 +2930,7 @@
             }
         }
 
-        // Display visits grouped by zone
+        // Display visits categorized by visit type (Order Booker vs Delivery Man)
         function displayVisits(data, filterZoneId = null) {
             const listDiv = document.getElementById('visitsList');
             
@@ -2874,8 +2951,9 @@
             });
             const uniqueVisits = Array.from(visitMap.values());
             
-            // Group visits by zone
-            const visitsByZone = {};
+            // Categorize visits: Order Booker Visits vs Delivery Man Visits
+            const orderBookerVisits = [];
+            const deliveryManVisits = [];
             
             uniqueVisits.forEach(visit => {
                 // Apply zone filter if specified
@@ -2883,17 +2961,43 @@
                     return; // Skip this visit
                 }
                 
-                const zoneKey = visit.shop_zone_id || 'no-zone';
-                
-                // Initialize zone array if needed
-                if (!visitsByZone[zoneKey]) {
-                    visitsByZone[zoneKey] = [];
+                // Categorize by who made the visit
+                if (visit.order_booker_id && visit.order_booker_name) {
+                    orderBookerVisits.push(visit);
+                } else if (visit.delivery_man_id && visit.delivery_man_name) {
+                    deliveryManVisits.push(visit);
+                } else {
+                    // If neither is clear, check visit_types
+                    const visitTypes = visit.visit_types || (visit.visit_type ? [visit.visit_type] : []);
+                    if (visitTypes.includes('delivery') || visitTypes.includes('cancelled')) {
+                        deliveryManVisits.push(visit);
+                    } else {
+                        orderBookerVisits.push(visit);
+                    }
                 }
-                
-                visitsByZone[zoneKey].push(visit);
+            });
+            
+            // Group order booker visits by zone
+            const orderBookerVisitsByZone = {};
+            orderBookerVisits.forEach(visit => {
+                const zoneKey = visit.shop_zone_id || 'no-zone';
+                if (!orderBookerVisitsByZone[zoneKey]) {
+                    orderBookerVisitsByZone[zoneKey] = [];
+                }
+                orderBookerVisitsByZone[zoneKey].push(visit);
+            });
+            
+            // Group delivery man visits by zone
+            const deliveryManVisitsByZone = {};
+            deliveryManVisits.forEach(visit => {
+                const zoneKey = visit.shop_zone_id || 'no-zone';
+                if (!deliveryManVisitsByZone[zoneKey]) {
+                    deliveryManVisitsByZone[zoneKey] = [];
+                }
+                deliveryManVisitsByZone[zoneKey].push(visit);
             });
 
-            if (Object.keys(visitsByZone).length === 0) {
+            if (Object.keys(orderBookerVisitsByZone).length === 0 && Object.keys(deliveryManVisitsByZone).length === 0) {
                 listDiv.innerHTML = '<p>No visits found in selected zone.</p>';
                 return;
             }
@@ -2904,19 +3008,28 @@
                 zoneMap[zone.id] = zone.name;
             });
 
-            // Build HTML
-            let html = '';
-            Object.keys(visitsByZone).sort().forEach(zoneKey => {
-                const zoneId = zoneKey === 'no-zone' ? null : parseInt(zoneKey);
-                const zoneName = zoneId ? (zoneMap[zoneId] || `Zone ${zoneId}`) : 'No Zone Assigned';
-                const visits = visitsByZone[zoneKey];
+            // Helper function to render visits by zone
+            const renderVisitsByZone = (visitsByZone, categoryTitle, categoryColor) => {
+                let html = '';
+                if (Object.keys(visitsByZone).length > 0) {
+                    html += `
+                        <div style="margin-bottom: 40px; border: 3px solid ${categoryColor}; border-radius: 8px; padding: 20px; background: #f8f9fa;">
+                            <h2 style="color: ${categoryColor}; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 3px solid ${categoryColor}; font-size: 1.5em;">
+                                ${categoryTitle} (${Object.values(visitsByZone).reduce((sum, arr) => sum + arr.length, 0)} visit${Object.values(visitsByZone).reduce((sum, arr) => sum + arr.length, 0) !== 1 ? 's' : ''})
+                            </h2>
+                    `;
+                    
+                    Object.keys(visitsByZone).sort().forEach(zoneKey => {
+                        const zoneId = zoneKey === 'no-zone' ? null : parseInt(zoneKey);
+                        const zoneName = zoneId ? (zoneMap[zoneId] || `Zone ${zoneId}`) : 'No Zone Assigned';
+                        const visits = visitsByZone[zoneKey];
 
-                html += `
-                    <div style="margin-bottom: 30px; border: 2px solid #667eea; border-radius: 8px; padding: 20px; background: #f8f9fa;">
-                        <h3 style="color: #667eea; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #667eea;">
-                            ${zoneName} (${visits.length} visit${visits.length !== 1 ? 's' : ''})
-                        </h3>
-                `;
+                        html += `
+                            <div style="margin-bottom: 25px; border: 2px solid ${categoryColor}; border-radius: 8px; padding: 15px; background: white;">
+                                <h3 style="color: ${categoryColor}; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid ${categoryColor};">
+                                    ${zoneName} (${visits.length} visit${visits.length !== 1 ? 's' : ''})
+                                </h3>
+                        `;
 
                 visits.forEach(visit => {
                     const visitTypeColors = {
@@ -2972,6 +3085,7 @@
                              data-gps-lng="${visit.gps_lng || ''}"
                              data-visit-time="${visitTime}"
                              data-photo="${photoUrl}"
+                             data-photos="${JSON.stringify(visit.photos || []).replace(/"/g, '&quot;')}"
                              data-reason="${reason}"
                              data-order-id="${visit.order_id || ''}"
                              data-collection-id="${visit.collection_id || ''}"
@@ -2991,14 +3105,25 @@
                                 ${visitorInfo}<br>
                                 🕐 ${visit.visit_time ? new Date(visit.visit_time).toLocaleString() : 'Time not recorded'}<br>
                                 ${visit.reason ? `📝 ${visit.reason.substring(0, 60)}${visit.reason.length > 60 ? '...' : ''}<br>` : ''}
-                                ${visit.photo ? `📷 Photo Available<br>` : ''}
+                                ${visit.photo || (visit.photos && visit.photos.length > 0) ? `📷 Photo${(visit.photos && visit.photos.length > 1) ? 's' : ''} Available (${visit.photos ? visit.photos.length : 1})<br>` : ''}
+                                ${visit.gps_lat && visit.gps_lng ? `📍 GPS: ${visit.gps_lat.toFixed(6)}, ${visit.gps_lng.toFixed(6)}<br>` : ''}
                             </div>
                         </div>
                     `;
-                });
+                    });
 
+                    html += `</div>`;
+                });
+                
                 html += `</div>`;
-            });
+            }
+            return html;
+        };
+
+            // Build HTML - show Order Booker Visits first, then Delivery Man Visits
+            let html = '';
+            html += renderVisitsByZone(orderBookerVisitsByZone, '📋 Order Booker Visits', '#3498db');
+            html += renderVisitsByZone(deliveryManVisitsByZone, '🚚 Delivery Man Visits', '#27ae60');
 
             listDiv.innerHTML = html;
         }
@@ -3029,16 +3154,24 @@
         let currentVisitData = null;
 
         // Open View Visit Modal
-        function openViewVisitModal(visitId, shopName, shopId, shopZoneId, orderBookerName, orderBookerId, deliveryManName, deliveryManId, visitTypesJson, gpsLat, gpsLng, visitTime, photo, reason, orderId, collectionId, shopRoutesJson) {
+        function openViewVisitModal(visitId, shopName, shopId, shopZoneId, orderBookerName, orderBookerId, deliveryManName, deliveryManId, visitTypesJson, gpsLat, gpsLng, visitTime, photo, photosJson, reason, orderId, collectionId, shopRoutesJson) {
             const modal = document.getElementById('viewVisitModal');
             modal.classList.remove('hidden');
             modal.style.display = 'flex';
+            
+            // Parse photos JSON
+            let photos = [];
+            try {
+                photos = typeof photosJson === 'string' ? JSON.parse(photosJson) : (photosJson || []);
+            } catch (e) {
+                photos = [];
+            }
             
             // Store visit data for potential reload
             currentVisitData = {
                 visitId, shopName, shopId, shopZoneId, orderBookerName, orderBookerId,
                 deliveryManName, deliveryManId, visitTypesJson, gpsLat, gpsLng,
-                visitTime, photo, reason, orderId, collectionId, shopRoutesJson
+                visitTime, photo, photos, reason, orderId, collectionId, shopRoutesJson
             };
             
             const visitTypeColors = {
@@ -3140,14 +3273,27 @@
                 </div>
                 ` : ''}
                 
-                ${photo && photo.trim() !== '' && photo !== 'null' && photo !== 'undefined' ? `
+                ${(photo && photo.trim() !== '' && photo !== 'null' && photo !== 'undefined') || (photos && photos.length > 0) ? `
                 <div class="info-card" style="margin-bottom: 20px;">
-                    <h3 style="color: #667eea; margin-bottom: 15px;">Photo Proof</h3>
-                    <div style="text-align: center;">
-                        <img src="${photo}" alt="Visit Photo" style="max-width: 100%; max-height: 400px; border-radius: 5px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);" onerror="this.onerror=null; this.src='data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'400\\' height=\\'300\\'%3E%3Ctext x=\\'50%25\\' y=\\'50%25\\' text-anchor=\\'middle\\' dy=\\'.3em\\' fill=\\'%23999\\'%3EImage not found%3C/text%3E%3C/svg%3E';">
-                        <br><br>
-                        <a href="${photo}" target="_blank" style="color: #667eea; text-decoration: none;">🔗 Open Full Size</a>
-                    </div>
+                    <h3 style="color: #667eea; margin-bottom: 15px;">Photo Proof ${photos && photos.length > 0 ? `(${photos.length} image${photos.length !== 1 ? 's' : ''})` : ''}</h3>
+                    ${photos && photos.length > 0 ? `
+                        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; margin-top: 10px;">
+                            ${photos.map((img, idx) => `
+                                <div style="border: 2px solid #ddd; border-radius: 5px; overflow: hidden;">
+                                    <img src="${img}" alt="Delivery Proof ${idx + 1}" style="width: 100%; height: 150px; object-fit: cover; cursor: pointer;" onclick="window.open('${img}', '_blank')">
+                                    <div style="padding: 8px; text-align: center; background: #f8f9fa;">
+                                        <a href="${img}" target="_blank" style="color: #667eea; text-decoration: none; font-size: 12px;">View Full Size</a>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : (photo && photo.trim() !== '' && photo !== 'null' && photo !== 'undefined' ? `
+                        <div style="text-align: center;">
+                            <img src="${photo}" alt="Visit Photo" style="max-width: 100%; max-height: 400px; border-radius: 5px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);" onerror="this.onerror=null; this.src='data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'400\\' height=\\'300\\'%3E%3Ctext x=\\'50%25\\' y=\\'50%25\\' text-anchor=\\'middle\\' dy=\\'.3em\\' fill=\\'%23999\\'%3EImage not found%3C/text%3E%3C/svg%3E';">
+                            <br><br>
+                            <a href="${photo}" target="_blank" style="color: #667eea; text-decoration: none;">🔗 Open Full Size</a>
+                        </div>
+                    ` : '')}
                 </div>
                 ` : ''}
                 
@@ -3213,7 +3359,7 @@
                                 <div class="info-row">
                                     <span class="info-label">Status:</span>
                                     <span class="info-value">
-                                        <span style="background: ${order.status === 'pending' ? '#f39c12' : order.status === 'confirmed' ? '#27ae60' : order.status === 'delivered' ? '#27ae60' : '#e74c3c'}; color: white; padding: 4px 10px; border-radius: 15px; font-size: 12px;">
+                                        <span style="background: ${order.status === 'pending' ? '#f39c12' : order.status === 'confirmed' ? '#27ae60' : order.status === 'delivered' ? '#27ae60' : order.status === 'cancelled' ? '#e74c3c' : '#95a5a6'}; color: white; padding: 4px 10px; border-radius: 15px; font-size: 12px;">
                                             ${(order.status || 'pending').toUpperCase()}
                                         </span>
                                     </span>
@@ -3222,6 +3368,35 @@
                                 <div class="info-row">
                                     <span class="info-label">Scheduled Date:</span>
                                     <span class="info-value">${new Date(order.scheduled_date).toLocaleDateString()}</span>
+                                </div>
+                                ` : ''}
+                                ${order.order_items && order.order_items.length > 0 ? `
+                                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee;">
+                                    <h4 style="color: #3498db; margin-bottom: 10px;">📋 Order Items (${order.order_items.length})</h4>
+                                    <table style="width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px;">
+                                        <thead>
+                                            <tr style="background: #f8f9fa;">
+                                                <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd; font-weight: 600;">Product</th>
+                                                <th style="padding: 8px; text-align: right; border-bottom: 2px solid #ddd; font-weight: 600;">Qty</th>
+                                                <th style="padding: 8px; text-align: right; border-bottom: 2px solid #ddd; font-weight: 600;">Unit Price</th>
+                                                <th style="padding: 8px; text-align: right; border-bottom: 2px solid #ddd; font-weight: 600;">Total</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            ${order.order_items.map((item, index) => `
+                                                <tr style="${index % 2 === 0 ? 'background: #f8f9fa;' : 'background: white;'}">
+                                                    <td style="padding: 8px; border-bottom: 1px solid #eee;">${item.product_name || 'N/A'}</td>
+                                                    <td style="padding: 8px; text-align: right; border-bottom: 1px solid #eee;">${item.quantity || 0}</td>
+                                                    <td style="padding: 8px; text-align: right; border-bottom: 1px solid #eee;">Rs. ${parseFloat(item.unit_price || 0).toFixed(2)}</td>
+                                                    <td style="padding: 8px; text-align: right; border-bottom: 1px solid #eee; font-weight: 600; color: #3498db;">Rs. ${parseFloat(item.total_price || 0).toFixed(2)}</td>
+                                                </tr>
+                                            `).join('')}
+                                            <tr style="background: #e3f2fd; font-weight: bold;">
+                                                <td colspan="3" style="padding: 8px; text-align: right; border-top: 2px solid #3498db;">Grand Total:</td>
+                                                <td style="padding: 8px; text-align: right; border-top: 2px solid #3498db; color: #3498db;">Rs. ${parseFloat(order.total_amount || 0).toFixed(2)}</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
                                 </div>
                                 ` : ''}
                                 <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee;">
@@ -3692,6 +3867,7 @@
                 const gpsLng = visitItem.getAttribute('data-gps-lng') || null;
                 const visitTime = visitItem.getAttribute('data-visit-time') || '';
                 const photo = visitItem.getAttribute('data-photo') || '';
+                let photosJson = visitItem.getAttribute('data-photos') || '[]';
                 const reason = visitItem.getAttribute('data-reason') || '';
                 const orderId = visitItem.getAttribute('data-order-id') || null;
                 const collectionId = visitItem.getAttribute('data-collection-id') || null;
@@ -3703,6 +3879,7 @@
                 const decodedReason = reason.replace(/&quot;/g, '"').replace(/&#39;/g, "'");
                 const decodedPhoto = photo.replace(/&quot;/g, '"').replace(/&#39;/g, "'");
                 const decodedVisitTime = visitTime.replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+                photosJson = photosJson.replace(/&quot;/g, '"').replace(/&#39;/g, "'");
                 
                 openViewVisitModal(
                     parseInt(visitId),
@@ -3718,6 +3895,7 @@
                     gpsLng && gpsLng !== '' ? parseFloat(gpsLng) : null,
                     decodedVisitTime,
                     decodedPhoto,
+                    photosJson,
                     decodedReason,
                     orderId && orderId !== '' ? parseInt(orderId) : null,
                     collectionId && collectionId !== '' ? parseInt(collectionId) : null,
@@ -3747,7 +3925,811 @@
             if (event.target === cnicPhotosModal) {
                 closeCnicPhotosModal();
             }
+            const warehouseModal = document.getElementById('warehouseDetailsModal');
+            if (event.target === warehouseModal) {
+                closeWarehouseDetailsModal();
+            }
+            const inventoryModal = document.getElementById('inventoryModal');
+            if (event.target === inventoryModal) {
+                closeInventoryModal();
+            }
         });
+
+        // ==================== WAREHOUSE FUNCTIONS ====================
+
+        // Create Warehouse
+        async function createWarehouse(event) {
+            event.preventDefault();
+            const resultDiv = document.getElementById('warehouseResult');
+
+            if (!currentToken) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Please login first';
+                return;
+            }
+
+            const warehouseData = {
+                name: document.getElementById('warehouseName').value,
+                zone_id: parseInt(document.getElementById('warehouseZoneId').value),
+                address: document.getElementById('warehouseAddress').value || null
+            };
+
+            const endpoint = `${API_BASE}/warehouses/`;
+            showApiCall('POST', endpoint, 'Create Warehouse', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify(warehouseData)
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showApiCall('POST', endpoint, 'Create Warehouse', 'error');
+                    throw new Error(data.detail || 'Failed to create warehouse');
+                }
+
+                resultDiv.className = 'result success';
+                resultDiv.textContent = `Warehouse "${data.name}" created successfully!`;
+                showApiCall('POST', endpoint, 'Create Warehouse', 'success');
+
+                // Reset form
+                document.getElementById('warehouseForm').reset();
+
+                // Reload list
+                loadWarehouses();
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // Load Warehouses
+        async function loadWarehouses() {
+            const listDiv = document.getElementById('warehousesList');
+
+            if (!currentDistributorId) {
+                listDiv.innerHTML = '<p>Please login first</p>';
+                return;
+            }
+
+            const endpoint = `${API_BASE}/warehouses/`;
+            showApiCall('GET', endpoint, 'Load Warehouses', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showApiCall('GET', endpoint, 'Load Warehouses', 'error');
+                    throw new Error(data.detail || 'Failed to load warehouses');
+                }
+
+                showApiCall('GET', endpoint, 'Load Warehouses', 'success');
+
+                if (data.length === 0) {
+                    listDiv.innerHTML = '<p>No warehouses found. Create one above.</p>';
+                    return;
+                }
+
+                // Get zone names
+                const zoneMap = {};
+                if (allZones) {
+                    allZones.forEach(zone => {
+                        zoneMap[zone.id] = zone.name;
+                    });
+                }
+
+                listDiv.innerHTML = data.map(warehouse => {
+                    const zoneName = warehouse.zone_id && zoneMap[warehouse.zone_id] 
+                        ? zoneMap[warehouse.zone_id] 
+                        : (warehouse.zone_id ? `Zone ${warehouse.zone_id}` : 'N/A');
+                    
+                    return `
+                        <div class="list-item" onclick="openWarehouseDetailsModal(${warehouse.id}, '${(warehouse.name || '').replace(/'/g, "\\'")}', ${warehouse.zone_id || 'null'}, '${(warehouse.address || '').replace(/'/g, "\\'")}', ${warehouse.is_active ? 'true' : 'false'})">
+                            <div class="list-item-info" style="flex: 1;">
+                                <strong>${warehouse.name}</strong><br>
+                                Zone: ${zoneName}<br>
+                                ${warehouse.address ? `Address: ${warehouse.address}<br>` : ''}
+                                Status: <span style="color: ${warehouse.is_active ? 'green' : 'red'}">${warehouse.is_active ? 'Active' : 'Inactive'}</span><br>
+                                <small>ID: ${warehouse.id} | Created: ${new Date(warehouse.created_at).toLocaleDateString()}</small>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <button class="btn btn-primary" onclick="event.stopPropagation(); openWarehouseDetailsModal(${warehouse.id}, '${(warehouse.name || '').replace(/'/g, "\\'")}', ${warehouse.zone_id || 'null'}, '${(warehouse.address || '').replace(/'/g, "\\'")}', ${warehouse.is_active ? 'true' : 'false'})" style="padding: 8px 15px; font-size: 14px;">📦 Manage</button>
+                                <button class="btn btn-danger" onclick="event.stopPropagation(); if(confirm('Delete warehouse ${(warehouse.name || '').replace(/'/g, "\\'")}? This will soft delete the warehouse.')) { deleteWarehouse(${warehouse.id}); }" style="padding: 8px 15px; font-size: 14px;">🗑️ Delete</button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            } catch (error) {
+                listDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+
+        // Open Warehouse Details Modal
+        async function openWarehouseDetailsModal(warehouseId, warehouseName, zoneId, address, isActive) {
+            const modal = document.getElementById('warehouseDetailsModal');
+            modal.classList.remove('hidden');
+            modal.style.display = 'flex';
+            
+            document.getElementById('warehouseDetailsModalTitle').textContent = `Warehouse: ${warehouseName}`;
+            
+            // Store current warehouse ID
+            window.currentWarehouseId = warehouseId;
+            window.currentWarehouseName = warehouseName;
+            
+            // Load active products for inventory dropdown
+            await loadActiveProductsForInventory();
+            
+            // Load warehouse details, inventory, and assigned delivery men
+            await loadWarehouseDetails(warehouseId);
+        }
+
+        // Load Warehouse Details (Inventory and Delivery Men)
+        async function loadWarehouseDetails(warehouseId) {
+            const inventoryDiv = document.getElementById('warehouseInventoryList');
+            const deliveryMenDiv = document.getElementById('warehouseDeliveryMenList');
+            
+            inventoryDiv.innerHTML = '<p style="color: #999;">Loading inventory...</p>';
+            deliveryMenDiv.innerHTML = '<p style="color: #999;">Loading delivery men...</p>';
+
+            // Load inventory
+            try {
+                const inventoryResponse = await fetch(`${API_BASE}/warehouses/${warehouseId}/inventory`, {
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+                
+                if (inventoryResponse.ok) {
+                    const inventory = await inventoryResponse.json();
+                    displayInventory(inventory, inventoryDiv);
+                } else {
+                    inventoryDiv.innerHTML = '<p style="color: #999;">No inventory items found.</p>';
+                }
+            } catch (error) {
+                console.error('Error loading inventory:', error);
+                inventoryDiv.innerHTML = '<p style="color: red;">Error loading inventory.</p>';
+            }
+
+            // Load assigned delivery men
+            try {
+                const deliveryMenResponse = await fetch(`${API_BASE}/warehouses/${warehouseId}/delivery-men`, {
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+                
+                if (deliveryMenResponse.ok) {
+                    const deliveryMen = await deliveryMenResponse.json();
+                    displayWarehouseDeliveryMen(deliveryMen, deliveryMenDiv, warehouseId);
+                } else {
+                    deliveryMenDiv.innerHTML = '<p style="color: #999;">No delivery men assigned.</p>';
+                }
+            } catch (error) {
+                console.error('Error loading delivery men:', error);
+                deliveryMenDiv.innerHTML = '<p style="color: red;">Error loading delivery men.</p>';
+            }
+        }
+
+        // Display Inventory
+        function displayInventory(inventory, container) {
+            if (!inventory || inventory.length === 0) {
+                container.innerHTML = '<p style="color: #999;">No inventory items. Add items using the form above.</p>';
+                return;
+            }
+
+            container.innerHTML = inventory.map(item => {
+                const productName = item.product_name || item.item_name || 'N/A';
+                const productCode = item.product_code || item.item_code || '';
+                const displayName = item.product_id ? `<strong>${productName}</strong> <span style="color: #667eea; font-size: 0.9em;">(Product ID: ${item.product_id})</span>` : `<strong>${productName}</strong>`;
+                
+                return `
+                <div class="list-item" style="margin-bottom: 10px;">
+                    <div class="list-item-info" style="flex: 1;">
+                        ${displayName}<br>
+                        ${productCode ? `Code: <strong style="color: #667eea;">${productCode}</strong><br>` : ''}
+                        Quantity: <strong style="color: #667eea;">${item.quantity || 0}</strong> ${item.unit || 'units'}<br>
+                        <small>ID: ${item.id}</small>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <button class="btn btn-primary" onclick="openInventoryModal(${item.id}, ${item.product_id || 'null'}, '${(productName || '').replace(/'/g, "\\'")}', '${(productCode || '').replace(/'/g, "\\'")}', '${(item.unit || '').replace(/'/g, "\\'")}', ${item.quantity || 0}, ${window.currentWarehouseId})" style="padding: 8px 15px; font-size: 14px;">✏️ Edit</button>
+                        <button class="btn btn-danger" onclick="if(confirm('Delete this inventory item?')) { deleteInventoryItem(${item.id}); }" style="padding: 8px 15px; font-size: 14px;">🗑️ Delete</button>
+                    </div>
+                </div>
+            `;
+            }).join('');
+        }
+
+        // Display Warehouse Delivery Men
+        function displayWarehouseDeliveryMen(deliveryMen, container, warehouseId) {
+            if (!deliveryMen || deliveryMen.length === 0) {
+                container.innerHTML = '<p style="color: #999;">No delivery men assigned. Assign delivery men using the form above.</p>';
+                return;
+            }
+
+            container.innerHTML = deliveryMen.map(dm => `
+                <div class="list-item" style="margin-bottom: 10px;">
+                    <div class="list-item-info" style="flex: 1;">
+                        <strong>${dm.name || 'N/A'}</strong><br>
+                        Phone: ${dm.phone || 'N/A'}<br>
+                        <small>ID: ${dm.id}</small>
+                    </div>
+                    <div style="display: flex; align-items: center;">
+                        <button class="btn btn-danger" onclick="if(confirm('Remove ${(dm.name || '').replace(/'/g, "\\'")} from this warehouse?')) { removeDeliveryManFromWarehouse(${warehouseId}, ${dm.id}); }" style="padding: 8px 15px; font-size: 14px;">❌ Remove</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Load Active Products for Inventory Dropdown
+        async function loadActiveProductsForInventory() {
+            const productSelect = document.getElementById('inventoryProductId');
+            if (!productSelect) return;
+            
+            try {
+                const response = await fetch(`${API_BASE}/products/active`, {
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+                
+                if (response.ok) {
+                    const products = await response.json();
+                    const currentValue = productSelect.value;
+                    productSelect.innerHTML = '<option value="">Select Product *</option>' + 
+                        products.map(p => `<option value="${p.id}" ${p.id == currentValue ? 'selected' : ''}>${p.name} (Code: ${p.code})${p.unit ? ' - ' + p.unit : ''}</option>`).join('');
+                } else {
+                    productSelect.innerHTML = '<option value="">Error loading products</option>';
+                }
+            } catch (error) {
+                console.error('Error loading products:', error);
+                productSelect.innerHTML = '<option value="">Error loading products</option>';
+            }
+        }
+
+        // Add Inventory Item
+        async function addInventoryItem(event) {
+            event.preventDefault();
+            const resultDiv = document.getElementById('inventoryResult');
+            const warehouseId = window.currentWarehouseId;
+
+            if (!warehouseId) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Please select a warehouse first';
+                return;
+            }
+
+            const productId = parseInt(document.getElementById('inventoryProductId').value);
+            if (!productId) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Please select a product';
+                return;
+            }
+
+            const inventoryData = {
+                product_id: productId,
+                quantity: parseInt(document.getElementById('inventoryQuantity').value) || 0
+            };
+
+            const endpoint = `${API_BASE}/warehouses/${warehouseId}/inventory`;
+            showApiCall('POST', endpoint, 'Add Inventory Item', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify(inventoryData)
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showApiCall('POST', endpoint, 'Add Inventory Item', 'error');
+                    throw new Error(data.detail || 'Failed to add inventory item');
+                }
+
+                resultDiv.className = 'result success';
+                resultDiv.textContent = `Inventory item added successfully! Product: ${data.product_name || data.item_name}`;
+                showApiCall('POST', endpoint, 'Add Inventory Item', 'success');
+
+                // Reset form
+                document.getElementById('addInventoryForm').reset();
+                // Reload products dropdown
+                await loadActiveProductsForInventory();
+
+                // Reload inventory
+                await loadWarehouseDetails(warehouseId);
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // Open Inventory Modal (for editing)
+        async function openInventoryModal(itemId, productId, itemName, itemCode, unit, quantity, warehouseId) {
+            const modal = document.getElementById('inventoryModal');
+            modal.classList.remove('hidden');
+            modal.style.display = 'flex';
+            
+            document.getElementById('inventoryModalTitle').textContent = 'Edit Inventory Item';
+            document.getElementById('inventoryItemId').value = itemId;
+            document.getElementById('editInventoryQuantity').value = quantity || 0;
+            window.currentInventoryWarehouseId = warehouseId;
+            
+            // Load products dropdown and set current product
+            await loadActiveProductsForInventoryEdit();
+            const productSelect = document.getElementById('editInventoryProductId');
+            if (productSelect && productId) {
+                productSelect.value = productId;
+            }
+        }
+        
+        // Load Active Products for Edit Inventory Modal
+        async function loadActiveProductsForInventoryEdit() {
+            const productSelect = document.getElementById('editInventoryProductId');
+            if (!productSelect) return;
+            
+            try {
+                const response = await fetch(`${API_BASE}/products/active`, {
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+                
+                if (response.ok) {
+                    const products = await response.json();
+                    const currentValue = productSelect.value;
+                    productSelect.innerHTML = '<option value="">Select Product (Optional - to change product)</option>' + 
+                        products.map(p => `<option value="${p.id}" ${p.id == currentValue ? 'selected' : ''}>${p.name} (Code: ${p.code})${p.unit ? ' - ' + p.unit : ''}</option>`).join('');
+                } else {
+                    productSelect.innerHTML = '<option value="">Error loading products</option>';
+                }
+            } catch (error) {
+                console.error('Error loading products:', error);
+                productSelect.innerHTML = '<option value="">Error loading products</option>';
+            }
+        }
+
+        // Update Inventory Item
+        async function updateInventoryItem(event) {
+            event.preventDefault();
+            const resultDiv = document.getElementById('inventoryEditResult');
+            const itemId = document.getElementById('inventoryItemId').value;
+            const warehouseId = window.currentInventoryWarehouseId;
+
+            const productIdSelect = document.getElementById('editInventoryProductId');
+            const productId = productIdSelect && productIdSelect.value ? parseInt(productIdSelect.value) : null;
+            const quantity = parseInt(document.getElementById('editInventoryQuantity').value) || 0;
+
+            const inventoryData = {};
+            if (productId) {
+                inventoryData.product_id = productId;
+            }
+            if (quantity !== null && quantity !== undefined) {
+                inventoryData.quantity = quantity;
+            }
+
+            const endpoint = `${API_BASE}/warehouses/${warehouseId}/inventory/${itemId}`;
+            showApiCall('PUT', endpoint, 'Update Inventory Item', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify(inventoryData)
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showApiCall('PUT', endpoint, 'Update Inventory Item', 'error');
+                    throw new Error(data.detail || 'Failed to update inventory item');
+                }
+
+                resultDiv.className = 'result success';
+                resultDiv.textContent = 'Inventory item updated successfully!';
+                showApiCall('PUT', endpoint, 'Update Inventory Item', 'success');
+
+                // Close modal and reload inventory
+                setTimeout(() => {
+                    closeInventoryModal();
+                    loadWarehouseDetails(warehouseId);
+                }, 1000);
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // Delete Inventory Item
+        async function deleteInventoryItem(itemId) {
+            const warehouseId = window.currentWarehouseId;
+            const endpoint = `${API_BASE}/warehouses/${warehouseId}/inventory/${itemId}`;
+            showApiCall('DELETE', endpoint, 'Delete Inventory Item', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+
+                if (!response.ok) {
+                    const data = await response.json();
+                    showApiCall('DELETE', endpoint, 'Delete Inventory Item', 'error');
+                    throw new Error(data.detail || 'Failed to delete inventory item');
+                }
+
+                showApiCall('DELETE', endpoint, 'Delete Inventory Item', 'success');
+                alert('Inventory item deleted successfully!');
+                
+                // Reload inventory
+                await loadWarehouseDetails(warehouseId);
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        }
+
+        // Assign Delivery Man to Warehouse
+        async function assignDeliveryManToWarehouse(event) {
+            event.preventDefault();
+            const resultDiv = document.getElementById('assignDeliveryManResult');
+            const warehouseId = window.currentWarehouseId;
+            const deliveryManId = parseInt(document.getElementById('assignDeliveryManId').value);
+
+            if (!warehouseId || !deliveryManId) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Please select a delivery man';
+                return;
+            }
+
+            const endpoint = `${API_BASE}/warehouses/${warehouseId}/delivery-men/${deliveryManId}`;
+            showApiCall('POST', endpoint, 'Assign Delivery Man to Warehouse', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showApiCall('POST', endpoint, 'Assign Delivery Man to Warehouse', 'error');
+                    throw new Error(data.detail || 'Failed to assign delivery man');
+                }
+
+                resultDiv.className = 'result success';
+                resultDiv.textContent = 'Delivery man assigned successfully!';
+                showApiCall('POST', endpoint, 'Assign Delivery Man to Warehouse', 'success');
+
+                // Reset form
+                document.getElementById('assignDeliveryManForm').reset();
+
+                // Reload delivery men
+                await loadWarehouseDetails(warehouseId);
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // Remove Delivery Man from Warehouse
+        async function removeDeliveryManFromWarehouse(warehouseId, deliveryManId) {
+            const endpoint = `${API_BASE}/warehouses/${warehouseId}/delivery-men/${deliveryManId}`;
+            showApiCall('DELETE', endpoint, 'Remove Delivery Man from Warehouse', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+
+                if (!response.ok) {
+                    const data = await response.json();
+                    showApiCall('DELETE', endpoint, 'Remove Delivery Man from Warehouse', 'error');
+                    throw new Error(data.detail || 'Failed to remove delivery man');
+                }
+
+                showApiCall('DELETE', endpoint, 'Remove Delivery Man from Warehouse', 'success');
+                alert('Delivery man removed from warehouse successfully!');
+                
+                // Reload delivery men
+                await loadWarehouseDetails(warehouseId);
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        }
+
+        // Delete Warehouse
+        async function deleteWarehouse(warehouseId) {
+            const endpoint = `${API_BASE}/warehouses/${warehouseId}`;
+            showApiCall('DELETE', endpoint, 'Delete Warehouse', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+
+                if (!response.ok) {
+                    const data = await response.json();
+                    showApiCall('DELETE', endpoint, 'Delete Warehouse', 'error');
+                    throw new Error(data.detail || 'Failed to delete warehouse');
+                }
+
+                showApiCall('DELETE', endpoint, 'Delete Warehouse', 'success');
+                alert('Warehouse deleted successfully!');
+                
+                // Reload warehouses
+                loadWarehouses();
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        }
+
+        // Close Warehouse Details Modal
+        function closeWarehouseDetailsModal() {
+            const modal = document.getElementById('warehouseDetailsModal');
+            modal.classList.add('hidden');
+            modal.style.display = 'none';
+            window.currentWarehouseId = null;
+        }
+
+        // Close Inventory Modal
+        function closeInventoryModal() {
+            const modal = document.getElementById('inventoryModal');
+            modal.classList.add('hidden');
+            modal.style.display = 'none';
+            window.currentInventoryWarehouseId = null;
+        }
+
+        // Load delivery men for assignment dropdown
+        async function loadDeliveryMenForWarehouse() {
+            if (!currentDistributorId) return;
+            
+            try {
+                const response = await fetch(`${API_BASE}/delivery-men/distributor/${currentDistributorId}`, {
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+                
+                if (response.ok) {
+                    const deliveryMen = await response.json();
+                    const select = document.getElementById('assignDeliveryManId');
+                    if (select) {
+                        select.innerHTML = '<option value="">Select Delivery Man</option>' + 
+                            deliveryMen.map(dm => `<option value="${dm.id}">${dm.name} (${dm.phone})</option>`).join('');
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading delivery men:', error);
+            }
+        }
+
+        // ==================== PRODUCT FUNCTIONS ====================
+
+        // Create Product
+        async function createProduct(event) {
+            event.preventDefault();
+            const resultDiv = document.getElementById('productResult');
+
+            if (!currentToken) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Please login first';
+                return;
+            }
+
+            const productData = {
+                code: document.getElementById('productCode').value.trim(),
+                name: document.getElementById('productName').value.trim(),
+                unit: document.getElementById('productUnit').value.trim() || null
+            };
+
+            const endpoint = `${API_BASE}/products/`;
+            showApiCall('POST', endpoint, 'Create Product', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify(productData)
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showApiCall('POST', endpoint, 'Create Product', 'error');
+                    throw new Error(data.detail || 'Failed to create product');
+                }
+
+                resultDiv.className = 'result success';
+                resultDiv.textContent = `Product "${data.name}" (Code: ${data.code}) created successfully!`;
+                showApiCall('POST', endpoint, 'Create Product', 'success');
+
+                // Reset form
+                document.getElementById('productForm').reset();
+
+                // Reload list
+                loadProducts();
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // Load Products
+        async function loadProducts() {
+            const listDiv = document.getElementById('productsList');
+
+            if (!currentDistributorId) {
+                listDiv.innerHTML = '<p>Please login first</p>';
+                return;
+            }
+
+            const includeInactive = document.getElementById('includeInactiveProducts')?.checked || false;
+            const endpoint = `${API_BASE}/products/?include_inactive=${includeInactive}`;
+            showApiCall('GET', endpoint, 'Load Products', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showApiCall('GET', endpoint, 'Load Products', 'error');
+                    throw new Error(data.detail || 'Failed to load products');
+                }
+
+                showApiCall('GET', endpoint, 'Load Products', 'success');
+
+                if (data.length === 0) {
+                    listDiv.innerHTML = '<p>No products found. Create one above.</p>';
+                    return;
+                }
+
+                listDiv.innerHTML = data.map(product => {
+                    const statusColor = product.is_active ? 'green' : 'red';
+                    const statusText = product.is_active ? 'Active' : 'Inactive';
+                    return `
+                        <div class="list-item" onclick="openEditProductModal(${product.id}, '${(product.code || '').replace(/'/g, "\\'")}', '${(product.name || '').replace(/'/g, "\\'")}', '${(product.unit || '').replace(/'/g, "\\'")}', ${product.is_active})">
+                            <div class="list-item-info" style="flex: 1;">
+                                <strong>${product.name}</strong><br>
+                                Code: <strong style="color: #667eea;">${product.code}</strong><br>
+                                ${product.unit ? `Unit: ${product.unit}<br>` : ''}
+                                Status: <span style="color: ${statusColor}">${statusText}</span><br>
+                                <small>ID: ${product.id} | Created: ${new Date(product.created_at).toLocaleDateString()}</small>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <button class="btn btn-primary" onclick="event.stopPropagation(); openEditProductModal(${product.id}, '${(product.code || '').replace(/'/g, "\\'")}', '${(product.name || '').replace(/'/g, "\\'")}', '${(product.unit || '').replace(/'/g, "\\'")}', ${product.is_active})" style="padding: 8px 15px; font-size: 14px;">✏️ Edit</button>
+                                <button class="btn btn-danger" onclick="event.stopPropagation(); if(confirm('Delete product ${(product.name || '').replace(/'/g, "\\'")}? This will soft delete the product.')) { deleteProduct(${product.id}); }" style="padding: 8px 15px; font-size: 14px;">🗑️ Delete</button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            } catch (error) {
+                listDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+
+        // Open Edit Product Modal
+        function openEditProductModal(productId, code, name, unit, isActive) {
+            const modal = document.getElementById('editProductModal');
+            modal.classList.remove('hidden');
+            modal.style.display = 'flex';
+            
+            document.getElementById('editProductId').value = productId;
+            document.getElementById('editProductCode').value = code || '';
+            document.getElementById('editProductName').value = name || '';
+            document.getElementById('editProductUnit').value = unit || '';
+            document.getElementById('editProductIsActive').checked = isActive;
+        }
+
+        // Close Edit Product Modal
+        function closeEditProductModal() {
+            const modal = document.getElementById('editProductModal');
+            modal.classList.add('hidden');
+            modal.style.display = 'none';
+        }
+
+        // Update Product
+        async function updateProduct(event) {
+            event.preventDefault();
+            const resultDiv = document.getElementById('editProductResult');
+            const productId = document.getElementById('editProductId').value;
+
+            const productData = {
+                code: document.getElementById('editProductCode').value.trim(),
+                name: document.getElementById('editProductName').value.trim(),
+                unit: document.getElementById('editProductUnit').value.trim() || null,
+                is_active: document.getElementById('editProductIsActive').checked
+            };
+
+            const endpoint = `${API_BASE}/products/${productId}`;
+            showApiCall('PUT', endpoint, 'Update Product', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify(productData)
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showApiCall('PUT', endpoint, 'Update Product', 'error');
+                    throw new Error(data.detail || 'Failed to update product');
+                }
+
+                resultDiv.className = 'result success';
+                resultDiv.textContent = 'Product updated successfully!';
+                showApiCall('PUT', endpoint, 'Update Product', 'success');
+
+                // Close modal and reload list
+                setTimeout(() => {
+                    closeEditProductModal();
+                    loadProducts();
+                }, 1000);
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // Delete Product
+        async function deleteProduct(productId) {
+            const endpoint = `${API_BASE}/products/${productId}`;
+            showApiCall('DELETE', endpoint, 'Delete Product', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+
+                if (!response.ok) {
+                    const data = await response.json();
+                    showApiCall('DELETE', endpoint, 'Delete Product', 'error');
+                    throw new Error(data.detail || 'Failed to delete product');
+                }
+
+                showApiCall('DELETE', endpoint, 'Delete Product', 'success');
+                alert('Product deleted successfully!');
+                
+                // Reload products
+                loadProducts();
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        }
     </script>
 
     <!-- Edit Modal -->
@@ -3784,6 +4766,124 @@
                 <button class="btn btn-danger" onclick="deleteUser()">Delete Account</button>
                 <button class="btn" onclick="closeEditModal()" style="background: #6c757d; color: white;">Cancel</button>
             </div>
+        </div>
+    </div>
+
+    <!-- Warehouse Details Modal -->
+    <div id="warehouseDetailsModal" class="modal hidden">
+        <div class="modal-content" style="max-width: 900px;">
+            <span class="close-button" onclick="closeWarehouseDetailsModal()">&times;</span>
+            <h2 id="warehouseDetailsModalTitle">Warehouse Details</h2>
+            
+            <!-- Add Inventory Section -->
+            <div style="margin-bottom: 30px; padding: 20px; background: #f8f9fa; border-radius: 8px;">
+                <h3 style="color: #667eea; margin-bottom: 15px;">➕ Add Inventory Item</h3>
+                <p style="color: #666; margin-bottom: 15px; font-size: 14px;">Select an active product from the products table to add to inventory. Product details (name, code, unit) will be automatically filled.</p>
+                <form id="addInventoryForm" onsubmit="addInventoryItem(event)">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                        <div class="form-group">
+                            <label>Select Product *</label>
+                            <select id="inventoryProductId" required onfocus="loadActiveProductsForInventory()">
+                                <option value="">Select Product *</option>
+                            </select>
+                            <small style="color: #666;">Only active products are shown</small>
+                        </div>
+                        <div class="form-group">
+                            <label>Quantity *</label>
+                            <input type="number" id="inventoryQuantity" required min="0" value="0">
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Add Inventory Item</button>
+                </form>
+                <div id="inventoryResult" class="result"></div>
+            </div>
+
+            <!-- Assign Delivery Man Section -->
+            <div style="margin-bottom: 30px; padding: 20px; background: #f8f9fa; border-radius: 8px;">
+                <h3 style="color: #667eea; margin-bottom: 15px;">👤 Assign Delivery Man</h3>
+                <form id="assignDeliveryManForm" onsubmit="assignDeliveryManToWarehouse(event)">
+                    <div class="form-group">
+                        <label>Select Delivery Man *</label>
+                        <select id="assignDeliveryManId" required onfocus="loadDeliveryMenForWarehouse()">
+                            <option value="">Select Delivery Man</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Assign Delivery Man</button>
+                </form>
+                <div id="assignDeliveryManResult" class="result"></div>
+            </div>
+
+            <!-- Inventory List -->
+            <div style="margin-bottom: 30px;">
+                <h3 style="color: #667eea; margin-bottom: 15px;">📦 Inventory Items</h3>
+                <div id="warehouseInventoryList" style="max-height: 300px; overflow-y: auto;">
+                    <p style="color: #999;">Loading inventory...</p>
+                </div>
+            </div>
+
+            <!-- Assigned Delivery Men List -->
+            <div>
+                <h3 style="color: #667eea; margin-bottom: 15px;">👥 Assigned Delivery Men</h3>
+                <div id="warehouseDeliveryMenList" style="max-height: 300px; overflow-y: auto;">
+                    <p style="color: #999;">Loading delivery men...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Inventory Edit Modal -->
+    <div id="inventoryModal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeInventoryModal()">&times;</span>
+            <h2 id="inventoryModalTitle">Edit Inventory Item</h2>
+            <p style="color: #666; margin-bottom: 15px; font-size: 14px;">Update quantity or change the product. Product details will be automatically updated if you change the product.</p>
+            <form id="editInventoryForm" onsubmit="updateInventoryItem(event)">
+                <input type="hidden" id="inventoryItemId">
+                <div class="form-group">
+                    <label>Product (Optional - to change product)</label>
+                    <select id="editInventoryProductId" onfocus="loadActiveProductsForInventoryEdit()">
+                        <option value="">Keep Current Product</option>
+                    </select>
+                    <small style="color: #666;">Select a different product to change it, or leave as is</small>
+                </div>
+                <div class="form-group">
+                    <label>Quantity *</label>
+                    <input type="number" id="editInventoryQuantity" required min="0">
+                </div>
+                <button type="submit" class="btn btn-primary">Update Inventory Item</button>
+            </form>
+            <div id="inventoryEditResult" class="result"></div>
+        </div>
+    </div>
+
+    <!-- Edit Product Modal -->
+    <div id="editProductModal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeEditProductModal()">&times;</span>
+            <h2>Edit Product</h2>
+            <form id="editProductForm" onsubmit="updateProduct(event)">
+                <input type="hidden" id="editProductId">
+                <div class="form-group">
+                    <label>Product Code *</label>
+                    <input type="text" id="editProductCode" required maxlength="50">
+                </div>
+                <div class="form-group">
+                    <label>Product Name *</label>
+                    <input type="text" id="editProductName" required maxlength="255">
+                </div>
+                <div class="form-group">
+                    <label>Unit (Optional)</label>
+                    <input type="text" id="editProductUnit" maxlength="20" placeholder="e.g., kg, pcs, box, pack">
+                </div>
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                        <input type="checkbox" id="editProductIsActive" style="width: auto;">
+                        <span>Active (uncheck to deactivate)</span>
+                    </label>
+                </div>
+                <button type="submit" class="btn btn-primary">Update Product</button>
+            </form>
+            <div id="editProductResult" class="result"></div>
         </div>
     </div>
 </body>

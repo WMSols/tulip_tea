@@ -79,10 +79,11 @@ async def create_credit_limit_request(
         )
         
         # Log credit limit request creation
-        ActivityLogService.log_create(
+        ActivityLogService.log_activity(
             db=db,
             user_id=order_booker_id,
             user_role='order_booker',
+            action_type='CREATE',
             entity_type='credit_limit_request',
             entity_id=result['id'],
             new_values={

@@ -3315,12 +3315,21 @@
             // Load order if orderId exists
             if (orderId && orderId !== 'null' && orderId !== null) {
                 promises.push(
-                    fetch(`http://localhost:8000/orders/${orderId}`)
-                        .then(res => res.json())
-                        .then(order => ({ type: 'order', data: order }))
+                    fetch(`${API_BASE}/orders/${orderId}`, {
+                        headers: {
+                            'Authorization': `Bearer ${currentToken}`
+                        }
+                    })
+                        .then(res => {
+                            if (!res.ok) {
+                                throw new Error(`HTTP error! status: ${res.status}`);
+                            }
+                            return res.json();
+                        })
+                        .then(order => ({ type: 'order', data: order, orderId: orderId }))
                         .catch(err => {
                             console.error('Error loading order:', err);
-                            return { type: 'order', data: null, error: err.message };
+                            return { type: 'order', data: null, error: err.message, orderId: orderId };
                         })
                 );
             }
@@ -3328,8 +3337,17 @@
             // Load collection if collectionId exists
             if (collectionId && collectionId !== 'null' && collectionId !== null) {
                 promises.push(
-                    fetch(`http://localhost:8000/daily-collections/${collectionId}`)
-                        .then(res => res.json())
+                    fetch(`${API_BASE}/daily-collections/${collectionId}`, {
+                        headers: {
+                            'Authorization': `Bearer ${currentToken}`
+                        }
+                    })
+                        .then(res => {
+                            if (!res.ok) {
+                                throw new Error(`HTTP error! status: ${res.status}`);
+                            }
+                            return res.json();
+                        })
                         .then(collection => ({ type: 'collection', data: collection }))
                         .catch(err => {
                             console.error('Error loading collection:', err);
@@ -3342,70 +3360,84 @@
                 let html = '';
                 
                 results.forEach(result => {
-                    if (result.type === 'order' && result.data) {
-                        const order = result.data;
-                        const orderJson = JSON.stringify(order).replace(/'/g, "\\'").replace(/"/g, '&quot;');
-                        html += `
-                            <div class="info-card" style="margin-bottom: 20px; border-left: 4px solid #3498db;">
-                                <h3 style="color: #3498db; margin-bottom: 15px;">📦 Order Information</h3>
-                                <div class="info-row">
-                                    <span class="info-label">Order ID:</span>
-                                    <span class="info-value">${order.id}</span>
+                    if (result.type === 'order') {
+                        if (result.error) {
+                            html += `
+                                <div class="info-card" style="margin-bottom: 20px; border-left: 4px solid #e74c3c;">
+                                    <h3 style="color: #e74c3c; margin-bottom: 15px;">❌ Error Loading Order</h3>
+                                    <p style="color: #666;">Failed to load order details: ${result.error}</p>
+                                    ${result.orderId ? `<p style="color: #999; font-size: 12px; margin-top: 10px;">Order ID: ${result.orderId}</p>` : ''}
                                 </div>
-                                <div class="info-row">
-                                    <span class="info-label">Total Amount:</span>
-                                    <span class="info-value"><strong style="color: #3498db;">Rs. ${parseFloat(order.total_amount || 0).toFixed(2)}</strong></span>
-                                </div>
-                                <div class="info-row">
-                                    <span class="info-label">Status:</span>
-                                    <span class="info-value">
-                                        <span style="background: ${order.status === 'pending' ? '#f39c12' : order.status === 'confirmed' ? '#27ae60' : order.status === 'delivered' ? '#27ae60' : order.status === 'cancelled' ? '#e74c3c' : '#95a5a6'}; color: white; padding: 4px 10px; border-radius: 15px; font-size: 12px;">
-                                            ${(order.status || 'pending').toUpperCase()}
+                            `;
+                        } else if (result.data) {
+                            const order = result.data;
+                            const orderJson = JSON.stringify(order).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                            html += `
+                                <div class="info-card" style="margin-bottom: 20px; border-left: 4px solid #3498db;">
+                                    <h3 style="color: #3498db; margin-bottom: 15px;">📦 Order Information</h3>
+                                    <div class="info-row">
+                                        <span class="info-label">Order ID:</span>
+                                        <span class="info-value">${order.id}</span>
+                                    </div>
+                                    <div class="info-row">
+                                        <span class="info-label">Total Amount:</span>
+                                        <span class="info-value"><strong style="color: #3498db;">Rs. ${parseFloat(order.total_amount || 0).toFixed(2)}</strong></span>
+                                    </div>
+                                    <div class="info-row">
+                                        <span class="info-label">Status:</span>
+                                        <span class="info-value">
+                                            <span style="background: ${order.status === 'pending' ? '#f39c12' : order.status === 'confirmed' ? '#27ae60' : order.status === 'delivered' ? '#27ae60' : order.status === 'cancelled' ? '#e74c3c' : '#95a5a6'}; color: white; padding: 4px 10px; border-radius: 15px; font-size: 12px;">
+                                                ${(order.status || 'pending').toUpperCase()}
+                                            </span>
                                         </span>
-                                    </span>
-                                </div>
-                                ${order.scheduled_date ? `
-                                <div class="info-row">
-                                    <span class="info-label">Scheduled Date:</span>
-                                    <span class="info-value">${new Date(order.scheduled_date).toLocaleDateString()}</span>
-                                </div>
-                                ` : ''}
-                                ${order.order_items && order.order_items.length > 0 ? `
-                                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee;">
-                                    <h4 style="color: #3498db; margin-bottom: 10px;">📋 Order Items (${order.order_items.length})</h4>
-                                    <table style="width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px;">
-                                        <thead>
-                                            <tr style="background: #f8f9fa;">
-                                                <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd; font-weight: 600;">Product</th>
-                                                <th style="padding: 8px; text-align: right; border-bottom: 2px solid #ddd; font-weight: 600;">Qty</th>
-                                                <th style="padding: 8px; text-align: right; border-bottom: 2px solid #ddd; font-weight: 600;">Unit Price</th>
-                                                <th style="padding: 8px; text-align: right; border-bottom: 2px solid #ddd; font-weight: 600;">Total</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            ${order.order_items.map((item, index) => `
-                                                <tr style="${index % 2 === 0 ? 'background: #f8f9fa;' : 'background: white;'}">
-                                                    <td style="padding: 8px; border-bottom: 1px solid #eee;">${item.product_name || 'N/A'}</td>
-                                                    <td style="padding: 8px; text-align: right; border-bottom: 1px solid #eee;">${item.quantity || 0}</td>
-                                                    <td style="padding: 8px; text-align: right; border-bottom: 1px solid #eee;">Rs. ${parseFloat(item.unit_price || 0).toFixed(2)}</td>
-                                                    <td style="padding: 8px; text-align: right; border-bottom: 1px solid #eee; font-weight: 600; color: #3498db;">Rs. ${parseFloat(item.total_price || 0).toFixed(2)}</td>
+                                    </div>
+                                    ${order.scheduled_date ? `
+                                    <div class="info-row">
+                                        <span class="info-label">Scheduled Date:</span>
+                                        <span class="info-value">${new Date(order.scheduled_date).toLocaleDateString()}</span>
+                                    </div>
+                                    ` : ''}
+                                    ${order.order_items && order.order_items.length > 0 ? `
+                                    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee;">
+                                        <h4 style="color: #3498db; margin-bottom: 10px;">📋 Order Items (${order.order_items.length})</h4>
+                                        <table style="width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px;">
+                                            <thead>
+                                                <tr style="background: #f8f9fa;">
+                                                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #ddd; font-weight: 600;">Product</th>
+                                                    <th style="padding: 8px; text-align: right; border-bottom: 2px solid #ddd; font-weight: 600;">Qty</th>
+                                                    <th style="padding: 8px; text-align: right; border-bottom: 2px solid #ddd; font-weight: 600;">Unit Price</th>
+                                                    <th style="padding: 8px; text-align: right; border-bottom: 2px solid #ddd; font-weight: 600;">Total</th>
                                                 </tr>
-                                            `).join('')}
-                                            <tr style="background: #e3f2fd; font-weight: bold;">
-                                                <td colspan="3" style="padding: 8px; text-align: right; border-top: 2px solid #3498db;">Grand Total:</td>
-                                                <td style="padding: 8px; text-align: right; border-top: 2px solid #3498db; color: #3498db;">Rs. ${parseFloat(order.total_amount || 0).toFixed(2)}</td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
+                                            </thead>
+                                            <tbody>
+                                                ${order.order_items.map((item, index) => `
+                                                    <tr style="${index % 2 === 0 ? 'background: #f8f9fa;' : 'background: white;'}">
+                                                        <td style="padding: 8px; border-bottom: 1px solid #eee;">${item.product_name || item.name || 'N/A'}</td>
+                                                        <td style="padding: 8px; text-align: right; border-bottom: 1px solid #eee;">${item.quantity || 0}</td>
+                                                        <td style="padding: 8px; text-align: right; border-bottom: 1px solid #eee;">Rs. ${parseFloat(item.unit_price || item.price || 0).toFixed(2)}</td>
+                                                        <td style="padding: 8px; text-align: right; border-bottom: 1px solid #eee; font-weight: 600; color: #3498db;">Rs. ${parseFloat(item.total_price || (item.quantity * (item.unit_price || item.price || 0)) || 0).toFixed(2)}</td>
+                                                    </tr>
+                                                `).join('')}
+                                                <tr style="background: #e3f2fd; font-weight: bold;">
+                                                    <td colspan="3" style="padding: 8px; text-align: right; border-top: 2px solid #3498db;">Grand Total:</td>
+                                                    <td style="padding: 8px; text-align: right; border-top: 2px solid #3498db; color: #3498db;">Rs. ${parseFloat(order.total_amount || 0).toFixed(2)}</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    ` : `
+                                    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee;">
+                                        <p style="color: #999; font-style: italic;">⚠️ No order items found in the order data.</p>
+                                    </div>
+                                    `}
+                                    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee;">
+                                        <button class="btn btn-primary" onclick="openOrderDetailsModal('${orderJson}')" style="width: 100%;">
+                                            📋 View Full Order Details
+                                        </button>
+                                    </div>
                                 </div>
-                                ` : ''}
-                                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee;">
-                                    <button class="btn btn-primary" onclick="openOrderDetailsModal('${orderJson}')" style="width: 100%;">
-                                        📋 View Full Order Details
-                                    </button>
-                                </div>
-                            </div>
-                        `;
+                            `;
+                        }
                     } else if (result.type === 'collection' && result.data) {
                         const collection = result.data;
                         const collectionJson = JSON.stringify(collection).replace(/'/g, "\\'").replace(/"/g, '&quot;');

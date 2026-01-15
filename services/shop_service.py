@@ -597,7 +597,7 @@ class ShopService:
         FLOW:
         1. Soft delete the shop (sets deleted_at and is_active=False)
         2. Soft delete all pending credit limit requests for this shop
-        3. Set shop's credit_limit to 0 (deactivate credit)
+        3. Preserve credit_limit (so it can be restored when reactivated)
         4. Log the operation
         
         Args:
@@ -619,6 +619,9 @@ class ShopService:
         if not shop:
             raise ValueError("Shop not found")
         
+        # Preserve credit_limit before deletion (for logging and potential reactivation)
+        preserved_credit_limit = shop.credit_limit
+        
         # Soft delete all pending credit limit requests for this shop
         pending_requests = db.query(CreditLimitRequest).filter(
             CreditLimitRequest.shop_id == shop_id,
@@ -631,15 +634,12 @@ class ShopService:
             req.deleted_at = datetime.utcnow()
             requests_deleted += 1
         
-        # Set shop's credit_limit to 0 (deactivate credit)
-        old_credit_limit = shop.credit_limit
-        shop.credit_limit = Decimal('0')
-        
         # Soft delete the shop (sets deleted_at and is_active=False)
+        # NOTE: credit_limit is preserved (not reset to 0) so it can be restored when reactivated
         success = ShopRepository.delete(db, shop_id)
         
         if success:
-            db.commit()  # Commit credit limit requests and credit_limit changes
+            db.commit()  # Commit credit limit requests and shop deletion
             
             # Log the soft delete operation
             from services.activity_log_service import ActivityLogService
@@ -649,10 +649,9 @@ class ShopService:
                 user_role='distributor',
                 entity_type='shop',
                 entity_id=shop_id,
-                changes_summary=f"Soft deleted shop '{shop.name}' (ID: {shop_id}). Credit limit set to 0. {requests_deleted} pending credit limit request(s) soft deleted.",
+                changes_summary=f"Soft deleted shop '{shop.name}' (ID: {shop_id}). Credit limit preserved: {preserved_credit_limit}. {requests_deleted} pending credit limit request(s) soft deleted.",
                 metadata={
-                    'old_credit_limit': str(old_credit_limit),
-                    'new_credit_limit': '0',
+                    'preserved_credit_limit': str(preserved_credit_limit),
                     'pending_requests_deleted': requests_deleted
                 },
                 request=request

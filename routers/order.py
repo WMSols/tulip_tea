@@ -300,6 +300,11 @@ async def deliver_order(
                 detail="Order not found"
             )
         
+        # Link order to the shop visit
+        updated_order.visit_id = shop_visit.id
+        db.commit()
+        db.refresh(updated_order)
+        
         # Get full order data
         orders = OrderService._format_orders(db, [updated_order])
         order_data = orders[0] if orders else None

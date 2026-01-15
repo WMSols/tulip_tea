@@ -13,6 +13,10 @@ This script handles cascading deletes for:
 - Delivery Man-Warehouse Assignments (junction table records)
 - Warehouses (and related: inventory items, delivery_man_warehouse assignments)
 
+Additional Features:
+- Image Bucket Cleanup: Delete all images from Supabase storage buckets
+- Sequence Reset: Reset PostgreSQL auto-increment sequences for primary keys
+
 WARNING: This performs HARD DELETES - data cannot be recovered!
 """
 
@@ -26,6 +30,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from config.database import SessionLocal
+from config.storage import storage
 from models.shop import Shop
 from models.order_booker import OrderBooker
 from models.delivery_man import DeliveryMan
@@ -67,7 +72,14 @@ class EntityDeleter:
         print("6. Inventory")
         print("7. Delivery Man-Warehouse Assignment")
         print("8. Warehouse")
-        print("0. Exit")
+        print("\n--- Image Bucket Cleanup ---")
+        print("9. Clean Shop Registrations Bucket")
+        print("10. Clean Daily Collections Bucket")
+        print("11. Clean Deliveries Bucket")
+        print("12. Clean Shop Visits Bucket")
+        print("\n--- Sequence Reset ---")
+        print("13. Reset Primary Key Sequences")
+        print("\n0. Exit")
         print("-"*60)
     
     def list_shops(self) -> List[Shop]:
@@ -576,6 +588,217 @@ class EntityDeleter:
         for entity_type, count in sorted(self.deleted_summary.items()):
             print(f"   {entity_type}: {count}")
         print("="*60)
+    
+    def list_bucket_files(self, bucket_name: str) -> List[str]:
+        """List all files in a Supabase storage bucket."""
+        if not storage.client:
+            print(f"❌ Supabase storage client not initialized!")
+            return []
+        
+        try:
+            # Recursively get all files from all folders
+            files = []
+            
+            def get_all_files(path: str = "") -> List[str]:
+                """Recursively list all files in a bucket path."""
+                files_list = []
+                try:
+                    items = storage.client.storage.from_(bucket_name).list(path)
+                    
+                    if items:
+                        for item in items:
+                            # Handle both dict and object responses
+                            if isinstance(item, dict):
+                                item_name = item.get('name', '')
+                                item_id = item.get('id')
+                            else:
+                                item_name = getattr(item, 'name', '')
+                                item_id = getattr(item, 'id', None)
+                            
+                            item_path = f"{path}/{item_name}" if path else item_name
+                            
+                            # If it has an 'id', it's a file; otherwise it's a folder
+                            if item_id:
+                                # It's a file
+                                files_list.append(item_path)
+                            else:
+                                # It's a folder, recurse
+                                sub_files = get_all_files(item_path)
+                                files_list.extend(sub_files)
+                    
+                    return files_list
+                except Exception as e:
+                    # If listing fails, try to continue
+                    print(f"   ⚠️  Warning listing path '{path}': {e}")
+                    return files_list
+            
+            files = get_all_files()
+            return files
+            
+        except Exception as e:
+            print(f"❌ Error listing files in bucket '{bucket_name}': {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+    
+    def clean_bucket(self, bucket_name: str) -> bool:
+        """Delete all files from a Supabase storage bucket."""
+        if not storage.client:
+            print(f"❌ Supabase storage client not initialized!")
+            return False
+        
+        print(f"\n📋 Cleaning bucket: {bucket_name}")
+        
+        # List all files
+        files = self.list_bucket_files(bucket_name)
+        
+        if not files:
+            print(f"✅ Bucket '{bucket_name}' is already empty!")
+            return True
+        
+        print(f"\n📊 Found {len(files)} file(s) in bucket '{bucket_name}'")
+        print(f"   Sample files (first 5):")
+        for i, file_path in enumerate(files[:5]):
+            print(f"      - {file_path}")
+        if len(files) > 5:
+            print(f"      ... and {len(files) - 5} more")
+        
+        confirm = input(f"\n⚠️  Are you SURE you want to delete ALL {len(files)} file(s) from bucket '{bucket_name}'? (type 'del' to confirm): ")
+        if confirm != 'del':
+            print("❌ Bucket cleanup cancelled.")
+            return False
+        
+        try:
+            deleted_count = 0
+            failed_count = 0
+            
+            # Delete files in batches (Supabase allows batch deletion)
+            batch_size = 100
+            for i in range(0, len(files), batch_size):
+                batch = files[i:i + batch_size]
+                try:
+                    storage.client.storage.from_(bucket_name).remove(batch)
+                    deleted_count += len(batch)
+                    print(f"   ✅ Deleted batch {i//batch_size + 1} ({len(batch)} files)")
+                except Exception as batch_error:
+                    print(f"   ⚠️  Error deleting batch {i//batch_size + 1}: {batch_error}")
+                    # Try deleting individually
+                    for file_path in batch:
+                        try:
+                            storage.client.storage.from_(bucket_name).remove([file_path])
+                            deleted_count += 1
+                        except Exception:
+                            failed_count += 1
+                            print(f"      ❌ Failed to delete: {file_path}")
+            
+            print(f"\n✅ Bucket cleanup completed!")
+            print(f"   - Deleted: {deleted_count} file(s)")
+            if failed_count > 0:
+                print(f"   - Failed: {failed_count} file(s)")
+            
+            self.deleted_summary[f'bucket_{bucket_name}'] = deleted_count
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error cleaning bucket: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def reset_sequence(self, table_name: str, sequence_name: str = None) -> bool:
+        """Reset a PostgreSQL sequence to start from 1 or continue from max ID."""
+        if not sequence_name:
+            # Default sequence name: {table_name}_id_seq
+            sequence_name = f"{table_name}_id_seq"
+        
+        try:
+            # Check if table exists
+            table_check = self.db.execute(text(
+                f"SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name = '{table_name}')"
+            ))
+            table_exists = table_check.scalar()
+            
+            if not table_exists:
+                print(f"   ⚠️  Table '{table_name}' does not exist, skipping")
+                return False
+            
+            # Get current max ID from table
+            result = self.db.execute(text(f"SELECT COALESCE(MAX(id), 0) FROM {table_name}"))
+            max_id = result.scalar() or 0
+            
+            # Reset sequence to max_id + 1 (so next insert starts from max_id + 1)
+            # Or set to 1 if table is empty
+            next_val = max_id + 1 if max_id > 0 else 1
+            
+            # Check if sequence exists
+            seq_check = self.db.execute(text(
+                f"SELECT EXISTS(SELECT 1 FROM pg_class WHERE relname = '{sequence_name}')"
+            ))
+            seq_exists = seq_check.scalar()
+            
+            if not seq_exists:
+                print(f"   ⚠️  Sequence '{sequence_name}' does not exist for table '{table_name}'")
+                return False
+            
+            # Reset sequence (setval with false means next nextval() will return the set value)
+            self.db.execute(text(f"SELECT setval('{sequence_name}', {next_val}, false)"))
+            self.db.commit()
+            
+            print(f"   ✅ Reset '{sequence_name}' to {next_val} (max ID: {max_id})")
+            return True
+            
+        except Exception as e:
+            self.db.rollback()
+            print(f"   ❌ Error resetting sequence for '{table_name}': {e}")
+            return False
+    
+    def reset_all_sequences(self) -> bool:
+        """Reset all primary key sequences for all tables."""
+        print("\n📋 Resetting Primary Key Sequences")
+        print("\nThis will reset all auto-increment sequences so new entries start from 1")
+        print("(or continue from the highest existing ID if data exists).\n")
+        
+        # List of all tables with primary key sequences
+        tables = [
+            'shops', 'order_bookers', 'delivery_men', 'routes', 'products',
+            'inventory', 'delivery_man_warehouses', 'warehouses', 'zones',
+            'distributors', 'orders', 'order_items', 'payments', 'daily_collections',
+            'shop_visits', 'credit_limit_requests', 'route_shops', 'delivery_man_routes',
+            'activity_logs', 'super_admins', 'visit_types'
+        ]
+        
+        print(f"📊 Tables to reset: {len(tables)}")
+        for table in tables:
+            print(f"   - {table}")
+        
+        confirm = input(f"\n⚠️  Are you SURE you want to reset sequences for ALL {len(tables)} tables? (type 'reset' to confirm): ")
+        if confirm != 'reset':
+            print("❌ Sequence reset cancelled.")
+            return False
+        
+        try:
+            success_count = 0
+            failed_count = 0
+            
+            for table in tables:
+                if self.reset_sequence(table):
+                    success_count += 1
+                else:
+                    failed_count += 1
+            
+            print(f"\n✅ Sequence reset completed!")
+            print(f"   - Success: {success_count} table(s)")
+            if failed_count > 0:
+                print(f"   - Failed: {failed_count} table(s)")
+            
+            self.deleted_summary['sequences_reset'] = success_count
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error resetting sequences: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
 
 
 def main():
@@ -586,7 +809,7 @@ def main():
     try:
         while True:
             deleter.show_menu()
-            choice = input("\nEnter your choice (0-8): ").strip()
+            choice = input("\nEnter your choice (0-13): ").strip()
             
             if choice == '0':
                 print("\n👋 Exiting...")
@@ -880,15 +1103,30 @@ def main():
                 except KeyboardInterrupt:
                     print("\n\n❌ Operation cancelled by user.")
             
+            elif choice == '9':  # Clean Shop Registrations Bucket
+                deleter.clean_bucket('shop-registrations')
+            
+            elif choice == '10':  # Clean Daily Collections Bucket
+                deleter.clean_bucket('daily-collections')
+            
+            elif choice == '11':  # Clean Deliveries Bucket
+                deleter.clean_bucket('deliveries')
+            
+            elif choice == '12':  # Clean Shop Visits Bucket
+                deleter.clean_bucket('shop-visits')
+            
+            elif choice == '13':  # Reset Sequences
+                deleter.reset_all_sequences()
+            
             else:
-                print("❌ Invalid choice! Please enter 0-8.")
+                print("❌ Invalid choice! Please enter 0-13.")
             
             # Show summary
             deleter.show_summary()
             
             # Ask if user wants to continue
-            if choice in ['1', '2', '3', '4', '5', '6', '7', '8']:
-                continue_choice = input("\nContinue deleting? (y/n): ").strip().lower()
+            if choice in ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13']:
+                continue_choice = input("\nContinue? (y/n): ").strip().lower()
                 if continue_choice != 'y':
                     break
     

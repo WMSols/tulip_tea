@@ -505,3 +505,28 @@ class ProductUpdate(BaseModel):
     name: Optional[str] = None
     unit: Optional[str] = None
     is_active: Optional[bool] = None
+
+
+# Activity Log Schemas
+class ActivityLogResponse(BaseModel):
+    id: int
+    user_id: Optional[int]
+    user_role: str
+    user_name: Optional[str]
+    action_type: str
+    entity_type: str
+    entity_id: Optional[int]
+    timestamp: Optional[str]
+    ip_address: Optional[str]
+    user_agent: Optional[str]
+    old_values: Optional[Dict[str, Any]]
+    new_values: Optional[Dict[str, Any]]
+    changes_summary: Optional[str]
+    reason: Optional[str]
+    notes: Optional[str]
+    status: str
+    error_message: Optional[str]
+    metadata: Optional[Dict[str, Any]]
+
+    class Config:
+        from_attributes = True

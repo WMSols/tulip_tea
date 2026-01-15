@@ -219,6 +219,7 @@ async def get_all_entities(
                     from sqlalchemy import text
                     result = db.execute(text("""
                         SELECT id, name, owner_name, owner_phone, credit_limit, 
+                               legacy_balance, outstanding_balance,
                                is_active, registration_status, zone_id, deleted_at, created_at 
                         FROM shops
                     """))
@@ -232,11 +233,13 @@ async def get_all_entities(
                                 self.owner_name = row[2]
                                 self.owner_phone = row[3]
                                 self.credit_limit = row[4]
-                                self.is_active = row[5]
-                                self.registration_status = row[6]
-                                self.zone_id = row[7]
-                                self.deleted_at = row[8]
-                                self.created_at = row[9]
+                                self.legacy_balance = row[5] if len(row) > 5 else None
+                                self.outstanding_balance = row[6] if len(row) > 6 else None
+                                self.is_active = row[7] if len(row) > 7 else True
+                                self.registration_status = row[8] if len(row) > 8 else None
+                                self.zone_id = row[9] if len(row) > 9 else None
+                                self.deleted_at = row[10] if len(row) > 10 else None
+                                self.created_at = row[11] if len(row) > 11 else None
                         shops.append(ShopRow(row))
                     print(f"DEBUG: Found {len(shops)} shops using raw SQL query")
                 else:
@@ -250,12 +253,27 @@ async def get_all_entities(
         shops_list = []
         for s in shops:
             try:
+                # Get credit_limit, legacy_balance, and outstanding_balance
+                # Handle both ORM objects and raw SQL row objects
+                credit_limit_val = 0
+                legacy_balance_val = 0
+                outstanding_balance_val = 0
+                
+                if hasattr(s, 'credit_limit'):
+                    credit_limit_val = float(s.credit_limit) if s.credit_limit is not None else 0
+                if hasattr(s, 'legacy_balance'):
+                    legacy_balance_val = float(s.legacy_balance) if s.legacy_balance is not None else 0
+                if hasattr(s, 'outstanding_balance'):
+                    outstanding_balance_val = float(s.outstanding_balance) if s.outstanding_balance is not None else 0
+                
                 shops_list.append({
                     "id": s.id,
                     "name": s.name,
                     "owner_name": s.owner_name,
                     "owner_phone": s.owner_phone,
-                    "credit_limit": float(s.credit_limit) if s.credit_limit else 0,
+                    "credit_limit": credit_limit_val,
+                    "legacy_balance": legacy_balance_val,
+                    "outstanding_balance": outstanding_balance_val,
                     "is_active": s.is_active,
                     "registration_status": s.registration_status,
                     "zone_id": s.zone_id,
@@ -339,6 +357,18 @@ async def get_all_entities(
         print(f"  Shops: {len(shops_list)}")
         print(f"  Zones: {len(zones_list)}")
         print(f"  Routes: {len(routes_list)}")
+        
+        # Log shop financial data for debugging
+        if shops_list:
+            print(f"\n=== SHOPS FINANCIAL DATA ===")
+            for shop in shops_list:
+                print(f"Shop ID {shop['id']} ({shop['name']}):")
+                print(f"  credit_limit: {shop.get('credit_limit', 'N/A')}")
+                print(f"  legacy_balance: {shop.get('legacy_balance', 'N/A')}")
+                print(f"  outstanding_balance: {shop.get('outstanding_balance', 'N/A')}")
+                print(f"  is_active: {shop.get('is_active', 'N/A')}")
+                print(f"  deleted_at: {shop.get('deleted_at', 'N/A')}")
+            print(f"=== END SHOPS FINANCIAL DATA ===\n")
         
         return result
     except Exception as e:
@@ -426,20 +456,57 @@ async def toggle_entity_active(
             db.refresh(entity)
         
         elif entity_type == "shop":
-            print("Getting shop...")
+            print("=== TOGGLE ACTIVE: SHOP ===")
+            print(f"Shop ID: {entity_id}")
             # Query shop including deleted ones for toggle
             entity = ShopRepository.get_by_id(db, entity_id, include_deleted=True)
             print(f"Shop query result: {entity}")
             if not entity:
                 print(f"ERROR: Shop with ID {entity_id} not found")
                 raise ValueError(f"Shop with ID {entity_id} not found")
-            print(f"Found shop: ID={entity.id}, Name={entity.name}, deleted_at={entity.deleted_at}, is_active={entity.is_active}")
+            
+            # Log current state BEFORE toggle
+            print(f"BEFORE TOGGLE:")
+            print(f"  Shop ID: {entity.id}")
+            print(f"  Shop Name: {entity.name}")
+            print(f"  is_active: {entity.is_active}")
+            print(f"  deleted_at: {entity.deleted_at}")
+            print(f"  credit_limit: {entity.credit_limit}")
+            print(f"  legacy_balance: {entity.legacy_balance}")
+            print(f"  outstanding_balance: {entity.outstanding_balance}")
+            
+            # Preserve financial data
+            preserved_credit_limit = entity.credit_limit
+            preserved_legacy_balance = entity.legacy_balance
+            preserved_outstanding_balance = entity.outstanding_balance
+            
             old_is_active = entity.is_active
             entity.is_active = not entity.is_active
+            
+            # Explicitly preserve credit_limit and other financial fields
+            if preserved_credit_limit is not None:
+                entity.credit_limit = preserved_credit_limit
+            if preserved_legacy_balance is not None:
+                entity.legacy_balance = preserved_legacy_balance
+            if preserved_outstanding_balance is not None:
+                entity.outstanding_balance = preserved_outstanding_balance
+            
             print(f"Toggling is_active from {old_is_active} to {entity.is_active}")
+            print(f"Preserved values:")
+            print(f"  credit_limit: {preserved_credit_limit} -> {entity.credit_limit}")
+            print(f"  legacy_balance: {preserved_legacy_balance} -> {entity.legacy_balance}")
+            print(f"  outstanding_balance: {preserved_outstanding_balance} -> {entity.outstanding_balance}")
+            
             db.commit()
             db.refresh(entity)
-            print(f"Shop updated: is_active={entity.is_active}")
+            
+            # Log state AFTER toggle
+            print(f"AFTER TOGGLE (after commit and refresh):")
+            print(f"  is_active: {entity.is_active}")
+            print(f"  credit_limit: {entity.credit_limit}")
+            print(f"  legacy_balance: {entity.legacy_balance}")
+            print(f"  outstanding_balance: {entity.outstanding_balance}")
+            print("=== TOGGLE ACTIVE: SHOP COMPLETE ===")
         
         elif entity_type == "zone":
             entity = ZoneRepository.get_by_id(db, entity_id, include_deleted=True)
@@ -613,22 +680,90 @@ async def reactivate_entity(
             db.refresh(entity)
         
         elif entity_type == "shop":
-            print("Getting shop...")
+            print("=== REACTIVATE: SHOP ===")
+            print(f"Shop ID: {entity_id}")
             # Query shop including deleted ones
             entity = ShopRepository.get_by_id(db, entity_id, include_deleted=True)
             print(f"Shop query result: {entity}")
             if not entity:
                 print(f"ERROR: Shop with ID {entity_id} not found")
                 raise ValueError(f"Shop with ID {entity_id} not found")
-            print(f"Found shop: ID={entity.id}, Name={entity.name}, deleted_at={entity.deleted_at}, is_active={entity.is_active}")
+            
+            # Log current state BEFORE reactivation
+            print(f"BEFORE REACTIVATION:")
+            print(f"  Shop ID: {entity.id}")
+            print(f"  Shop Name: {entity.name}")
+            print(f"  is_active: {entity.is_active}")
+            print(f"  deleted_at: {entity.deleted_at}")
+            print(f"  credit_limit: {entity.credit_limit} (type: {type(entity.credit_limit)})")
+            print(f"  legacy_balance: {entity.legacy_balance} (type: {type(entity.legacy_balance)})")
+            print(f"  outstanding_balance: {entity.outstanding_balance} (type: {type(entity.outstanding_balance)})")
+            
             old_deleted_at = entity.deleted_at
             old_is_active = entity.is_active
+            
+            # Preserve credit_limit and other financial data
+            preserved_credit_limit = entity.credit_limit
+            preserved_legacy_balance = entity.legacy_balance
+            preserved_outstanding_balance = entity.outstanding_balance
+            
+            print(f"PRESERVED VALUES:")
+            print(f"  credit_limit: {preserved_credit_limit} (type: {type(preserved_credit_limit)})")
+            print(f"  legacy_balance: {preserved_legacy_balance} (type: {type(preserved_legacy_balance)})")
+            print(f"  outstanding_balance: {preserved_outstanding_balance} (type: {type(preserved_outstanding_balance)})")
+            
+            # Reactivate shop
             entity.deleted_at = None
             entity.is_active = True
-            print("Updating shop...")
+            
+            # Ensure credit_limit is preserved (explicitly set to prevent any reset)
+            print(f"SETTING PRESERVED VALUES:")
+            if preserved_credit_limit is not None:
+                entity.credit_limit = preserved_credit_limit
+                print(f"  Set credit_limit to: {entity.credit_limit} (type: {type(entity.credit_limit)})")
+            else:
+                print(f"  WARNING: preserved_credit_limit is None, keeping existing: {entity.credit_limit}")
+            
+            if preserved_legacy_balance is not None:
+                entity.legacy_balance = preserved_legacy_balance
+                print(f"  Set legacy_balance to: {entity.legacy_balance}")
+            
+            # Recalculate outstanding_balance from orders, payments, and legacy_balance
+            from services.order_service import OrderService
+            try:
+                print(f"RECALCULATING outstanding_balance...")
+                recalculated_outstanding = OrderService.calculate_outstanding_balance(db, entity_id)
+                entity.outstanding_balance = recalculated_outstanding
+                print(f"  Recalculated outstanding_balance: {recalculated_outstanding} (type: {type(recalculated_outstanding)})")
+            except Exception as e:
+                print(f"WARNING: Failed to recalculate outstanding_balance: {e}")
+                # If recalculation fails, keep existing outstanding_balance
+                if preserved_outstanding_balance is not None:
+                    entity.outstanding_balance = preserved_outstanding_balance
+                    print(f"  Using preserved outstanding_balance: {preserved_outstanding_balance}")
+                # Don't fail reactivation due to calculation error
+                import traceback
+                traceback.print_exc()
+            
+            print(f"BEFORE COMMIT:")
+            print(f"  deleted_at: {entity.deleted_at}")
+            print(f"  is_active: {entity.is_active}")
+            print(f"  credit_limit: {entity.credit_limit} (type: {type(entity.credit_limit)})")
+            print(f"  legacy_balance: {entity.legacy_balance}")
+            print(f"  outstanding_balance: {entity.outstanding_balance} (type: {type(entity.outstanding_balance)})")
+            
+            print("Committing changes...")
             db.commit()
             db.refresh(entity)
-            print(f"Shop updated: deleted_at={entity.deleted_at}, is_active={entity.is_active}")
+            
+            # Log state AFTER reactivation
+            print(f"AFTER REACTIVATION (after commit and refresh):")
+            print(f"  deleted_at: {entity.deleted_at}")
+            print(f"  is_active: {entity.is_active}")
+            print(f"  credit_limit: {entity.credit_limit} (type: {type(entity.credit_limit)}, value: {repr(entity.credit_limit)})")
+            print(f"  legacy_balance: {entity.legacy_balance}")
+            print(f"  outstanding_balance: {entity.outstanding_balance}")
+            print("=== REACTIVATE: SHOP COMPLETE ===")
         
         elif entity_type == "zone":
             entity = ZoneRepository.get_by_id(db, entity_id, include_deleted=True)

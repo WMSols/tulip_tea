@@ -267,6 +267,9 @@
         // Handle CORS preflight requests
         if (window.location.protocol === 'file:') {
             console.warn('Opening HTML file directly. CORS may be an issue. Consider using a local server.');
+            console.info('To fix CORS issues, serve this file using a local server:');
+            console.info('  Python: python -m http.server 8080');
+            console.info('  Node: npx http-server -p 8080');
         }
 
         // Check if already logged in
@@ -275,8 +278,13 @@
             const savedUser = localStorage.getItem('super_admin_user');
             if (savedToken && savedUser) {
                 currentToken = savedToken;
-                currentUser = JSON.parse(savedUser);
-                showDashboard();
+                try {
+                    currentUser = JSON.parse(savedUser);
+                    showDashboard();
+                } catch (e) {
+                    console.error('Error parsing saved user data:', e);
+                    logout();
+                }
             }
         };
 
@@ -326,11 +334,17 @@
         function logout() {
             currentToken = null;
             currentUser = null;
+            entitiesData = null;
             localStorage.removeItem('super_admin_token');
             localStorage.removeItem('super_admin_user');
             document.getElementById('loginSection').style.display = 'block';
             document.getElementById('dashboardContent').classList.remove('active');
             document.getElementById('userInfo').style.display = 'none';
+            document.getElementById('message').style.display = 'none';
+            // Clear login form
+            document.getElementById('loginEmail').value = '';
+            document.getElementById('loginPassword').value = '';
+            document.getElementById('loginError').style.display = 'none';
         }
 
         function switchTab(tabName) {
@@ -357,6 +371,14 @@
                 });
 
                 if (!response.ok) {
+                    // Handle 401 Unauthorized - token expired or invalid
+                    if (response.status === 401) {
+                        console.warn('Token expired or invalid. Logging out...');
+                        logout();
+                        showMessage('Your session has expired. Please log in again.', 'error');
+                        return;
+                    }
+                    
                     const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
                     throw new Error(errorData.detail || 'Failed to load entities');
                 }
@@ -370,7 +392,14 @@
                 renderEntities('distributors');
             } catch (error) {
                 console.error('Error loading entities:', error);
-                showMessage('Error loading entities: ' + error.message, 'error');
+                
+                // If it's an authentication error, log out
+                if (error.message.includes('token') || error.message.includes('Unauthorized') || error.message.includes('401')) {
+                    logout();
+                    showMessage('Your session has expired. Please log in again.', 'error');
+                } else {
+                    showMessage('Error loading entities: ' + error.message, 'error');
+                }
             }
         }
 
@@ -489,6 +518,11 @@
         }
 
         async function toggleActive(entityType, entityId, currentStatus) {
+            console.log('=== TOGGLE ACTIVE: FRONTEND ===');
+            console.log('Entity Type:', entityType);
+            console.log('Entity ID:', entityId);
+            console.log('Current Status:', currentStatus);
+            
             // Map plural entity types to singular (backend expects singular)
             const entityTypeMap = {
                 'distributors': 'distributor',
@@ -500,40 +534,105 @@
             };
             
             const singularEntityType = entityTypeMap[entityType] || entityType;
+            console.log('Singular Entity Type:', singularEntityType);
+            
+            // Get current shop data before toggle (if it's a shop)
+            let shopDataBefore = null;
+            if (entityType === 'shops' && entitiesData && entitiesData.shops) {
+                shopDataBefore = entitiesData.shops.find(s => s.id === entityId);
+                if (shopDataBefore) {
+                    console.log('SHOP DATA BEFORE TOGGLE:');
+                    console.log('  ID:', shopDataBefore.id);
+                    console.log('  Name:', shopDataBefore.name);
+                    console.log('  credit_limit:', shopDataBefore.credit_limit);
+                    console.log('  legacy_balance:', shopDataBefore.legacy_balance);
+                    console.log('  outstanding_balance:', shopDataBefore.outstanding_balance);
+                    console.log('  is_active:', shopDataBefore.is_active);
+                    console.log('  deleted_at:', shopDataBefore.deleted_at);
+                }
+            }
             
             if (!confirm(`Are you sure you want to ${currentStatus ? 'deactivate' : 'activate'} this ${entityType.replace('_', ' ')}?`)) {
+                console.log('User cancelled toggle');
                 return;
             }
 
+            const url = `${API_BASE}/super-admin/entities/${singularEntityType}/${entityId}/toggle-active`;
+            console.log('Request URL:', url);
+            console.log('Request Method: PUT');
+            
             try {
-                const response = await fetch(`${API_BASE}/super-admin/entities/${singularEntityType}/${entityId}/toggle-active`, {
+                console.log('Sending toggle-active request...');
+                const response = await fetch(url, {
                     method: 'PUT',
                     headers: {
                         'Authorization': `Bearer ${currentToken}`
                     }
                 });
 
+                console.log('Response Status:', response.status);
+                console.log('Response OK:', response.ok);
+
                 if (!response.ok) {
+                    // Handle 401 Unauthorized
+                    if (response.status === 401) {
+                        logout();
+                        showMessage('Your session has expired. Please log in again.', 'error');
+                        return;
+                    }
+                    
                     const data = await response.json();
+                    console.error('Toggle failed:', data);
                     throw new Error(data.detail || 'Failed to update status');
                 }
 
                 const data = await response.json();
+                console.log('Toggle response:', data);
                 showMessage(data.message, 'success');
                 
                 // Reload entities
+                console.log('Reloading entities after toggle...');
                 await loadAllEntities();
+                
+                // Get shop data after toggle (if it's a shop)
+                if (entityType === 'shops' && entitiesData && entitiesData.shops) {
+                    const shopDataAfter = entitiesData.shops.find(s => s.id === entityId);
+                    if (shopDataAfter) {
+                        console.log('SHOP DATA AFTER TOGGLE:');
+                        console.log('  ID:', shopDataAfter.id);
+                        console.log('  Name:', shopDataAfter.name);
+                        console.log('  credit_limit:', shopDataAfter.credit_limit, '(was:', shopDataBefore?.credit_limit, ')');
+                        console.log('  legacy_balance:', shopDataAfter.legacy_balance, '(was:', shopDataBefore?.legacy_balance, ')');
+                        console.log('  outstanding_balance:', shopDataAfter.outstanding_balance, '(was:', shopDataBefore?.outstanding_balance, ')');
+                        console.log('  is_active:', shopDataAfter.is_active, '(was:', shopDataBefore?.is_active, ')');
+                        console.log('  deleted_at:', shopDataAfter.deleted_at, '(was:', shopDataBefore?.deleted_at, ')');
+                        
+                        if (shopDataBefore && shopDataBefore.credit_limit !== shopDataAfter.credit_limit) {
+                            console.error('⚠️ CREDIT_LIMIT CHANGED!');
+                            console.error('  Before:', shopDataBefore.credit_limit);
+                            console.error('  After:', shopDataAfter.credit_limit);
+                        }
+                    }
+                }
                 
                 // Re-render current tab
                 const activeTab = document.querySelector('.tab-content.active').id;
                 renderEntities(activeTab);
+                console.log('=== TOGGLE ACTIVE: FRONTEND COMPLETE ===');
             } catch (error) {
-                showMessage('Error: ' + error.message, 'error');
+                console.error('=== TOGGLE ACTIVE ERROR ===');
+                console.error('Error:', error);
+                if (error.message.includes('token') || error.message.includes('Unauthorized') || error.message.includes('401')) {
+                    logout();
+                    showMessage('Your session has expired. Please log in again.', 'error');
+                } else {
+                    showMessage('Error: ' + error.message, 'error');
+                }
             }
         }
 
         async function reactivateEntity(entityType, entityId) {
-            console.log('=== REACTIVATE ENTITY DEBUG ===');
+            console.log('=== REACTIVATE ENTITY: FRONTEND ===');
             console.log('Entity Type (plural):', entityType);
             console.log('Entity ID:', entityId);
             console.log('Current Token:', currentToken ? 'Present' : 'Missing');
@@ -551,7 +650,26 @@
             const singularEntityType = entityTypeMap[entityType] || entityType;
             console.log('Entity Type (singular):', singularEntityType);
             
+            // Get current shop data before reactivation (if it's a shop)
+            let shopDataBefore = null;
+            if (entityType === 'shops' && entitiesData && entitiesData.shops) {
+                shopDataBefore = entitiesData.shops.find(s => s.id === entityId);
+                if (shopDataBefore) {
+                    console.log('SHOP DATA BEFORE REACTIVATION:');
+                    console.log('  ID:', shopDataBefore.id);
+                    console.log('  Name:', shopDataBefore.name);
+                    console.log('  credit_limit:', shopDataBefore.credit_limit);
+                    console.log('  legacy_balance:', shopDataBefore.legacy_balance);
+                    console.log('  outstanding_balance:', shopDataBefore.outstanding_balance);
+                    console.log('  is_active:', shopDataBefore.is_active);
+                    console.log('  deleted_at:', shopDataBefore.deleted_at);
+                } else {
+                    console.log('Shop not found in current entities data (might be deleted)');
+                }
+            }
+            
             if (!confirm(`Are you sure you want to reactivate this ${entityType.replace('_', ' ')}? This will restore it from deletion and activate it.`)) {
+                console.log('User cancelled reactivation');
                 return;
             }
 
@@ -560,7 +678,7 @@
             console.log('Request Method: PUT');
             
             try {
-                console.log('Sending fetch request...');
+                console.log('Sending reactivate request...');
                 const response = await fetch(url, {
                     method: 'PUT',
                     headers: {
@@ -585,6 +703,13 @@
                 }
 
                 if (!response.ok) {
+                    // Handle 401 Unauthorized
+                    if (response.status === 401) {
+                        logout();
+                        showMessage('Your session has expired. Please log in again.', 'error');
+                        return;
+                    }
+                    
                     console.error('Request failed:', responseData);
                     throw new Error(responseData.detail || responseData.error || `Failed to reactivate entity (${response.status})`);
                 }
@@ -593,14 +718,39 @@
                 showMessage(responseData.message || 'Entity reactivated successfully', 'success');
                 
                 // Reload entities
-                console.log('Reloading entities...');
+                console.log('Reloading entities after reactivation...');
                 await loadAllEntities();
+                
+                // Get shop data after reactivation (if it's a shop)
+                if (entityType === 'shops' && entitiesData && entitiesData.shops) {
+                    const shopDataAfter = entitiesData.shops.find(s => s.id === entityId);
+                    if (shopDataAfter) {
+                        console.log('SHOP DATA AFTER REACTIVATION:');
+                        console.log('  ID:', shopDataAfter.id);
+                        console.log('  Name:', shopDataAfter.name);
+                        console.log('  credit_limit:', shopDataAfter.credit_limit, '(was:', shopDataBefore?.credit_limit, ')');
+                        console.log('  legacy_balance:', shopDataAfter.legacy_balance, '(was:', shopDataBefore?.legacy_balance, ')');
+                        console.log('  outstanding_balance:', shopDataAfter.outstanding_balance, '(was:', shopDataBefore?.outstanding_balance, ')');
+                        console.log('  is_active:', shopDataAfter.is_active, '(was:', shopDataBefore?.is_active, ')');
+                        console.log('  deleted_at:', shopDataAfter.deleted_at, '(was:', shopDataBefore?.deleted_at, ')');
+                        
+                        if (shopDataBefore && shopDataBefore.credit_limit !== shopDataAfter.credit_limit) {
+                            console.error('⚠️ CREDIT_LIMIT CHANGED AFTER REACTIVATION!');
+                            console.error('  Before:', shopDataBefore.credit_limit);
+                            console.error('  After:', shopDataAfter.credit_limit);
+                        } else if (shopDataAfter.credit_limit === 0 && shopDataBefore && shopDataBefore.credit_limit > 0) {
+                            console.error('⚠️ CREDIT_LIMIT RESET TO ZERO!');
+                            console.error('  Before:', shopDataBefore.credit_limit);
+                            console.error('  After:', shopDataAfter.credit_limit);
+                        }
+                    }
+                }
                 
                 // Re-render current tab
                 const activeTab = document.querySelector('.tab-content.active').id;
                 console.log('Re-rendering tab:', activeTab);
                 renderEntities(activeTab);
-                console.log('=== REACTIVATE COMPLETE ===');
+                console.log('=== REACTIVATE ENTITY: FRONTEND COMPLETE ===');
             } catch (error) {
                 console.error('=== REACTIVATE ERROR ===');
                 console.error('Error Type:', error.constructor.name);

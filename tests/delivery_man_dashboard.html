@@ -2520,6 +2520,11 @@
                 setTimeout(() => {
                     closePickupModal();
                     loadMyOrders();
+                    // Refresh warehouses to show updated inventory
+                    const warehousesTab = document.getElementById('warehousesTab');
+                    if (warehousesTab && warehousesTab.style.display !== 'none') {
+                        loadMyWarehouses();
+                    }
                 }, 2000);
             } catch (error) {
                 resultDiv.className = 'result error';
@@ -2771,6 +2776,11 @@
                     closeDeliverModal();
                     loadMyOrders();
                     loadMyDeliveries();
+                    // Refresh warehouses to show updated inventory (if items were returned)
+                    const warehousesTab = document.getElementById('warehousesTab');
+                    if (warehousesTab && warehousesTab.style.display !== 'none') {
+                        loadMyWarehouses();
+                    }
                 }, 2000);
             } catch (error) {
                 resultDiv.className = 'result error';
@@ -2968,6 +2978,11 @@
                     closeReturnModal();
                     loadMyOrders();
                     loadMyDeliveries();
+                    // Refresh warehouses to show updated inventory
+                    const warehousesTab = document.getElementById('warehousesTab');
+                    if (warehousesTab && warehousesTab.style.display !== 'none') {
+                        loadMyWarehouses();
+                    }
                 }, 2000);
             } catch (error) {
                 resultDiv.className = 'result error';

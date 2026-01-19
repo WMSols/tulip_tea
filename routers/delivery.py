@@ -122,7 +122,10 @@ async def pickup_from_warehouse(
             delivery_id=delivery_id,
             pickup_quantities=pickup_data.pickup_quantities,
             pickup_gps_lat=Decimal(str(pickup_data.pickup_gps_lat)) if pickup_data.pickup_gps_lat else None,
-            pickup_gps_lng=Decimal(str(pickup_data.pickup_gps_lng)) if pickup_data.pickup_gps_lng else None
+            pickup_gps_lng=Decimal(str(pickup_data.pickup_gps_lng)) if pickup_data.pickup_gps_lng else None,
+            user_id=user_info.get('user_id'),
+            user_role=user_info.get('user_role'),
+            user_name=user_info.get('user_name')
         )
         
         return result
@@ -166,7 +169,10 @@ async def deliver_to_shop(
             delivery_gps_lat=Decimal(str(deliver_data.delivery_gps_lat)) if deliver_data.delivery_gps_lat else None,
             delivery_gps_lng=Decimal(str(deliver_data.delivery_gps_lng)) if deliver_data.delivery_gps_lng else None,
             delivery_remarks=deliver_data.delivery_remarks,
-            delivery_images=deliver_data.delivery_images
+            delivery_images=deliver_data.delivery_images,
+            user_id=user_info.get('user_id'),
+            user_role=user_info.get('user_role'),
+            user_name=user_info.get('user_name')
         )
         
         return result
@@ -209,7 +215,10 @@ async def return_to_warehouse(
             return_quantities=return_data.return_quantities,
             return_gps_lat=Decimal(str(return_data.return_gps_lat)) if return_data.return_gps_lat else None,
             return_gps_lng=Decimal(str(return_data.return_gps_lng)) if return_data.return_gps_lng else None,
-            return_reason=return_data.return_reason
+            return_reason=return_data.return_reason,
+            user_id=user_info.get('user_id'),
+            user_role=user_info.get('user_role'),
+            user_name=user_info.get('user_name')
         )
         
         return result

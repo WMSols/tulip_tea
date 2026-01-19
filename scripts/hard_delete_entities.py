@@ -47,6 +47,8 @@ from models.product import Product
 from models.inventory import Inventory
 from models.delivery_man_warehouse import DeliveryManWarehouse
 from models.warehouse import Warehouse
+from models.delivery_item import DeliveryItem
+from models.delivery import Delivery
 
 
 class EntityDeleter:
@@ -117,9 +119,34 @@ class EntityDeleter:
     
     def get_shop_related_data(self, shop_id: int) -> Dict:
         """Get all data related to a shop."""
+        orders = self.db.query(Order).filter(Order.shop_id == shop_id).all()
+        order_ids = [order.id for order in orders]
+        
+        # Get deliveries that reference these orders
+        deliveries = self.db.query(Delivery).filter(Delivery.order_id.in_(order_ids)).all() if order_ids else []
+        delivery_ids = [d.id for d in deliveries]
+        
+        # Get delivery_items that reference order_items from these orders
+        delivery_items = []
+        order_items = []
+        if order_ids:
+            # Get order_item_ids from these orders
+            order_items = self.db.query(OrderItem).filter(OrderItem.order_id.in_(order_ids)).all()
+            order_item_ids = [item.id for item in order_items]
+            
+            if order_item_ids:
+                # Get delivery_items that reference these order_items OR these deliveries
+                delivery_items = self.db.query(DeliveryItem).filter(
+                    (DeliveryItem.order_item_id.in_(order_item_ids)) |
+                    (DeliveryItem.delivery_id.in_(delivery_ids))
+                ).all()
+        
         return {
             'credit_limit_requests': self.db.query(CreditLimitRequest).filter(CreditLimitRequest.shop_id == shop_id).all(),
-            'orders': self.db.query(Order).filter(Order.shop_id == shop_id).all(),
+            'orders': orders,
+            'order_items': order_items,
+            'deliveries': deliveries,
+            'delivery_items': delivery_items,
             'payments': self.db.query(Payment).filter(Payment.shop_id == shop_id).all(),
             'daily_collections': self.db.query(DailyCollection).filter(DailyCollection.shop_id == shop_id).all(),
             'shop_visits': self.db.query(ShopVisit).filter(ShopVisit.shop_id == shop_id).all(),
@@ -180,6 +207,9 @@ class EntityDeleter:
         print(f"\n📊 Related data that will be deleted:")
         print(f"   - Credit Limit Requests: {len(related['credit_limit_requests'])}")
         print(f"   - Orders: {len(related['orders'])}")
+        print(f"   - Order Items: {len(related['order_items'])}")
+        print(f"   - Deliveries: {len(related['deliveries'])}")
+        print(f"   - Delivery Items: {len(related['delivery_items'])}")
         print(f"   - Payments: {len(related['payments'])}")
         print(f"   - Daily Collections: {len(related['daily_collections'])}")
         print(f"   - Shop Visits: {len(related['shop_visits'])}")
@@ -192,45 +222,68 @@ class EntityDeleter:
             return False
         
         try:
-            # Delete related data
+            # Delete related data in correct order to avoid foreign key violations
+            
+            # 1. Delete credit_limit_requests
             for credit_request in related['credit_limit_requests']:
                 self.db.delete(credit_request)
                 self.deleted_summary['credit_limit_requests'] = self.deleted_summary.get('credit_limit_requests', 0) + 1
             
+            # 2. Delete delivery_items FIRST (they reference order_items and deliveries)
+            # This must be done before deleting order_items and deliveries
+            for delivery_item in related['delivery_items']:
+                self.db.delete(delivery_item)
+                self.deleted_summary['delivery_items'] = self.deleted_summary.get('delivery_items', 0) + 1
+            if related['delivery_items']:
+                self.db.flush()  # Ensure delivery_items are deleted
+            
+            # 3. Delete deliveries (they reference orders)
+            # This must be done before deleting orders
+            for delivery in related['deliveries']:
+                self.db.delete(delivery)
+                self.deleted_summary['deliveries'] = self.deleted_summary.get('deliveries', 0) + 1
+            if related['deliveries']:
+                self.db.flush()  # Ensure deliveries are deleted before orders
+            
+            # 4. Delete order_items (they reference orders)
+            for item in related['order_items']:
+                self.db.delete(item)
+                self.deleted_summary['order_items'] = self.deleted_summary.get('order_items', 0) + 1
+            if related['order_items']:
+                self.db.flush()  # Ensure order_items are deleted before orders
+            
+            # 5. Delete orders (now safe since deliveries and order_items are deleted)
             for order in related['orders']:
-                # Delete order items first (must be done before deleting order)
-                order_items = self.db.query(OrderItem).filter(OrderItem.order_id == order.id).all()
-                for item in order_items:
-                    self.db.delete(item)
-                    self.deleted_summary['order_items'] = self.deleted_summary.get('order_items', 0) + 1
-                # Flush to ensure order_items are deleted before deleting order
-                self.db.flush()
-                # Now delete the order
                 self.db.delete(order)
                 self.deleted_summary['orders'] = self.deleted_summary.get('orders', 0) + 1
+            if related['orders']:
+                self.db.flush()  # Ensure orders are deleted
             
+            # 6. Delete payments
             for payment in related['payments']:
                 self.db.delete(payment)
                 self.deleted_summary['payments'] = self.deleted_summary.get('payments', 0) + 1
             
+            # 7. Delete daily_collections
             for collection in related['daily_collections']:
                 self.db.delete(collection)
                 self.deleted_summary['daily_collections'] = self.deleted_summary.get('daily_collections', 0) + 1
             
-            # Delete shop visits (must be flushed before deleting shop)
+            # 8. Delete shop_visits (must be flushed before deleting shop)
             for visit in related['shop_visits']:
                 self.db.delete(visit)
                 self.deleted_summary['shop_visits'] = self.deleted_summary.get('shop_visits', 0) + 1
-            if related['shop_visits']:  # Only flush if there are visits to delete
+            if related['shop_visits']:
                 self.db.flush()  # Ensure shop_visits are deleted before shop
             
+            # 9. Delete route_shops (must be flushed before deleting shop)
             for route_shop in related['route_shops']:
                 self.db.delete(route_shop)
                 self.deleted_summary['route_shops'] = self.deleted_summary.get('route_shops', 0) + 1
-            if related['route_shops']:  # Only flush if there are route_shops to delete
+            if related['route_shops']:
                 self.db.flush()  # Ensure route_shops are deleted before shop
             
-            # Delete the shop (after all related data is deleted and flushed)
+            # 10. Finally, delete the shop (after all related data is deleted and flushed)
             self.db.delete(shop)
             self.deleted_summary['shops'] = self.deleted_summary.get('shops', 0) + 1
             
@@ -379,7 +432,12 @@ class EntityDeleter:
                 self.db.delete(dm_route)
                 self.deleted_summary['delivery_man_routes'] = self.deleted_summary.get('delivery_man_routes', 0) + 1
             
-            # Delete the route
+            # Flush to ensure related data is deleted before deleting route
+            # This prevents foreign key constraint violations
+            if related['route_shops'] or related['delivery_man_routes']:
+                self.db.flush()
+            
+            # Delete the route (after all related data is deleted and flushed)
             self.db.delete(route)
             self.deleted_summary['routes'] = self.deleted_summary.get('routes', 0) + 1
             

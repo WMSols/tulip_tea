@@ -2,7 +2,7 @@
 Database configuration and connection management.
 Handles PostgreSQL connection using SQLAlchemy.
 """
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from pydantic_settings import BaseSettings
@@ -45,10 +45,35 @@ def get_db():
     """
     Dependency function to get database session.
     Yields a database session and ensures it's closed after use.
+    
+    Handles database connection errors gracefully.
+    Note: Database connection errors will be caught by the global exception handler
+    which ensures CORS headers are sent.
     """
-    db = SessionLocal()
+    db = None
+    try:
+        db = SessionLocal()
+        # Test connection immediately to catch errors early
+        db.execute(text("SELECT 1"))
+    except Exception as e:
+        # Close any partial session
+        if db:
+            try:
+                db.close()
+            except:
+                pass
+        
+        # Log the error
+        print(f"❌ [DB] Database connection error in get_db: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        
+        # Re-raise - will be caught by global exception handler
+        raise
+    
     try:
         yield db
     finally:
-        db.close()
+        if db:
+            db.close()
 

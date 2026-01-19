@@ -55,3 +55,14 @@ docs/PRODUCT_DEACTIVATION_ANALYSIS.md
 docs/PRODUCTS_TABLE_INTEGRATION.md
 docs/SCHEMA_ANALYSIS_WAREHOUSE.md
 scripts/README_HARD_DELETE.md
+sql/add_missing_delivery_columns.sql
+sql/fix_deliveries_table_columns.sql
+sql/fix_delivery_gps_columns.sql
+local_data_dump.sql
+DELIVERY_TRACKING_ANALYSIS.md
+DELIVERY_TRACKING_IMPLEMENTATION_SUMMARY.md
+MIGRATION_CHECKLIST.md
+MIGRATION_GUIDE.md
+schema_public_only.sql
+supabase/migrations/20260119154851_migrate_local_to_cloud.sql
+temp_data_migration/local_data_dump_20260119_210135.sql

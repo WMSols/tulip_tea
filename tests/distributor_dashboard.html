@@ -3303,10 +3303,11 @@
             `;
             
             // Load linked order and collection data
-            loadVisitLinkedData(visitId, orderId, collectionId);
+            // Pass deliveryManId to load delivery tracking if it's a delivery man visit
+            loadVisitLinkedData(visitId, orderId, collectionId, deliveryManId);
         }
         
-        function loadVisitLinkedData(visitId, orderId, collectionId) {
+        function loadVisitLinkedData(visitId, orderId, collectionId, deliveryManId) {
             const linkedDataDiv = document.getElementById('visitLinkedData');
             linkedDataDiv.innerHTML = '<p style="color: #999; text-align: center;">Loading linked data...</p>';
             
@@ -3332,6 +3333,31 @@
                             return { type: 'order', data: null, error: err.message, orderId: orderId };
                         })
                 );
+                
+                // Load delivery tracking if it's a delivery man visit
+                if (deliveryManId && deliveryManId !== 'null' && deliveryManId !== null) {
+                    promises.push(
+                        fetch(`${API_BASE}/deliveries/order/${orderId}`, {
+                            headers: {
+                                'Authorization': `Bearer ${currentToken}`
+                            }
+                        })
+                            .then(res => {
+                                if (!res.ok && res.status !== 404) {
+                                    throw new Error(`HTTP error! status: ${res.status}`);
+                                }
+                                if (res.status === 404) {
+                                    return null; // No delivery tracking yet
+                                }
+                                return res.json();
+                            })
+                            .then(delivery => ({ type: 'delivery', data: delivery, orderId: orderId }))
+                            .catch(err => {
+                                console.error('Error loading delivery tracking:', err);
+                                return { type: 'delivery', data: null, error: err.message, orderId: orderId };
+                            })
+                    );
+                }
             }
             
             // Load collection if collectionId exists
@@ -3437,6 +3463,161 @@
                                     </div>
                                 </div>
                             `;
+                        }
+                    } else if (result.type === 'delivery') {
+                        if (result.error && result.error.includes('404')) {
+                            // No delivery tracking - silently skip
+                        } else if (result.data) {
+                            const delivery = result.data;
+                            // Fetch warehouse details from delivery man's assigned warehouses
+                            let warehousePromise = Promise.resolve(null);
+                            if (delivery.warehouse_id && delivery.delivery_man_id) {
+                                warehousePromise = fetch(`${API_BASE}/delivery-men/${delivery.delivery_man_id}/warehouses`, {
+                                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                                })
+                                .then(res => {
+                                    if (!res.ok) return null;
+                                    return res.json();
+                                })
+                                .then(warehouses => {
+                                    if (!warehouses) return null;
+                                    return warehouses.find(w => w.id === delivery.warehouse_id) || null;
+                                })
+                                .catch(() => null);
+                            }
+                            
+                            warehousePromise.then(warehouse => {
+                                const deliveryHtml = `
+                                    <div class="info-card" style="margin-bottom: 20px; border-left: 4px solid #27ae60;">
+                                        <h3 style="color: #27ae60; margin-bottom: 15px;">🚚 Delivery Tracking Details</h3>
+                                        
+                                        ${warehouse ? `
+                                        <div style="margin-bottom: 15px; padding: 10px; background: #e8f4f8; border-radius: 5px;">
+                                            <h4 style="color: #3498db; margin-bottom: 8px;">🏭 Warehouse</h4>
+                                            <div class="info-row">
+                                                <span class="info-label">Name:</span>
+                                                <span class="info-value">${warehouse.name || 'N/A'}</span>
+                                            </div>
+                                            ${warehouse.zone_name ? `
+                                            <div class="info-row">
+                                                <span class="info-label">Zone:</span>
+                                                <span class="info-value">${warehouse.zone_name}</span>
+                                            </div>
+                                            ` : ''}
+                                        </div>
+                                        ` : ''}
+                                        
+                                        <div style="margin-bottom: 15px; padding: 10px; background: #f8f9fa; border-radius: 5px;">
+                                            <h4 style="color: #27ae60; margin-bottom: 8px;">📊 Delivery Status</h4>
+                                            <div class="info-row">
+                                                <span class="info-label">Status:</span>
+                                                <span class="info-value">
+                                                    <span style="background: ${delivery.status === 'delivered' ? '#27ae60' : delivery.status === 'returned' ? '#e74c3c' : delivery.status === 'failed' ? '#e74c3c' : '#f39c12'}; color: white; padding: 4px 10px; border-radius: 15px; font-size: 12px; font-weight: bold;">
+                                                        ${(delivery.status || 'pending').toUpperCase()}
+                                                    </span>
+                                                </span>
+                                            </div>
+                                        </div>
+                                        
+                                        <div style="margin-bottom: 15px;">
+                                            <h4 style="color: #27ae60; margin-bottom: 10px;">📋 Complete Delivery Flow</h4>
+                                            
+                                            ${delivery.picked_up_at ? `
+                                            <div style="margin-bottom: 12px; padding: 12px; background: white; border-radius: 5px; border-left: 4px solid #3498db;">
+                                                <strong style="color: #3498db;">✓ Stock Picked Up from Warehouse</strong>
+                                                <div style="margin-top: 8px; color: #666; font-size: 14px;">
+                                                    <div>📅 ${new Date(delivery.picked_up_at).toLocaleString()}</div>
+                                                    ${delivery.pickup_gps_lat && delivery.pickup_gps_lng ? `
+                                                    <div style="margin-top: 5px;">
+                                                        <a href="https://www.google.com/maps?q=${delivery.pickup_gps_lat},${delivery.pickup_gps_lng}" target="_blank" style="color: #3498db; text-decoration: none;">
+                                                            📍 View Pickup Location
+                                                        </a>
+                                                    </div>
+                                                    ` : ''}
+                                                </div>
+                                            </div>
+                                            ` : ''}
+                                            
+                                            ${delivery.delivered_at ? `
+                                            <div style="margin-bottom: 12px; padding: 12px; background: white; border-radius: 5px; border-left: 4px solid #27ae60;">
+                                                <strong style="color: #27ae60;">✓ Delivered to Shop</strong>
+                                                <div style="margin-top: 8px; color: #666; font-size: 14px;">
+                                                    <div>📅 ${new Date(delivery.delivered_at).toLocaleString()}</div>
+                                                    ${delivery.delivery_gps_lat && delivery.delivery_gps_lng ? `
+                                                    <div style="margin-top: 5px;">
+                                                        <a href="https://www.google.com/maps?q=${delivery.delivery_gps_lat},${delivery.delivery_gps_lng}" target="_blank" style="color: #3498db; text-decoration: none;">
+                                                            📍 View Delivery Location
+                                                        </a>
+                                                    </div>
+                                                    ` : ''}
+                                                    ${delivery.delivery_remarks ? `
+                                                    <div style="margin-top: 5px; padding: 5px; background: #e8f8f5; border-radius: 3px;">
+                                                        <strong>Remarks:</strong> ${delivery.delivery_remarks}
+                                                    </div>
+                                                    ` : ''}
+                                                    ${delivery.delivery_images && delivery.delivery_images.length > 0 ? `
+                                                    <div style="margin-top: 5px;">
+                                                        <strong>Proof Images:</strong> ${delivery.delivery_images.length} image(s)
+                                                    </div>
+                                                    ` : ''}
+                                                </div>
+                                            </div>
+                                            ` : ''}
+                                            
+                                            ${delivery.returned_at ? `
+                                            <div style="margin-bottom: 12px; padding: 12px; background: white; border-radius: 5px; border-left: 4px solid #e74c3c;">
+                                                <strong style="color: #e74c3c;">↩️ Returned to Warehouse</strong>
+                                                <div style="margin-top: 8px; color: #666; font-size: 14px;">
+                                                    <div>📅 ${new Date(delivery.returned_at).toLocaleString()}</div>
+                                                    ${delivery.return_gps_lat && delivery.return_gps_lng ? `
+                                                    <div style="margin-top: 5px;">
+                                                        <a href="https://www.google.com/maps?q=${delivery.return_gps_lat},${delivery.return_gps_lng}" target="_blank" style="color: #3498db; text-decoration: none;">
+                                                            📍 View Return Location
+                                                        </a>
+                                                    </div>
+                                                    ` : ''}
+                                                    ${delivery.return_reason ? `
+                                                    <div style="margin-top: 5px; padding: 5px; background: #fde8e8; border-radius: 3px;">
+                                                        <strong>Return Reason:</strong> ${delivery.return_reason}
+                                                    </div>
+                                                    ` : ''}
+                                                </div>
+                                            </div>
+                                            ` : ''}
+                                        </div>
+                                        
+                                        ${delivery.delivery_items && delivery.delivery_items.length > 0 ? `
+                                        <div style="margin-top: 15px; padding: 12px; background: #f8f9fa; border-radius: 5px;">
+                                            <h4 style="color: #27ae60; margin-bottom: 10px;">📦 Products & Quantities</h4>
+                                            <table style="width: 100%; border-collapse: collapse; background: white; border-radius: 5px; overflow: hidden; font-size: 13px;">
+                                                <thead>
+                                                    <tr style="background: #27ae60; color: white;">
+                                                        <th style="padding: 10px; text-align: left;">Product Name</th>
+                                                        <th style="padding: 10px; text-align: right;">Picked Up</th>
+                                                        <th style="padding: 10px; text-align: right;">Delivered</th>
+                                                        <th style="padding: 10px; text-align: right;">Returned</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    ${delivery.delivery_items.map((item, idx) => `
+                                                        <tr style="${idx % 2 === 0 ? 'background: #f8f9fa;' : 'background: white;'}">
+                                                            <td style="padding: 10px; font-weight: 500;">${item.product_name || 'N/A'}</td>
+                                                            <td style="padding: 10px; text-align: right;">${item.quantity_picked_up || 0}</td>
+                                                            <td style="padding: 10px; text-align: right; color: #27ae60; font-weight: bold;">${item.quantity_delivered || 0}</td>
+                                                            <td style="padding: 10px; text-align: right; color: #e74c3c; font-weight: bold;">${item.quantity_returned || 0}</td>
+                                                        </tr>
+                                                    `).join('')}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        ` : ''}
+                                    </div>
+                                `;
+                                
+                                // Append delivery tracking HTML after existing HTML
+                                const existingHtml = linkedDataDiv.innerHTML;
+                                linkedDataDiv.innerHTML = existingHtml + deliveryHtml;
+                            });
                         }
                     } else if (result.type === 'collection' && result.data) {
                         const collection = result.data;

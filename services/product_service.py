@@ -77,11 +77,20 @@ class ProductService:
                 except Exception:
                     updated_at_str = str(p.updated_at) if p.updated_at else None
             
+            # Format price - convert Decimal to float for JSON serialization
+            price_value = None
+            if p.price is not None:
+                try:
+                    price_value = float(p.price)
+                except (ValueError, TypeError):
+                    price_value = None
+            
             result.append({
                 "id": p.id,
                 "code": p.code,
                 "name": p.name,
                 "unit": p.unit,
+                "price": price_value,
                 "is_active": p.is_active,
                 "created_at": created_at_str,
                 "updated_at": updated_at_str
@@ -115,11 +124,20 @@ class ProductService:
                 except Exception:
                     updated_at_str = str(p.updated_at) if p.updated_at else None
             
+            # Format price - convert Decimal to float for JSON serialization
+            price_value = None
+            if p.price is not None:
+                try:
+                    price_value = float(p.price)
+                except (ValueError, TypeError):
+                    price_value = None
+            
             result.append({
                 "id": p.id,
                 "code": p.code,
                 "name": p.name,
                 "unit": p.unit,
+                "price": price_value,
                 "is_active": p.is_active,
                 "created_at": created_at_str,
                 "updated_at": updated_at_str
@@ -163,11 +181,20 @@ class ProductService:
             except Exception:
                 updated_at_str = str(product.updated_at) if product.updated_at else None
         
+        # Format price - convert Decimal to float for JSON serialization
+        price_value = None
+        if product.price is not None:
+            try:
+                price_value = float(product.price)
+            except (ValueError, TypeError):
+                price_value = None
+        
         return {
             "id": product.id,
             "code": product.code,
             "name": product.name,
             "unit": product.unit,
+            "price": price_value,
             "is_active": product.is_active,
             "created_at": created_at_str,
             "updated_at": updated_at_str
@@ -175,7 +202,7 @@ class ProductService:
     
     @staticmethod
     def update_product(db: Session, product_id: int, code: str = None, name: str = None,
-                      unit: str = None, is_active: bool = None) -> Dict:
+                      unit: str = None, price: float = None, is_active: bool = None) -> Dict:
         """Update product."""
         # If code is being updated, check if it already exists
         if code:
@@ -183,7 +210,7 @@ class ProductService:
             if existing and existing.id != product_id:
                 raise ValueError(f"Product with code '{code}' already exists")
         
-        product = ProductRepository.update(db, product_id, code, name, unit, is_active)
+        product = ProductRepository.update(db, product_id, code, name, unit, price, is_active)
         if not product:
             raise ValueError("Product not found")
         
@@ -208,11 +235,20 @@ class ProductService:
             except Exception:
                 updated_at_str = str(product.updated_at) if product.updated_at else None
         
+        # Format price - convert Decimal to float for JSON serialization
+        price_value = None
+        if product.price is not None:
+            try:
+                price_value = float(product.price)
+            except (ValueError, TypeError):
+                price_value = None
+        
         return {
             "id": product.id,
             "code": product.code,
             "name": product.name,
             "unit": product.unit,
+            "price": price_value,
             "is_active": product.is_active,
             "created_at": created_at_str,
             "updated_at": updated_at_str

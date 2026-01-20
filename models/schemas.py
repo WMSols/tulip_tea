@@ -280,9 +280,10 @@ class PaymentResponse(BaseModel):
 
 # Shop Visit Schemas
 class OrderItemCreate(BaseModel):
-    product_name: str
+    product_id: Optional[int] = None  # Product ID (preferred - price will be fetched from products table)
+    product_name: Optional[str] = None  # Product name (optional, can be fetched from product_id, used for logging/denormalization)
     quantity: int
-    unit_price: float
+    unit_price: Optional[float] = None  # Optional - will be fetched from products table if product_id is provided (backward compatibility)
     # Allow extra fields (like total_price from frontend) to be ignored
     class Config:
         extra = "ignore"  # Ignore extra fields like total_price
@@ -492,6 +493,7 @@ class ProductResponse(BaseModel):
     code: str
     name: str
     unit: Optional[str] = None
+    price: Optional[float] = None
     is_active: bool
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
@@ -504,6 +506,7 @@ class ProductUpdate(BaseModel):
     code: Optional[str] = None
     name: Optional[str] = None
     unit: Optional[str] = None
+    price: Optional[float] = None
     is_active: Optional[bool] = None
 
 

@@ -10,7 +10,6 @@ from repositories.order_repository import OrderRepository
 from repositories.order_item_repository import OrderItemRepository
 from repositories.inventory_repository import InventoryRepository
 from repositories.warehouse_repository import WarehouseRepository
-from services.activity_log_service import ActivityLogService
 from decimal import Decimal
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -60,16 +59,30 @@ class DeliveryService:
         delivery_items = []
         for order_item in order_items:
             try:
-                # Find matching inventory item by product_id
+                # Find matching inventory item by product_id or product_name
                 inventory_item_id = None
+                inventory_items = InventoryRepository.get_by_warehouse(db, warehouse_id)
+                
+                # Try to match by product_id first
                 if order_item.product_id:
-                    inventory_items = InventoryRepository.get_by_warehouse(db, warehouse_id)
                     inventory_item = next(
                         (inv for inv in inventory_items if inv.product_id == order_item.product_id),
                         None
                     )
                     if inventory_item:
                         inventory_item_id = inventory_item.id
+                
+                # If not found by product_id, try to match by product_name/item_name
+                if not inventory_item_id and order_item.product_name:
+                    product_name_lower = order_item.product_name.lower().strip()
+                    inventory_item = next(
+                        (inv for inv in inventory_items 
+                         if inv.item_name and inv.item_name.lower().strip() == product_name_lower),
+                        None
+                    )
+                    if inventory_item:
+                        inventory_item_id = inventory_item.id
+                        print(f"[create_delivery_for_order] Matched inventory by name: {order_item.product_name} -> inventory_id {inventory_item_id}")
                 
                 delivery_item = DeliveryItemRepository.create(
                     db=db,
@@ -96,8 +109,7 @@ class DeliveryService:
     
     @staticmethod
     def pickup_from_warehouse(db: Session, delivery_id: int, pickup_quantities: Dict[int, int],
-                              pickup_gps_lat: Decimal = None, pickup_gps_lng: Decimal = None,
-                              user_id: int = None, user_role: str = None, user_name: str = None) -> Dict:
+                              pickup_gps_lat: Decimal = None, pickup_gps_lng: Decimal = None) -> Dict:
         """
         Record warehouse pickup and deduct inventory.
         
@@ -106,15 +118,10 @@ class DeliveryService:
             pickup_quantities: Dict mapping order_item_id to quantity picked up
             pickup_gps_lat: GPS latitude at pickup location
             pickup_gps_lng: GPS longitude at pickup location
-            user_id: ID of user performing the action (for activity log)
-            user_role: Role of user (for activity log)
-            user_name: Name of user (for activity log)
         
         Returns:
             Updated delivery data
         """
-        print(f"🔵 [PICKUP] Starting pickup for delivery_id={delivery_id}, quantities={pickup_quantities}")
-        
         # Validate GPS coordinates
         DeliveryService._validate_gps_coordinate(pickup_gps_lat, pickup_gps_lng, "pickup")
         
@@ -127,10 +134,6 @@ class DeliveryService:
         
         # Get delivery items
         delivery_items = DeliveryItemRepository.get_by_delivery(db, delivery_id)
-        print(f"🔵 [PICKUP] Found {len(delivery_items)} delivery items")
-        
-        # Track inventory changes for activity log
-        inventory_changes = []
         
         # Update quantities and deduct inventory
         for delivery_item in delivery_items:
@@ -138,8 +141,6 @@ class DeliveryService:
             quantity = pickup_quantities.get(order_item_id, 0)
             
             if quantity > 0:
-                print(f"🔵 [PICKUP] Processing order_item_id={order_item_id}, quantity={quantity}")
-                
                 # Update delivery item
                 DeliveryItemRepository.update_pickup_quantity(
                     db=db,
@@ -147,46 +148,56 @@ class DeliveryService:
                     quantity_picked_up=quantity
                 )
                 
-                # Deduct from inventory if inventory_item_id is set
+                # Deduct from inventory
+                inventory = None
                 if delivery_item.inventory_item_id:
+                    # Use stored inventory_item_id
                     inventory = InventoryRepository.get_by_id(db, delivery_item.inventory_item_id)
-                    if inventory:
-                        old_quantity = inventory.quantity
-                        if inventory.quantity < quantity:
-                            raise ValueError(
-                                f"Insufficient inventory for {inventory.item_name}. "
-                                f"Available: {inventory.quantity}, Requested: {quantity}"
-                            )
-                        new_quantity = inventory.quantity - quantity
-                        print(f"🔵 [PICKUP] Updating inventory_id={inventory.id}, item={inventory.item_name}, "
-                              f"old_qty={old_quantity} -> new_qty={new_quantity}")
-                        
-                        updated_inventory = InventoryRepository.update(
-                            db=db,
-                            inventory_id=inventory.id,
-                            quantity=new_quantity
-                        )
-                        
-                        # Verify update by re-fetching from database
-                        db.commit()  # Ensure commit
-                        verified_inventory = InventoryRepository.get_by_id(db, inventory.id)
-                        if verified_inventory:
-                            print(f"🔵 [PICKUP] Verified inventory update: inventory_id={verified_inventory.id}, "
-                                  f"quantity={verified_inventory.quantity} (expected: {new_quantity})")
-                            if verified_inventory.quantity != new_quantity:
-                                print(f"❌ [PICKUP] ERROR: Inventory quantity mismatch! Expected {new_quantity}, got {verified_inventory.quantity}")
-                        else:
-                            print(f"❌ [PICKUP] ERROR: Could not verify inventory update - inventory not found!")
-                        
-                        inventory_changes.append({
-                            "inventory_id": inventory.id,
-                            "item_name": inventory.item_name,
-                            "old_quantity": old_quantity,
-                            "new_quantity": new_quantity,
-                            "quantity_deducted": quantity
-                        })
                 else:
-                    print(f"⚠️ [PICKUP] Warning: delivery_item_id={delivery_item.id} has no inventory_item_id")
+                    # Try to find inventory by product_id or product_name
+                    from models.order_item import OrderItem
+                    order_item = db.query(OrderItem).filter(OrderItem.id == order_item_id).first()
+                    if order_item:
+                        inventory_items = InventoryRepository.get_by_warehouse(db, delivery.warehouse_id)
+                        
+                        # Try by product_id first
+                        if order_item.product_id:
+                            inventory = next(
+                                (inv for inv in inventory_items if inv.product_id == order_item.product_id),
+                                None
+                            )
+                        
+                        # If not found, try by product_name
+                        if not inventory and order_item.product_name:
+                            product_name_lower = order_item.product_name.lower().strip()
+                            inventory = next(
+                                (inv for inv in inventory_items 
+                                 if inv.item_name and inv.item_name.lower().strip() == product_name_lower),
+                                None
+                            )
+                        
+                        # If found, update delivery_item with inventory_item_id for future operations
+                        if inventory and not delivery_item.inventory_item_id:
+                            delivery_item.inventory_item_id = inventory.id
+                            db.commit()
+                            print(f"[pickup_from_warehouse] Found and linked inventory by name: {order_item.product_name} -> inventory_id {inventory.id}")
+                
+                if inventory:
+                    if inventory.quantity < quantity:
+                        raise ValueError(
+                            f"Insufficient inventory for {inventory.item_name or 'product'}. "
+                            f"Available: {inventory.quantity}, Requested: {quantity}"
+                        )
+                    old_quantity = inventory.quantity
+                    new_quantity = inventory.quantity - quantity
+                    InventoryRepository.update(
+                        db=db,
+                        inventory_id=inventory.id,
+                        quantity=new_quantity
+                    )
+                    print(f"[pickup_from_warehouse] Deducted inventory: {inventory.item_name or 'product'} - {old_quantity} -> {new_quantity}")
+                else:
+                    print(f"[pickup_from_warehouse] WARNING: Could not find inventory item for order_item_id {order_item_id}. Inventory not deducted.")
         
         # Update delivery status and pickup info
         updated_delivery = DeliveryRepository.update_pickup(
@@ -198,35 +209,6 @@ class DeliveryService:
             status='in_transit'
         )
         
-        # Log activity
-        try:
-            ActivityLogService.log_activity(
-                db=db,
-                user_id=user_id,
-                user_role=user_role or 'delivery_man',
-                action_type='UPDATE',
-                entity_type='delivery',
-                entity_id=delivery_id,
-                user_name=user_name,
-                changes_summary=f"Stock picked up from warehouse. {len(inventory_changes)} inventory items updated.",
-                new_values={
-                    "status": "in_transit",
-                    "picked_up_at": updated_delivery.picked_up_at.isoformat() if updated_delivery.picked_up_at else None,
-                    "inventory_changes": inventory_changes
-                },
-                metadata={
-                    "pickup_quantities": pickup_quantities,
-                    "warehouse_id": delivery.warehouse_id,
-                    "order_id": delivery.order_id
-                }
-            )
-            print(f"✅ [PICKUP] Activity log created for delivery_id={delivery_id}")
-        except Exception as e:
-            print(f"⚠️ [PICKUP] Failed to log activity: {e}")
-            import traceback
-            traceback.print_exc()
-        
-        print(f"✅ [PICKUP] Pickup completed successfully for delivery_id={delivery_id}")
         return DeliveryService._format_delivery_data(db, updated_delivery)
     
     @staticmethod
@@ -245,8 +227,7 @@ class DeliveryService:
     @staticmethod
     def deliver_to_shop(db: Session, delivery_id: int, delivery_quantities: Dict[int, int],
                        delivery_gps_lat: Decimal = None, delivery_gps_lng: Decimal = None,
-                       delivery_remarks: str = None, delivery_images: List[str] = None,
-                       user_id: int = None, user_role: str = None, user_name: str = None) -> Dict:
+                       delivery_remarks: str = None, delivery_images: List[str] = None) -> Dict:
         """
         Record shop delivery.
         
@@ -286,13 +267,9 @@ class DeliveryService:
         if invalid_ids:
             raise ValueError(f"Invalid order_item_ids in delivery_quantities: {invalid_ids}")
         
-        print(f"🟢 [DELIVER] Starting delivery for delivery_id={delivery_id}, quantities={delivery_quantities}")
-        
         # Update quantities
         total_delivered = 0
         total_picked = 0
-        inventory_changes = []
-        
         for delivery_item in delivery_items:
             order_item_id = delivery_item.order_item_id
             quantity_delivered = delivery_quantities.get(order_item_id, 0)
@@ -307,52 +284,12 @@ class DeliveryService:
             # Calculate returned quantity
             quantity_returned = quantity_picked - quantity_delivered
             
-            print(f"🟢 [DELIVER] Processing order_item_id={order_item_id}, "
-                  f"picked={quantity_picked}, delivered={quantity_delivered}, returned={quantity_returned}")
-            
             DeliveryItemRepository.update_quantities(
                 db=db,
                 delivery_item_id=delivery_item.id,
                 quantity_delivered=quantity_delivered,
                 quantity_returned=quantity_returned
             )
-            
-            # If there's a difference (partially delivered), automatically return the remaining to inventory
-            if quantity_returned > 0 and delivery_item.inventory_item_id:
-                inventory = InventoryRepository.get_by_id(db, delivery_item.inventory_item_id)
-                if inventory:
-                    old_quantity = inventory.quantity
-                    new_quantity = inventory.quantity + quantity_returned
-                    print(f"🟢 [DELIVER] Returning to inventory: inventory_id={inventory.id}, "
-                          f"item={inventory.item_name}, old_qty={old_quantity} -> new_qty={new_quantity}, "
-                          f"returned_qty={quantity_returned}")
-                    
-                    updated_inventory = InventoryRepository.update(
-                        db=db,
-                        inventory_id=inventory.id,
-                        quantity=new_quantity
-                    )
-                    
-                    # Verify update by re-fetching from database
-                    db.commit()  # Ensure commit
-                    verified_inventory = InventoryRepository.get_by_id(db, inventory.id)
-                    if verified_inventory:
-                        print(f"🟢 [DELIVER] Verified inventory update: inventory_id={verified_inventory.id}, "
-                              f"quantity={verified_inventory.quantity} (expected: {new_quantity})")
-                        if verified_inventory.quantity != new_quantity:
-                            print(f"❌ [DELIVER] ERROR: Inventory quantity mismatch! Expected {new_quantity}, got {verified_inventory.quantity}")
-                    else:
-                        print(f"❌ [DELIVER] ERROR: Could not verify inventory update - inventory not found!")
-                    
-                    inventory_changes.append({
-                        "inventory_id": inventory.id,
-                        "item_name": inventory.item_name,
-                        "old_quantity": old_quantity,
-                        "new_quantity": new_quantity,
-                        "quantity_returned": quantity_returned
-                    })
-            elif quantity_returned > 0:
-                print(f"⚠️ [DELIVER] Warning: quantity_returned={quantity_returned} but no inventory_item_id")
             
             total_delivered += quantity_delivered
             total_picked += quantity_picked
@@ -382,47 +319,12 @@ class DeliveryService:
             status=status
         )
         
-        print(f"🟢 [DELIVER] Delivery status updated to: {status}, total_delivered={total_delivered}, total_picked={total_picked}")
-        
-        # Log activity
-        try:
-            ActivityLogService.log_activity(
-                db=db,
-                user_id=user_id,
-                user_role=user_role or 'delivery_man',
-                action_type='UPDATE',
-                entity_type='delivery',
-                entity_id=delivery_id,
-                user_name=user_name,
-                changes_summary=f"Stock delivered to shop. Status: {status}. {len(inventory_changes)} inventory items returned.",
-                new_values={
-                    "status": status,
-                    "delivered_at": updated_delivery.delivered_at.isoformat() if updated_delivery.delivered_at else None,
-                    "total_delivered": total_delivered,
-                    "total_picked": total_picked,
-                    "inventory_changes": inventory_changes
-                },
-                metadata={
-                    "delivery_quantities": delivery_quantities,
-                    "warehouse_id": delivery.warehouse_id,
-                    "order_id": delivery.order_id,
-                    "delivery_remarks": delivery_remarks
-                }
-            )
-            print(f"✅ [DELIVER] Activity log created for delivery_id={delivery_id}")
-        except Exception as e:
-            print(f"⚠️ [DELIVER] Failed to log activity: {e}")
-            import traceback
-            traceback.print_exc()
-        
-        print(f"✅ [DELIVER] Delivery completed successfully for delivery_id={delivery_id}")
         return DeliveryService._format_delivery_data(db, updated_delivery)
     
     @staticmethod
     def return_to_warehouse(db: Session, delivery_id: int, return_quantities: Dict[int, int],
                            return_gps_lat: Decimal = None, return_gps_lng: Decimal = None,
-                           return_reason: str = None,
-                           user_id: int = None, user_role: str = None, user_name: str = None) -> Dict:
+                           return_reason: str = None) -> Dict:
         """
         Record return to warehouse and add inventory back.
         
@@ -446,83 +348,90 @@ class DeliveryService:
         if delivery.status not in ['partially_delivered', 'delivered']:
             raise ValueError(f"Cannot return. Current status: {delivery.status}")
         
-        print(f"🔴 [RETURN] Starting return for delivery_id={delivery_id}, quantities={return_quantities}")
-        
         # Get delivery items
         delivery_items = DeliveryItemRepository.get_by_delivery(db, delivery_id)
-        print(f"🔴 [RETURN] Found {len(delivery_items)} delivery items")
-        
-        inventory_changes = []
         
         # Update quantities and add inventory back
         for delivery_item in delivery_items:
             order_item_id = delivery_item.order_item_id
-            quantity_returned = return_quantities.get(order_item_id, 0)
+            new_quantity_returned = return_quantities.get(order_item_id, 0)
             
-            if quantity_returned > 0:
+            if new_quantity_returned > 0:
+                # Get the current quantity_returned (may have been set during delivery)
+                current_quantity_returned = delivery_item.quantity_returned or 0
+                
                 # Validate return quantity
                 max_returnable = delivery_item.quantity_picked_up - delivery_item.quantity_delivered
-                if quantity_returned > max_returnable:
+                if new_quantity_returned > max_returnable:
                     raise ValueError(
                         f"Cannot return more than available. "
-                        f"Available to return: {max_returnable}, Requested: {quantity_returned}"
+                        f"Available to return: {max_returnable}, Requested: {new_quantity_returned}"
                     )
                 
-                # Get current returned quantity to avoid double-counting
-                current_returned = delivery_item.quantity_returned or 0
+                # Calculate the NET amount to add back (incremental return)
+                # If quantity_returned was already set during delivery, we only add the difference
+                net_return_amount = new_quantity_returned - current_quantity_returned
                 
-                print(f"🔴 [RETURN] Processing order_item_id={order_item_id}, "
-                      f"quantity_returned={quantity_returned}, current_returned={current_returned}")
+                print(f"[return_to_warehouse] order_item_id={order_item_id}, current_returned={current_quantity_returned}, new_returned={new_quantity_returned}, net_return={net_return_amount}")
                 
-                # Update delivery item
+                # Update delivery item with new total returned quantity
                 DeliveryItemRepository.update_quantities(
                     db=db,
                     delivery_item_id=delivery_item.id,
-                    quantity_returned=quantity_returned
+                    quantity_returned=new_quantity_returned
                 )
                 
-                # Add back to inventory if inventory_item_id is set
-                # Only add the difference to avoid double-counting if already returned during delivery
-                if delivery_item.inventory_item_id:
-                    inventory = InventoryRepository.get_by_id(db, delivery_item.inventory_item_id)
+                # Only add back to inventory if there's a net increase in returned quantity
+                if net_return_amount > 0:
+                    # Add back to inventory
+                    inventory = None
+                    if delivery_item.inventory_item_id:
+                        # Use stored inventory_item_id
+                        inventory = InventoryRepository.get_by_id(db, delivery_item.inventory_item_id)
+                    else:
+                        # Try to find inventory by product_id or product_name
+                        from models.order_item import OrderItem
+                        order_item = db.query(OrderItem).filter(OrderItem.id == order_item_id).first()
+                        if order_item:
+                            inventory_items = InventoryRepository.get_by_warehouse(db, delivery.warehouse_id)
+                            
+                            # Try by product_id first
+                            if order_item.product_id:
+                                inventory = next(
+                                    (inv for inv in inventory_items if inv.product_id == order_item.product_id),
+                                    None
+                                )
+                            
+                            # If not found, try by product_name
+                            if not inventory and order_item.product_name:
+                                product_name_lower = order_item.product_name.lower().strip()
+                                inventory = next(
+                                    (inv for inv in inventory_items 
+                                     if inv.item_name and inv.item_name.lower().strip() == product_name_lower),
+                                    None
+                                )
+                            
+                            # If found, update delivery_item with inventory_item_id for future operations
+                            if inventory and not delivery_item.inventory_item_id:
+                                delivery_item.inventory_item_id = inventory.id
+                                db.commit()
+                                print(f"[return_to_warehouse] Found and linked inventory by name: {order_item.product_name} -> inventory_id {inventory.id}")
+                    
                     if inventory:
-                        # Calculate the difference: new_returned - current_returned
-                        quantity_to_add = quantity_returned - current_returned
-                        if quantity_to_add > 0:
-                            old_quantity = inventory.quantity
-                            new_quantity = inventory.quantity + quantity_to_add
-                            print(f"🔴 [RETURN] Adding to inventory: inventory_id={inventory.id}, "
-                                  f"item={inventory.item_name}, old_qty={old_quantity} -> new_qty={new_quantity}, "
-                                  f"quantity_to_add={quantity_to_add}")
-                            
-                            updated_inventory = InventoryRepository.update(
-                                db=db,
-                                inventory_id=inventory.id,
-                                quantity=new_quantity
-                            )
-                            
-                            # Verify update by re-fetching from database
-                            db.commit()  # Ensure commit
-                            verified_inventory = InventoryRepository.get_by_id(db, inventory.id)
-                            if verified_inventory:
-                                print(f"🔴 [RETURN] Verified inventory update: inventory_id={verified_inventory.id}, "
-                                      f"quantity={verified_inventory.quantity} (expected: {new_quantity})")
-                                if verified_inventory.quantity != new_quantity:
-                                    print(f"❌ [RETURN] ERROR: Inventory quantity mismatch! Expected {new_quantity}, got {verified_inventory.quantity}")
-                            else:
-                                print(f"❌ [RETURN] ERROR: Could not verify inventory update - inventory not found!")
-                            
-                            inventory_changes.append({
-                                "inventory_id": inventory.id,
-                                "item_name": inventory.item_name,
-                                "old_quantity": old_quantity,
-                                "new_quantity": new_quantity,
-                                "quantity_added": quantity_to_add
-                            })
-                        else:
-                            print(f"⚠️ [RETURN] No quantity to add (quantity_to_add={quantity_to_add})")
+                        old_quantity = inventory.quantity
+                        new_quantity = inventory.quantity + net_return_amount
+                        InventoryRepository.update(
+                            db=db,
+                            inventory_id=inventory.id,
+                            quantity=new_quantity
+                        )
+                        print(f"[return_to_warehouse] Added back to inventory: {inventory.item_name or 'product'} - {old_quantity} -> {new_quantity} (net_return={net_return_amount})")
+                    else:
+                        print(f"[return_to_warehouse] WARNING: Could not find inventory item for order_item_id {order_item_id}. Inventory not updated.")
+                elif net_return_amount < 0:
+                    print(f"[return_to_warehouse] WARNING: net_return_amount is negative ({net_return_amount}). This shouldn't happen. Skipping inventory update.")
                 else:
-                    print(f"⚠️ [RETURN] Warning: delivery_item_id={delivery_item.id} has no inventory_item_id")
+                    print(f"[return_to_warehouse] No net return amount (already returned). Skipping inventory update.")
         
         # Update delivery status
         updated_delivery = DeliveryRepository.update_return(
@@ -535,38 +444,6 @@ class DeliveryService:
             status='returned'
         )
         
-        print(f"🔴 [RETURN] Return status updated, {len(inventory_changes)} inventory items updated")
-        
-        # Log activity
-        try:
-            ActivityLogService.log_activity(
-                db=db,
-                user_id=user_id,
-                user_role=user_role or 'delivery_man',
-                action_type='UPDATE',
-                entity_type='delivery',
-                entity_id=delivery_id,
-                user_name=user_name,
-                changes_summary=f"Stock returned to warehouse. {len(inventory_changes)} inventory items updated.",
-                new_values={
-                    "status": "returned",
-                    "returned_at": updated_delivery.returned_at.isoformat() if updated_delivery.returned_at else None,
-                    "return_reason": return_reason,
-                    "inventory_changes": inventory_changes
-                },
-                metadata={
-                    "return_quantities": return_quantities,
-                    "warehouse_id": delivery.warehouse_id,
-                    "order_id": delivery.order_id
-                }
-            )
-            print(f"✅ [RETURN] Activity log created for delivery_id={delivery_id}")
-        except Exception as e:
-            print(f"⚠️ [RETURN] Failed to log activity: {e}")
-            import traceback
-            traceback.print_exc()
-        
-        print(f"✅ [RETURN] Return completed successfully for delivery_id={delivery_id}")
         return DeliveryService._format_delivery_data(db, updated_delivery)
     
     @staticmethod
@@ -575,14 +452,6 @@ class DeliveryService:
         try:
             # Get delivery items
             delivery_items = DeliveryItemRepository.get_by_delivery(db, delivery.id)
-            
-            # Get order items to fetch product names
-            from models.order_item import OrderItem
-            order_item_ids = [item.order_item_id for item in delivery_items]
-            order_items = {}
-            if order_item_ids:
-                order_items_query = db.query(OrderItem).filter(OrderItem.id.in_(order_item_ids)).all()
-                order_items = {item.id: item for item in order_items_query}
             
             # Parse delivery images
             delivery_images = []
@@ -635,7 +504,6 @@ class DeliveryService:
                         "id": item.id,
                         "order_item_id": item.order_item_id,
                         "product_id": item.product_id,
-                        "product_name": (lambda oi: oi.product_name if oi else None)(order_items.get(item.order_item_id)),
                         "inventory_item_id": item.inventory_item_id,
                         "quantity_picked_up": item.quantity_picked_up,
                         "quantity_delivered": item.quantity_delivered,

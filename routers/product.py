@@ -142,6 +142,7 @@ async def update_product(
             'code': old_product['code'],
             'name': old_product['name'],
             'unit': old_product['unit'],
+            'price': old_product.get('price'),
             'is_active': old_product['is_active']
         }
         
@@ -151,6 +152,7 @@ async def update_product(
             code=product.code,
             name=product.name,
             unit=product.unit,
+            price=product.price,
             is_active=product.is_active
         )
         

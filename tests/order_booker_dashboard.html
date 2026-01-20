@@ -1540,15 +1540,16 @@
                     addOrderItem();
                 }
                 // Add required attributes to order item inputs (only when form is visible)
+                // Note: unit_price is read-only and auto-filled, so it doesn't need required attribute
                 setTimeout(() => {
-                    const orderItemInputs = orderItemsContainer.querySelectorAll('.order-item-product, .order-item-quantity, .order-item-unit-price');
+                    const orderItemInputs = orderItemsContainer.querySelectorAll('.order-item-product, .order-item-quantity');
                     orderItemInputs.forEach(input => {
                         input.setAttribute('required', 'required');
                     });
                 }, 0);
             } else {
                 // Remove required attributes FIRST to prevent HTML5 validation errors
-                const orderItemInputs = orderItemsContainer.querySelectorAll('.order-item-product, .order-item-quantity, .order-item-unit-price');
+                const orderItemInputs = orderItemsContainer.querySelectorAll('.order-item-product, .order-item-quantity');
                 orderItemInputs.forEach(input => {
                     input.removeAttribute('required');
                 });
@@ -1592,6 +1593,11 @@
                 });
                 if (response.ok) {
                     availableProducts = await response.json();
+                    // Normalize price values - convert string prices to numbers
+                    availableProducts = availableProducts.map(p => ({
+                        ...p,
+                        price: typeof p.price === 'string' ? parseFloat(p.price) : (p.price || 0)
+                    }));
                 }
             } catch (error) {
                 console.error('Error loading products:', error);
@@ -1603,15 +1609,66 @@
         function updateProductInfo(selectElement) {
             const itemDiv = selectElement.closest('.order-item-form');
             const productId = selectElement.value;
+            if (!productId) return; // No product selected
+            
             const selectedOption = selectElement.options[selectElement.selectedIndex];
             const productName = selectedOption.getAttribute('data-product-name') || '';
             const productUnit = selectedOption.getAttribute('data-product-unit') || '';
             
+            // Parse price - handle both string and number formats
+            // Also try to get price from availableProducts array as fallback
+            const priceAttr = selectedOption.getAttribute('data-product-price');
+            let productPrice = priceAttr ? parseFloat(priceAttr) : 0;
+            
+            // If price is 0 or NaN or invalid, try to get it from availableProducts array
+            if (isNaN(productPrice) || productPrice <= 0) {
+                const product = availableProducts.find(p => p.id == productId);
+                if (product && product.price !== null && product.price !== undefined) {
+                    const priceFromArray = typeof product.price === 'string' ? parseFloat(product.price) : (product.price || 0);
+                    if (!isNaN(priceFromArray) && priceFromArray > 0) {
+                        productPrice = priceFromArray;
+                    }
+                }
+            }
+            
             // Store product_id and product_name in hidden fields
             const productIdInput = itemDiv.querySelector('.order-item-product-id');
             const productNameInput = itemDiv.querySelector('.order-item-product-name');
+            const unitPriceInput = itemDiv.querySelector('.order-item-unit-price');
+            
             if (productIdInput) productIdInput.value = productId;
             if (productNameInput) productNameInput.value = productName;
+            
+            // Auto-fill price from product table
+            if (unitPriceInput) {
+                // Check if price is valid and greater than 0
+                if (productPrice && !isNaN(productPrice) && productPrice > 0) {
+                    unitPriceInput.value = productPrice.toFixed(2);
+                    unitPriceInput.style.color = '#27ae60';
+                } else {
+                    unitPriceInput.value = '0.00';
+                    unitPriceInput.style.color = '#e74c3c';
+                    // Only show warning if we actually checked and found no price
+                    if (productPrice === 0 || isNaN(productPrice)) {
+                        console.warn(`Product ${productId} (${productName}) does not have a price set. Backend will handle this.`);
+                    }
+                }
+                
+                // Auto-calculate total when product is selected (if quantity is already entered)
+                const quantityInput = itemDiv.querySelector('.order-item-quantity');
+                if (quantityInput && quantityInput.value) {
+                    calculateOrderItemTotal(quantityInput);
+                } else {
+                    // Reset total if no quantity
+                    const totalInput = itemDiv.querySelector('.order-item-total');
+                    if (totalInput) {
+                        totalInput.value = '0.00';
+                        totalInput.style.color = '#999';
+                        totalInput.style.fontWeight = 'normal';
+                        updateOrderTotal();
+                    }
+                }
+            }
         }
 
         // Add Order Item
@@ -1627,11 +1684,20 @@
             // Only add required attribute if order booking is selected
             const requiredAttr = isOrderBookingSelected ? 'required' : '';
             
-            // Build product options
+            // Build product options with price information
             const productOptions = '<option value="">Select Product</option>' + 
-                availableProducts.map(p => 
-                    `<option value="${p.id}" data-product-name="${(p.name || '').replace(/"/g, '&quot;')}" data-product-unit="${(p.unit || '').replace(/"/g, '&quot;')}">${p.code} - ${p.name}${p.unit ? ` (${p.unit})` : ''}</option>`
-                ).join('');
+                availableProducts.map(p => {
+                    // Handle price as string or number (from database it comes as string "20.00")
+                    let price = typeof p.price === 'string' ? parseFloat(p.price) : (p.price || 0);
+                    // Ensure price is a valid number
+                    if (isNaN(price)) price = 0;
+                    const priceDisplay = price > 0 ? ` (Rs. ${price.toFixed(2)})` : ' (Price not set)';
+                    // Store price as string with 2 decimal places in data attribute to preserve precision
+                    return `<option value="${p.id}" 
+                            data-product-name="${(p.name || '').replace(/"/g, '&quot;')}" 
+                            data-product-unit="${(p.unit || '').replace(/"/g, '&quot;')}" 
+                            data-product-price="${price.toFixed(2)}">${p.code} - ${p.name}${p.unit ? ` (${p.unit})` : ''}${priceDisplay}</option>`;
+                }).join('');
             
             itemDiv.innerHTML = `
                 <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr auto; gap: 10px; align-items: end;">
@@ -1645,15 +1711,16 @@
                     </div>
                     <div>
                         <label style="font-size: 12px; color: #666;">Quantity</label>
-                        <input type="number" class="order-item-quantity" min="1" placeholder="10" ${requiredAttr} onchange="calculateOrderItemTotal(this)">
+                        <input type="number" class="order-item-quantity" min="1" placeholder="10" ${requiredAttr} onchange="calculateOrderItemTotal(this)" oninput="calculateOrderItemTotal(this)">
                     </div>
                     <div>
                         <label style="font-size: 12px; color: #666;">Unit Price (Rs.)</label>
-                        <input type="number" class="order-item-unit-price" step="0.01" min="0" placeholder="500.00" ${requiredAttr} onchange="calculateOrderItemTotal(this)">
+                        <input type="number" class="order-item-unit-price" step="0.01" min="0" placeholder="0.00" readonly style="background: #f0f0f0;">
+                        <small style="color: #666; font-size: 11px; display: block; margin-top: 2px;">Auto-filled from product</small>
                     </div>
                     <div>
                         <label style="font-size: 12px; color: #666;">Total (Rs.)</label>
-                        <input type="number" class="order-item-total" step="0.01" readonly style="background: #f0f0f0;" value="0.00">
+                        <input type="number" class="order-item-total" step="0.01" readonly style="background: #f0f0f0; font-weight: bold; color: #27ae60;" value="0.00">
                     </div>
                     <div>
                         <button type="button" onclick="removeOrderItem(this)" style="background: #e74c3c; color: white; border: none; padding: 8px 12px; border-radius: 5px; cursor: pointer;">Remove</button>
@@ -1673,10 +1740,29 @@
         // Calculate Order Item Total
         function calculateOrderItemTotal(input) {
             const itemDiv = input.closest('.order-item-form');
-            const quantity = parseFloat(itemDiv.querySelector('.order-item-quantity').value) || 0;
-            const unitPrice = parseFloat(itemDiv.querySelector('.order-item-unit-price').value) || 0;
+            const quantityInput = itemDiv.querySelector('.order-item-quantity');
+            const unitPriceInput = itemDiv.querySelector('.order-item-unit-price');
+            const totalInput = itemDiv.querySelector('.order-item-total');
+            
+            if (!quantityInput || !unitPriceInput || !totalInput) return;
+            
+            const quantity = parseFloat(quantityInput.value) || 0;
+            const unitPrice = parseFloat(unitPriceInput.value) || 0;
             const total = quantity * unitPrice;
-            itemDiv.querySelector('.order-item-total').value = total.toFixed(2);
+            
+            // Update total with proper formatting
+            totalInput.value = total.toFixed(2);
+            
+            // Update visual styling based on whether total is valid
+            if (total > 0 && quantity > 0 && unitPrice > 0) {
+                totalInput.style.color = '#27ae60';
+                totalInput.style.fontWeight = 'bold';
+            } else {
+                totalInput.style.color = '#999';
+                totalInput.style.fontWeight = 'normal';
+            }
+            
+            // Update grand total
             updateOrderTotal();
         }
 
@@ -1684,15 +1770,35 @@
         function updateOrderTotal() {
             const items = document.querySelectorAll('.order-item-form');
             let total = 0;
+            let hasValidItems = false;
+            
             items.forEach(item => {
                 const totalInput = item.querySelector('.order-item-total');
                 if (totalInput) {
-                    total += parseFloat(totalInput.value) || 0;
+                    const itemTotal = parseFloat(totalInput.value) || 0;
+                    total += itemTotal;
+                    if (itemTotal > 0) {
+                        hasValidItems = true;
+                    }
                 }
             });
+            
             const orderTotalElement = document.getElementById('orderTotalAmount');
             if (orderTotalElement) {
                 orderTotalElement.textContent = total.toFixed(2);
+                // Update styling based on total
+                const totalDisplay = orderTotalElement.closest('#orderTotalDisplay');
+                if (totalDisplay) {
+                    if (total > 0 && hasValidItems) {
+                        totalDisplay.style.background = '#d4edda';
+                        totalDisplay.style.color = '#155724';
+                        totalDisplay.style.border = '2px solid #27ae60';
+                    } else {
+                        totalDisplay.style.background = '#f8f9fa';
+                        totalDisplay.style.color = '#6c757d';
+                        totalDisplay.style.border = '1px solid #dee2e6';
+                    }
+                }
             }
             // Update credit warning if shop is selected
             updateOrderTotalWithCreditWarning();
@@ -1709,17 +1815,17 @@
                 return;
             }
             
-            // Remove required attributes from hidden order items to prevent HTML5 validation errors
-            const orderBookingCheckbox = document.getElementById('visitTypeOrderBooking');
-            if (!orderBookingCheckbox || !orderBookingCheckbox.checked) {
-                const orderItemsContainer = document.getElementById('orderItemsContainer');
-                if (orderItemsContainer) {
-                    const orderItemInputs = orderItemsContainer.querySelectorAll('.order-item-product, .order-item-quantity, .order-item-unit-price');
-                    orderItemInputs.forEach(input => {
-                        input.removeAttribute('required');
-                    });
+                // Remove required attributes from hidden order items to prevent HTML5 validation errors
+                const orderBookingCheckbox = document.getElementById('visitTypeOrderBooking');
+                if (!orderBookingCheckbox || !orderBookingCheckbox.checked) {
+                    const orderItemsContainer = document.getElementById('orderItemsContainer');
+                    if (orderItemsContainer) {
+                        const orderItemInputs = orderItemsContainer.querySelectorAll('.order-item-product, .order-item-quantity');
+                        orderItemInputs.forEach(input => {
+                            input.removeAttribute('required');
+                        });
+                    }
                 }
-            }
 
             // Collect visit types from checkboxes
             const visitTypes = [];
@@ -1755,25 +1861,30 @@
                     const quantityInput = item.querySelector('.order-item-quantity');
                     const unitPriceInput = item.querySelector('.order-item-unit-price');
                     
-                    // Ensure we have valid inputs
-                    if (!productSelect || !productSelect.value || !quantityInput || !unitPriceInput) {
+                    // Ensure we have valid inputs (product and quantity are required, price is auto-filled)
+                    if (!productSelect || !productSelect.value || !quantityInput || !quantityInput.value) {
                         return; // Skip invalid items
                     }
                     
                     const productId = parseInt(productIdInput?.value || productSelect.value, 10);
                     const productName = productNameInput?.value || productSelect.options[productSelect.selectedIndex]?.text || '';
                     const quantity = parseInt(quantityInput.value, 10);
-                    const unitPrice = parseFloat(unitPriceInput.value);
+                    const unitPrice = parseFloat(unitPriceInput?.value || 0);
                     
-                    // Validate numeric values
-                    if (productId && !isNaN(quantity) && quantity > 0 && !isNaN(unitPrice) && unitPrice > 0) {
+                    // Validate: product_id and quantity are required
+                    // Price will be fetched from product table by backend, but we validate it exists here for better UX
+                    if (productId && !isNaN(quantity) && quantity > 0) {
+                        if (!unitPrice || unitPrice <= 0) {
+                            // Show warning but don't block - backend will handle this
+                            console.warn(`Product ${productId} (${productName}) does not have a price set. Backend will handle this.`);
+                        }
                         hasValidItem = true;
+                        // Note: unit_price is optional - backend will fetch it from product table
                         orderItems.push({
                             product_id: productId,
-                            product_name: productName,
-                            quantity: quantity,  // Ensure it's a number, not string
-                            unit_price: unitPrice,  // Ensure it's a number, not string
-                            total_price: quantity * unitPrice  // Will be ignored by backend
+                            product_name: productName, // Still send for logging/denormalization
+                            quantity: quantity  // Ensure it's a number, not string
+                            // unit_price and total_price are now calculated by backend
                         });
                     }
                 });
@@ -1855,7 +1966,20 @@
                     console.error('Error response:', data);
                     
                     // Extract error message - handle both detail and message fields
-                    let errorMessage = data.detail || data.message || 'Failed to register visit';
+                    let errorMessage = '';
+                    if (Array.isArray(data.detail)) {
+                        // Pydantic validation errors come as an array of error objects
+                        errorMessage = data.detail.map(err => {
+                            const field = err.loc && err.loc.length > 0 ? err.loc.join('.') : 'field';
+                            return `${field}: ${err.msg || err.message || 'validation error'}`;
+                        }).join('\n');
+                    } else if (typeof data.detail === 'string') {
+                        errorMessage = data.detail;
+                    } else if (data.message) {
+                        errorMessage = data.message;
+                    } else {
+                        errorMessage = 'Failed to register visit';
+                    }
                     
                     // If error contains credit limit information, format it nicely
                     if (errorMessage.includes('exceeds available credit') || errorMessage.includes('credit limit')) {
@@ -1896,7 +2020,7 @@
                 document.getElementById('dailyCollectionsForm').style.display = 'none';
                 // Clear order items and remove required attributes
                 const orderItemsContainer = document.getElementById('orderItemsContainer');
-                const orderItemInputs = orderItemsContainer.querySelectorAll('.order-item-product, .order-item-quantity, .order-item-unit-price');
+                const orderItemInputs = orderItemsContainer.querySelectorAll('.order-item-product, .order-item-quantity');
                 orderItemInputs.forEach(input => {
                     input.removeAttribute('required');
                 });

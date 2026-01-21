@@ -16,7 +16,7 @@ USAGE:
 3. Order Items reference products via product_id
 4. Product name is also stored in order_items.product_name for backward compatibility
 """
-from sqlalchemy import Column, BigInteger, String, Boolean, DateTime
+from sqlalchemy import Column, BigInteger, String, Boolean, DateTime, Numeric
 from sqlalchemy.sql import func
 from config.database import Base
 
@@ -60,6 +60,16 @@ class Product(Base):
     - Unit in which the product is sold
     - Examples: "kg", "pcs", "box", "pack", "g"
     - Used for quantity display and calculations
+    """
+
+    price = Column(Numeric(10, 2), nullable=True)
+    """
+    Product price per unit.
+    - Price in Pakistani Rupees (PKR)
+    - Stored as Decimal with 2 decimal places
+    - NULL if price is not set (allows products without prices)
+    - Used for automatic order total calculation
+    - Example: 500.00 for Rs. 500 per unit
     """
 
     # Status

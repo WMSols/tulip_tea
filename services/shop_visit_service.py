@@ -33,6 +33,7 @@ from services.daily_collection_service import DailyCollectionService
 from decimal import Decimal
 from typing import Dict, List, Optional
 from datetime import datetime, date
+import json
 
 
 class ShopVisitService:
@@ -60,12 +61,10 @@ class ShopVisitService:
             if shop:
                 shop_name = shop.name
                 shop_zone_id = shop.zone_id
-                # Get shop routes
-                from models.route_shop import RouteShop
+                # Get shop route (using shop.route_id directly)
                 from repositories.route_repository import RouteRepository
-                route_shops = db.query(RouteShop).filter(RouteShop.shop_id == shop.id).all()
-                for route_shop in route_shops:
-                    route = RouteRepository.get_by_id(db, route_shop.route_id)
+                if shop.route_id:
+                    route = RouteRepository.get_by_id(db, shop.route_id)
                     if route:
                         shop_routes.append({
                             "route_id": route.id,
@@ -128,10 +127,10 @@ class ShopVisitService:
             "visit_types": visit_types_list,
             "gps_lat": float(visit.gps_lat) if visit.gps_lat else None,
             "gps_lng": float(visit.gps_lng) if visit.gps_lng else None,
-            "visit_time": visit.visit_time.isoformat() if visit.visit_time else None,
-            "photo": visit.photo,  # Legacy single photo
+            "visit_time": visit.visit_date.isoformat() if visit.visit_date else None,  # API uses visit_time for backward compatibility
+            "photo": photos_list[0] if photos_list and len(photos_list) > 0 else None,  # Legacy single photo (first from array)
             "photos": photos_list,  # Multiple photos (JSON array)
-            "reason": visit.reason,
+            "reason": visit.remarks,  # Model uses 'remarks', API uses 'reason' for backward compatibility
             "order_id": order_id,
             "collection_id": collection_id
         }
@@ -197,12 +196,12 @@ class ShopVisitService:
         gps_lat_decimal = Decimal(str(gps_lat)) if gps_lat is not None else None
         gps_lng_decimal = Decimal(str(gps_lng)) if gps_lng is not None else None
         
-        # Parse visit_time if provided
-        visit_time_datetime = None
+        # Parse visit_time if provided (API uses visit_time, model uses visit_date)
+        visit_date_datetime = None
         if visit_time:
             try:
                 # Try parsing ISO format
-                visit_time_datetime = datetime.fromisoformat(visit_time.replace('Z', '+00:00'))
+                visit_date_datetime = datetime.fromisoformat(visit_time.replace('Z', '+00:00'))
             except (ValueError, AttributeError):
                 raise ValueError("Invalid visit_time format. Use ISO format (e.g., 2026-01-07T10:30:00)")
         
@@ -231,7 +230,7 @@ class ShopVisitService:
             visit_type=visit_type_legacy,  # Keep for backward compatibility
             gps_lat=gps_lat_decimal,
             gps_lng=gps_lng_decimal,
-            visit_time=visit_time_datetime,
+            visit_date=visit_date_datetime,
             photo=photo_url,  # Will be None if base64, URL if already uploaded
             reason=reason
         )
@@ -258,8 +257,16 @@ class ShopVisitService:
                 )
                 
                 if uploaded_url:
-                    # Update visit with photo URL
-                    visit.photo = uploaded_url
+                    # Update visit with photo URL (store as JSON array in photos field)
+                    import json
+                    photos_list = []
+                    if visit.photos:
+                        try:
+                            photos_list = json.loads(visit.photos) if isinstance(visit.photos, str) else visit.photos
+                        except:
+                            photos_list = []
+                    photos_list.append(uploaded_url)
+                    visit.photos = json.dumps(photos_list)
                     db.commit()
                     db.refresh(visit)
                     photo_url = uploaded_url
@@ -331,7 +338,7 @@ class ShopVisitService:
                     shop_id=shop_id,
                     order_booker_id=order_booker_id,
                     amount=collection_amount,
-                    collected_at=visit_time_datetime,
+                    collected_at=visit_date_datetime,
                     remarks=collection_remarks,
                     visit_id=visit.id  # Link collection to visit directly
                 )

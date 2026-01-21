@@ -216,7 +216,7 @@ async def approve_credit_limit_request(
         }
     
     Response (200):
-        Approved request data with reviewed_by_distributor and reviewed_at
+        Approved request data with approved_by_distributor and approved_at
     """
     try:
         # Get request before approval for logging
@@ -307,7 +307,7 @@ async def reject_credit_limit_request(
         }
     
     Response (200):
-        Rejected request data with reviewed_by_distributor and reviewed_at
+        Rejected request data with approved_by_distributor and approved_at
     """
     try:
         # Get request before rejection for logging

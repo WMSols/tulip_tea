@@ -79,27 +79,31 @@ async def get_delivery_man_routes(
     delivery_man_id: int,
     db: Session = Depends(get_db)
 ):
-    """Get all routes assigned to a delivery man."""
+    """Get all routes in the delivery man's zone (zone-based assignment, not route-specific)."""
     try:
-        from repositories.delivery_man_route_repository import DeliveryManRouteRepository
+        from repositories.delivery_man_repository import DeliveryManRepository
         from repositories.route_repository import RouteRepository
         from repositories.zone_repository import ZoneRepository
         
-        route_assignments = DeliveryManRouteRepository.get_routes_by_delivery_man(db, delivery_man_id)
+        # Get delivery man to find their zone
+        delivery_man = DeliveryManRepository.get_by_id(db, delivery_man_id, include_deleted=False)
+        if not delivery_man or not delivery_man.zone_id:
+            return []
+        
+        # Get all routes in the delivery man's zone
+        routes = RouteRepository.get_by_zone(db, delivery_man.zone_id)
         result = []
         
-        for assignment in route_assignments:
-            route = RouteRepository.get_by_id(db, assignment.route_id)
-            if route:
-                zone = ZoneRepository.get_by_id(db, route.zone_id) if route.zone_id else None
-                result.append({
-                    "id": route.id,
-                    "name": route.name,
-                    "zone_id": route.zone_id,
-                    "zone_name": zone.name if zone else None,
-                    "order_booker_id": route.order_booker_id,
-                    "created_at": route.created_at.isoformat() if route.created_at else None
-                })
+        for route in routes:
+            zone = ZoneRepository.get_by_id(db, route.zone_id) if route.zone_id else None
+            result.append({
+                "id": route.id,
+                "name": route.name,
+                "zone_id": route.zone_id,
+                "zone_name": zone.name if zone else None,
+                "order_booker_id": route.order_booker_id,
+                "created_at": route.created_at.isoformat() if route.created_at else None
+            })
         
         return result
     except Exception as e:
@@ -190,7 +194,7 @@ async def create_delivery_man(
             phone=delivery_man.phone,
             password=delivery_man.password,
             zone_id=delivery_man.zone_id,
-            route_ids=delivery_man.route_ids
+            route_ids=None  # Delivery men work by zone, not routes
         )
         return result
     except ValueError as e:

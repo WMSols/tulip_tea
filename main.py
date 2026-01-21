@@ -11,7 +11,7 @@ from config.database import settings, engine, Base
 import traceback
 
 # Import all models to register them with Base
-from models import distributor, order_booker, delivery_man, zone, route, shop, route_shop, credit_limit_request, daily_collection, payment, shop_visit, visit_type, order, order_item, activity_log, super_admin, delivery_man_route, warehouse, inventory, delivery_man_warehouse, product, delivery, delivery_item
+from models import distributor, order_booker, delivery_man, zone, route, shop, credit_limit_request, daily_collection, payment, shop_visit, visit_type, order, order_item, activity_log, super_admin, warehouse, inventory, delivery_man_warehouse, product, delivery, delivery_item
 
 # Import routers
 from routers import auth, distributor as distributor_router, order_booker, delivery_man, zone, route, shop
@@ -44,144 +44,25 @@ async def startup_event():
         import traceback
         traceback.print_exc()
         print("⚠️ Server will continue, but database operations may fail.")
+        print("💡 Tip: Run 'python scripts/test_db_connection.py' for detailed diagnostics.")
         # Don't raise - allow server to start even if there are issues
 
 # CORS middleware (allow all origins for development)
 # Must be added before other middleware
-# Note: allow_origins=["*"] doesn't work with null origin (file://)
-# So we need to use a custom function or allow all
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r".*",  # Allow all origins including null/file://
-    allow_credentials=False,
+    allow_origins=["*"],  # In production, specify exact origins
+    allow_credentials=False,  # Set to False when using allow_origins=["*"]
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
 )
 
-# Custom middleware to ensure CORS headers on all responses (including errors)
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response
-
-class CORSEnforcementMiddleware(BaseHTTPMiddleware):
-    """Middleware to ensure CORS headers are always present, even on errors."""
-    async def dispatch(self, request: Request, call_next):
-        origin = request.headers.get("origin") or request.headers.get("Origin") or "*"
-        cors_headers = {
-            "Access-Control-Allow-Origin": origin if origin != "null" else "*",
-            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
-            "Access-Control-Allow-Credentials": "false",
-        }
-        
-        try:
-            response = await call_next(request)
-            # Add CORS headers to response if not already present
-            for key, value in cors_headers.items():
-                if key not in response.headers:
-                    response.headers[key] = value
-            return response
-        except Exception as exc:
-            # If an exception occurs, create a response with CORS headers
-            import traceback
-            error_detail = {
-                "error": str(exc),
-                "type": type(exc).__name__,
-            }
-            if settings.debug:
-                error_detail["traceback"] = traceback.format_exc()
-            
-            return JSONResponse(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                content=error_detail,
-                headers=cors_headers
-            )
-
-# Add CORS enforcement middleware AFTER CORS middleware
-app.add_middleware(CORSEnforcementMiddleware)
-
-
-# Import SQLAlchemy exceptions
-from sqlalchemy.exc import OperationalError, SQLAlchemyError
-try:
-    import psycopg2
-except ImportError:
-    psycopg2 = None
 
 # Global exception handler to ensure CORS headers are always sent
-@app.exception_handler(OperationalError)
-async def database_error_handler(request: Request, exc: OperationalError):
-    """Handle database connection errors with CORS headers."""
-    origin = request.headers.get("origin") or request.headers.get("Origin") or "*"
-    
-    print(f"❌ [DB] Database OperationalError: {str(exc)}")
-    
-    error_detail = {
-        "error": "Database connection error",
-        "detail": "Please ensure Supabase local is running. Start it with: supabase start",
-        "type": "OperationalError"
-    }
-    
-    if settings.debug:
-        error_detail["debug"] = str(exc)
-    
-    return JSONResponse(
-        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        content=error_detail,
-        headers={
-            "Access-Control-Allow-Origin": origin if origin != "null" else "*",
-            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
-            "Access-Control-Allow-Credentials": "false",
-        }
-    )
-
-# Handle psycopg2 errors if available
-if psycopg2:
-    @app.exception_handler(psycopg2.OperationalError)
-    async def psycopg2_error_handler(request: Request, exc: psycopg2.OperationalError):
-        """Handle psycopg2 database connection errors with CORS headers."""
-        origin = request.headers.get("origin") or request.headers.get("Origin") or "*"
-        
-        print(f"❌ [DB] psycopg2 OperationalError: {str(exc)}")
-        
-        error_detail = {
-            "error": "Database connection error",
-            "detail": "Please ensure Supabase local is running. Start it with: supabase start",
-            "type": "psycopg2.OperationalError"
-        }
-        
-        if settings.debug:
-            error_detail["debug"] = str(exc)
-        
-        return JSONResponse(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            content=error_detail,
-            headers={
-                "Access-Control-Allow-Origin": origin if origin != "null" else "*",
-                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
-                "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
-                "Access-Control-Allow-Credentials": "false",
-            }
-        )
-
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """Global exception handler to ensure CORS headers are sent even on errors."""
-    # Get origin from request to echo it back (required for null origin)
-    origin = request.headers.get("origin") or request.headers.get("Origin") or "*"
-    
-    # Skip if it's an HTTPException (already handled)
-    from fastapi import HTTPException
-    if isinstance(exc, HTTPException):
-        # Add CORS headers to existing HTTPException
-        if not exc.headers:
-            exc.headers = {}
-        exc.headers["Access-Control-Allow-Origin"] = origin if origin != "null" else "*"
-        exc.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-        exc.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
-        raise exc
-    
     if settings.debug:
         error_detail = {
             "error": str(exc),
@@ -195,10 +76,9 @@ async def global_exception_handler(request: Request, exc: Exception):
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content=error_detail,
         headers={
-            "Access-Control-Allow-Origin": origin if origin != "null" else "*",
-            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
-            "Access-Control-Allow-Credentials": "false",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*",
         }
     )
 
@@ -240,25 +120,6 @@ async def test():
     }
 
 
-@app.options("/{full_path:path}")
-async def options_handler(full_path: str, request: Request):
-    """
-    Handle OPTIONS requests for CORS preflight.
-    This ensures CORS works even when opening HTML files directly (file://).
-    """
-    origin = request.headers.get("origin") or request.headers.get("Origin") or "*"
-    return JSONResponse(
-        content={},
-        headers={
-            "Access-Control-Allow-Origin": origin if origin != "null" else "*",
-            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
-            "Access-Control-Allow-Credentials": "false",
-            "Access-Control-Max-Age": "3600",
-        }
-    )
-
-
 @app.get("/health")
 async def health_check():
     """
@@ -281,6 +142,18 @@ async def health_check():
             "database": "disconnected",
             "error": str(e)
         }
+
+
+@app.get("/config/supabase")
+async def get_supabase_config():
+    """
+    Get Supabase configuration for frontend.
+    Returns public credentials (URL and ANON_KEY) that are safe to expose.
+    """
+    return {
+        "supabase_url": settings.supabase_url or "",
+        "supabase_anon_key": settings.supabase_anon_key or ""
+    }
 
 
 if __name__ == "__main__":

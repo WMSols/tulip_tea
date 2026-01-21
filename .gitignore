@@ -67,3 +67,17 @@ schema_public_only.sql
 supabase/migrations/20260119154851_migrate_local_to_cloud.sql
 temp_data_migration/local_data_dump_20260119_210135.sql
 temp_data_migration/local_data_dump_20260119_230238.sql
+sql/add_price_to_products.sql
+sql/add_email_to_distributors.sql
+sql/create_clean_schema.sql
+sql/create_schema.sql
+sql/fix_schema_mismatches.sql
+sql/migrate_remove_junction_tables.sql
+sql/remove_obsolete_tables.sql
+FRONTEND_CHANGES_SUMMARY.md
+env.example.cloud
+MIGRATION_CHANGES_SUMMARY.md
+MIGRATION_SUMMARY.md
+QUICK_START_SUPABASE_CLOUD.md
+STORAGE_BUCKETS_SETUP.md
+SUPABASE_CLOUD_SETUP.md

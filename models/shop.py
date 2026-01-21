@@ -232,6 +232,27 @@ class Shop(Base):
       * Zone-based reporting
     """
 
+    route_id = Column(BigInteger, ForeignKey("routes.id"), nullable=True)
+    """
+    Foreign key to routes table.
+    - Links shop to its assigned route
+    - Nullable: Shop can exist without route assignment
+    - Used for:
+      * Finding shops on a specific route
+      * Assigning delivery men to routes (they see orders from shops in their routes)
+      * Route-based order assignment
+    """
+
+    route_sequence = Column(BigInteger, nullable=True)
+    """
+    Sequence number for visit order on the route.
+    - Nullable: Can be set when shop is assigned to route
+    - Used for:
+      * Determining visit order for Order Bookers
+      * Route optimization and planning
+      * Delivery sequence for Delivery Men
+    """
+
     # Photo URLs (stored in Supabase Storage)
     owner_cnic_front_photo = Column(String, nullable=True)
     """

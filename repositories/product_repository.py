@@ -69,8 +69,9 @@ class ProductRepository:
     
     @staticmethod
     def update(db: Session, product_id: int, code: str = None, name: str = None, 
-               unit: str = None, is_active: bool = None) -> Optional[Product]:
+               unit: str = None, price: float = None, is_active: bool = None) -> Optional[Product]:
         """Update product."""
+        from decimal import Decimal
         # Include deleted products so we can update/reactivate them
         product = ProductRepository.get_by_id(db, product_id, include_deleted=True)
         if not product:
@@ -82,6 +83,25 @@ class ProductRepository:
             product.name = name
         if unit is not None:
             product.unit = unit
+        if price is not None:
+            # Handle price conversion safely - accept float, int, or string
+            try:
+                if isinstance(price, (int, float)):
+                    # Convert number to Decimal
+                    product.price = Decimal(str(price))
+                elif isinstance(price, str):
+                    # Handle string - remove whitespace and validate
+                    price_str = price.strip()
+                    if price_str and price_str.lower() not in ['none', 'null', '']:
+                        product.price = Decimal(price_str)
+                    else:
+                        product.price = None
+                else:
+                    # Invalid type - set to None
+                    product.price = None
+            except (ValueError, TypeError, Exception) as e:
+                # If conversion fails, raise a clear error
+                raise ValueError(f"Invalid price value: {price}. Price must be a valid number.")
         if is_active is not None:
             product.is_active = is_active
         

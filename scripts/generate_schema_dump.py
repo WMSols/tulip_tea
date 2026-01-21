@@ -1,126 +1,118 @@
 """
-Generate Database Schema Dump
-=============================
-Generates a complete SQL schema dump from local Supabase database
-including tables, columns, constraints, indexes, and sequences.
+Generate complete database schema SQL script.
+This script creates a clean schema dump without route_shops and delivery_man_routes tables.
 """
 import os
-import subprocess
-import sys
-from datetime import datetime
+from sqlalchemy import create_engine, text, MetaData, inspect
+from sqlalchemy.schema import CreateTable
+from config.database import Base, settings
+from models import (
+    distributor, zone, order_booker, delivery_man, route, shop,
+    order, order_item, payment, daily_collection, shop_visit,
+    credit_limit_request, warehouse, inventory, delivery, delivery_item,
+    product
+)
 
-def generate_schema_dump():
-    """Generate schema-only dump from local Supabase database."""
+def generate_schema_sql():
+    """Generate SQL schema script for all tables."""
     
-    # Local Supabase database connection
-    db_host = "localhost"
-    db_port = "54322"
-    db_name = "postgres"
-    db_user = "postgres"
-    db_password = "postgres"
+    engine = create_engine(settings.database_url)
+    metadata = MetaData()
+    metadata.reflect(bind=engine)
     
-    # pg_dump location (Windows PostgreSQL installation)
-    pg_dump_paths = [
-        r"C:\Program Files\PostgreSQL\17\pgAdmin 4\runtime\pg_dump.exe",
-        r"C:\Program Files\PostgreSQL\17\bin\pg_dump.exe",
-        "pg_dump"  # Fallback to system PATH
+    sql_statements = []
+    sql_statements.append("-- ============================================")
+    sql_statements.append("-- Tulip Tea Database Schema")
+    sql_statements.append("-- Generated Schema (without route_shops and delivery_man_routes)")
+    sql_statements.append("-- ============================================\n")
+    sql_statements.append("-- Note: route_shops and delivery_man_routes tables are removed")
+    sql_statements.append("-- Shops now use route_id directly")
+    sql_statements.append("-- Delivery men work by zone, not routes\n")
+    
+    # Exclude the tables we're removing
+    excluded_tables = ['route_shops', 'delivery_man_routes']
+    
+    # Create tables in dependency order
+    table_order = [
+        'distributors',
+        'zones',
+        'order_bookers',
+        'delivery_men',
+        'routes',
+        'shops',
+        'products',
+        'warehouses',
+        'inventory',
+        'orders',
+        'order_items',
+        'deliveries',
+        'delivery_items',
+        'payments',
+        'daily_collections',
+        'shop_visits',
+        'credit_limit_requests'
     ]
     
-    # Find pg_dump executable
-    pg_dump_exe = None
-    for path in pg_dump_paths:
-        if path == "pg_dump":
-            # Check if pg_dump is in system PATH
-            pg_dump_exe = "pg_dump"
-            break
-        elif os.path.exists(path):
-            pg_dump_exe = path
-            print(f"✅ Found pg_dump at: {path}")
-            break
+    # Get all tables from metadata
+    all_tables = {name: table for name, table in metadata.tables.items() if name not in excluded_tables}
     
-    if not pg_dump_exe:
-        print("❌ Error: pg_dump not found!")
-        print("   Checked locations:")
-        for path in pg_dump_paths:
-            print(f"   - {path}")
-        print("\n   Please ensure PostgreSQL is installed or pg_dump is in your PATH")
-        sys.exit(1)
+    # Reorder tables based on dependencies
+    ordered_tables = []
+    for table_name in table_order:
+        if table_name in all_tables:
+            ordered_tables.append((table_name, all_tables[table_name]))
+            del all_tables[table_name]
     
-    # Output file
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_file = f"schema_dump_{timestamp}.sql"
+    # Add any remaining tables
+    for table_name, table in sorted(all_tables.items()):
+        ordered_tables.append((table_name, table))
     
-    print("🔄 Generating schema dump from local Supabase...")
-    print(f"📁 Output file: {output_file}")
+    # Generate CREATE TABLE statements
+    for table_name, table in ordered_tables:
+        sql_statements.append(f"\n-- Table: {table_name}")
+        sql_statements.append(f"DROP TABLE IF EXISTS {table_name} CASCADE;")
+        
+        # Generate CREATE TABLE statement
+        create_sql = str(CreateTable(table).compile(engine))
+        sql_statements.append(create_sql + ";")
     
-    # Set PGPASSWORD environment variable
-    env = os.environ.copy()
-    env['PGPASSWORD'] = db_password
+    # Add indexes and constraints separately
+    inspector = inspect(engine)
+    for table_name, table in ordered_tables:
+        # Get indexes
+        indexes = inspector.get_indexes(table_name)
+        for idx in indexes:
+            if not idx.get('unique', False):
+                idx_cols = ", ".join(idx['column_names'])
+                sql_statements.append(f"\nCREATE INDEX IF NOT EXISTS {idx['name']} ON {table_name} ({idx_cols});")
+        
+        # Get foreign keys
+        foreign_keys = inspector.get_foreign_keys(table_name)
+        for fk in foreign_keys:
+            fk_cols = ", ".join(fk['constrained_columns'])
+            ref_table = fk['referred_table']
+            ref_cols = ", ".join(fk['referred_columns'])
+            fk_name = fk.get('name', f"{table_name}_{ref_table}_fkey")
+            sql_statements.append(f"\nALTER TABLE {table_name}")
+            sql_statements.append(f"    ADD CONSTRAINT {fk_name}")
+            sql_statements.append(f"    FOREIGN KEY ({fk_cols}) REFERENCES {ref_table} ({ref_cols});")
     
-    # pg_dump command for schema only (no data)
-    # --schema-only: Only dump schema, no data
-    # --no-owner: Don't output commands to set ownership
-    # --no-privileges: Don't output commands to set privileges
-    # --clean: Include DROP statements before CREATE
-    # --if-exists: Use IF EXISTS for DROP statements
-    # --verbose: Verbose mode
-    cmd = [
-        pg_dump_exe,
-        f"--host={db_host}",
-        f"--port={db_port}",
-        f"--username={db_user}",
-        f"--dbname={db_name}",
-        "--schema-only",  # Schema only, no data
-        "--no-owner",     # Don't set ownership
-        "--no-privileges", # Don't set privileges
-        "--clean",        # Include DROP statements
-        "--if-exists",    # Use IF EXISTS
-        "--verbose",      # Verbose output
-        f"--file={output_file}"
-    ]
-    
-    try:
-        result = subprocess.run(
-            cmd,
-            env=env,
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        
-        print("✅ Schema dump generated successfully!")
-        print(f"📄 File: {output_file}")
-        print(f"📊 Size: {os.path.getsize(output_file) / 1024:.2f} KB")
-        
-        # Also create a clean version without DROP statements for initial migration
-        clean_output_file = f"schema_clean_{timestamp}.sql"
-        with open(output_file, 'r', encoding='utf-8') as f:
-            content = f.read()
-            # Remove DROP statements for clean migration
-            lines = content.split('\n')
-            clean_lines = [line for line in lines if not line.strip().startswith('DROP')]
-            clean_content = '\n'.join(clean_lines)
-        
-        with open(clean_output_file, 'w', encoding='utf-8') as f:
-            f.write(clean_content)
-        
-        print(f"📄 Clean version (no DROP statements): {clean_output_file}")
-        
-        return output_file, clean_output_file
-        
-    except subprocess.CalledProcessError as e:
-        print(f"❌ Error generating schema dump:")
-        print(f"   {e.stderr}")
-        sys.exit(1)
-    except FileNotFoundError:
-        print("❌ Error: pg_dump executable not found!")
-        print("   Expected location: C:\\Program Files\\PostgreSQL\\17\\pgAdmin 4\\runtime\\pg_dump.exe")
-        print("   Alternative locations checked:")
-        print("   - C:\\Program Files\\PostgreSQL\\17\\bin\\pg_dump.exe")
-        print("   - System PATH")
-        print("\n   Please ensure PostgreSQL is installed or update the path in the script")
-        sys.exit(1)
+    return "\n".join(sql_statements)
 
 if __name__ == "__main__":
-    generate_schema_dump()
-
+    try:
+        schema_sql = generate_schema_sql()
+        
+        output_file = "sql/create_schema.sql"
+        os.makedirs("sql", exist_ok=True)
+        
+        with open(output_file, "w", encoding="utf-8") as f:
+            f.write(schema_sql)
+        
+        print(f"✅ Schema generated successfully: {output_file}")
+        print(f"📊 Note: route_shops and delivery_man_routes tables are excluded")
+        
+    except Exception as e:
+        print(f"❌ Error generating schema: {e}")
+        import traceback
+        traceback.print_exc()

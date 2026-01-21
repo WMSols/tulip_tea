@@ -273,7 +273,7 @@ async def deliver_order(
             visit_type=visit_type,
             gps_lat=Decimal(str(delivery_data.delivery_gps_lat)) if delivery_data.delivery_gps_lat is not None else None,
             gps_lng=Decimal(str(delivery_data.delivery_gps_lng)) if delivery_data.delivery_gps_lng is not None else None,
-            visit_time=datetime.utcnow(),
+            visit_date=datetime.utcnow(),  # Model uses visit_date
             photos=visit_photos_json,  # Multiple images as JSON
             reason=delivery_data.delivery_remarks  # Delivery remarks stored in reason field
         )

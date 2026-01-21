@@ -7,8 +7,7 @@ from repositories.order_booker_repository import OrderBookerRepository
 from repositories.zone_repository import ZoneRepository
 from repositories.credit_limit_request_repository import CreditLimitRequestRepository
 from repositories.route_repository import RouteRepository
-from repositories.route_shop_repository import RouteShopRepository
-from models.route_shop import RouteShop
+# RouteShopRepository and RouteShop model removed - shops now use route_id directly
 from decimal import Decimal
 from typing import Dict, List, Optional
 from fastapi import Request
@@ -147,17 +146,15 @@ class ShopService:
                 db.commit()
                 db.refresh(shop)
             
-            # Get next sequence number for this route
-            existing_assignments = RouteShopRepository.get_shops_by_route(db, route_id)
-            next_sequence = len(existing_assignments) + 1 if existing_assignments else 1
+            # Get next sequence number for this route (count shops already on this route)
+            existing_shops = ShopRepository.get_by_route(db, route_id)
+            next_sequence = len(existing_shops) + 1 if existing_shops else 1
             
-            # Assign shop to route
-            RouteShopRepository.assign_shop_to_route(
-                db=db,
-                shop_id=shop.id,
-                route_id=route_id,
-                sequence=next_sequence
-            )
+            # Assign shop to route directly (using shop.route_id)
+            shop.route_id = route_id
+            shop.route_sequence = next_sequence
+            db.commit()
+            db.refresh(shop)
         
         # Create credit limit request if credit_limit is provided and > 0
         credit_limit_request_id = None
@@ -176,18 +173,10 @@ class ShopService:
         # Get assigned order booker name (initially same as creator)
         assigned_order_booker_name = order_booker.name if order_booker else None
         
-        # Get routes this shop belongs to (should include the route we just assigned)
-        # Exclude soft-deleted route-shop relationships
-        route_shops = db.query(RouteShop).filter(
-            RouteShop.shop_id == shop.id,
-            # RouteShop.deleted_at.is_(None),  # Uncomment after running sql/add_deleted_at_to_route_shops.sql
-            RouteShop.route_id.isnot(None)
-        ).all()
+        # Get route this shop belongs to (using shop.route_id directly)
         routes_info = []
-        for route_shop in route_shops:
-            if not route_shop.route_id:  # Skip if route_id is None
-                continue
-            route = RouteRepository.get_by_id(db, route_shop.route_id)
+        if shop.route_id:
+            route = RouteRepository.get_by_id(db, shop.route_id)
             if route:
                 route_order_booker = None
                 route_order_booker_name = None
@@ -208,7 +197,7 @@ class ShopService:
                     "route_zone_name": route_zone_name,
                     "order_booker_id": route.order_booker_id,
                     "order_booker_name": route_order_booker_name,
-                    "sequence": route_shop.sequence
+                    "sequence": shop.route_sequence
                 })
         
         return {
@@ -349,7 +338,7 @@ class ShopService:
         FLOW:
         1. Gets all shops (optionally filtered by zone_id or route_id)
         2. For each shop, finds associated order_booker (via created_by_order_booker)
-        3. For each shop, finds associated routes (via route_shops)
+        3. For each shop, finds associated route (via shop.route_id)
         4. For each route, finds assigned order_booker and zone info
         5. Returns formatted list with all associations
         
@@ -365,7 +354,7 @@ class ShopService:
         Note: Distributors are not assigned to zones, so distributor_id is not used for filtering.
         Use zone_id or route_id for filtering instead.
         """
-        from models.route_shop import RouteShop
+# RouteShop model removed - shops now use route_id directly
         from models.route import Route
         
         # Get all shops
@@ -418,23 +407,11 @@ class ShopService:
                     print(f"WARNING: Could not get assigned order booker {shop.assigned_to_order_booker} for shop {shop.id}: {str(e)}")
                     assigned_order_booker_name = None
             
-            # Get routes this shop belongs to (exclude soft-deleted route-shop relationships)
-            try:
-                route_shops = db.query(RouteShop).filter(
-                    RouteShop.shop_id == shop.id,
-                    # RouteShop.deleted_at.is_(None),  # Uncomment after running sql/add_deleted_at_to_route_shops.sql
-                    RouteShop.route_id.isnot(None)  # Only get route_shops with valid route_id
-                ).all()
-            except Exception as e:
-                print(f"WARNING: Could not query route_shops for shop {shop.id}: {str(e)}")
-                route_shops = []
-            
+            # Get route this shop belongs to (shops now use route_id directly)
             routes_info = []
-            for route_shop in route_shops:
-                if not route_shop.route_id:  # Skip if route_id is None
-                    continue
+            if shop.route_id:  # Shop has a route assigned
                 try:
-                    route = RouteRepository.get_by_id(db, route_shop.route_id, include_deleted=False)
+                    route = RouteRepository.get_by_id(db, shop.route_id, include_deleted=False)
                     if route:
                         route_order_booker = None
                         route_order_booker_name = None
@@ -463,11 +440,10 @@ class ShopService:
                             "route_zone_name": route_zone_name,
                             "order_booker_id": route.order_booker_id,
                             "order_booker_name": route_order_booker_name,
-                            "sequence": route_shop.sequence
+                            "sequence": shop.route_sequence
                         })
                 except Exception as e:
-                    print(f"WARNING: Could not process route {route_shop.route_id} for shop {shop.id}: {str(e)}")
-                    continue  # Skip this route and continue
+                    print(f"WARNING: Could not process route {shop.route_id} for shop {shop.id}: {str(e)}")
             
             # Safely build result dictionary with error handling
             try:
@@ -584,8 +560,15 @@ class ShopService:
                 if updated_shop.zone_id != route.zone_id:
                     raise ValueError("Route zone does not match shop zone")
             
-            # Assign shop to route
-            RouteShopRepository.assign_shop_to_route(db, route_id, shop_id)
+            # Assign shop to route directly (using shop.route_id)
+            # Get next sequence number for this route
+            existing_shops = ShopRepository.get_by_route(db, route_id)
+            next_sequence = len(existing_shops) + 1 if existing_shops else 1
+            
+            updated_shop.route_id = route_id
+            updated_shop.route_sequence = next_sequence
+            db.commit()
+            db.refresh(updated_shop)
         
         return updated_shop
     

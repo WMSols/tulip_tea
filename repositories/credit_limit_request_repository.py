@@ -188,7 +188,7 @@ class CreditLimitRequestRepository:
         FLOW:
         1. Gets request by ID
         2. Updates status to "approved"
-        3. Sets reviewed_by_distributor and reviewed_at
+        3. Sets approved_by_distributor and approved_at
         4. Updates requested_credit_limit if final_credit_limit provided
         5. Commits transaction
         
@@ -209,8 +209,8 @@ class CreditLimitRequestRepository:
             return None
         
         request.status = "approved"
-        request.reviewed_by_distributor = distributor_id
-        request.reviewed_at = datetime.utcnow()
+        request.approved_by_distributor = distributor_id
+        request.approved_at = datetime.utcnow()
         
         if final_credit_limit is not None:
             request.requested_credit_limit = final_credit_limit
@@ -230,7 +230,7 @@ class CreditLimitRequestRepository:
         FLOW:
         1. Gets request by ID
         2. Updates status to "rejected"
-        3. Sets reviewed_by_distributor and reviewed_at
+        3. Sets approved_by_distributor and approved_at
         4. Sets remarks (reason for rejection)
         5. Commits transaction
         
@@ -250,8 +250,8 @@ class CreditLimitRequestRepository:
             return None
         
         request.status = "rejected"
-        request.reviewed_by_distributor = distributor_id
-        request.reviewed_at = datetime.utcnow()
+        request.approved_by_distributor = distributor_id
+        request.approved_at = datetime.utcnow()
         
         if remarks:
             request.remarks = remarks

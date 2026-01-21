@@ -285,7 +285,6 @@
                 <!-- Tabs Navigation -->
                 <div class="tabs" style="display: flex; border-bottom: 2px solid #ddd; margin-bottom: 20px;">
                     <button class="tab active" onclick="switchTab('dashboard')" style="padding: 15px 30px; cursor: pointer; background: #f8f9fa; border: none; font-size: 16px; font-weight: 600; color: #666; transition: all 0.3s;">📊 Dashboard</button>
-                    <button class="tab" onclick="switchTab('routes')" style="padding: 15px 30px; cursor: pointer; background: #f8f9fa; border: none; font-size: 16px; font-weight: 600; color: #666; transition: all 0.3s;">🛣️ My Routes</button>
                     <button class="tab" onclick="switchTab('orders')" style="padding: 15px 30px; cursor: pointer; background: #f8f9fa; border: none; font-size: 16px; font-weight: 600; color: #666; transition: all 0.3s;">📦 Orders <span id="ordersBadge" style="background: #e74c3c; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 5px;">0</span></button>
                     <button class="tab" onclick="switchTab('deliveries')" style="padding: 15px 30px; cursor: pointer; background: #f8f9fa; border: none; font-size: 16px; font-weight: 600; color: #666; transition: all 0.3s;">🚚 Deliveries</button>
                     <button class="tab" onclick="switchTab('warehouses')" style="padding: 15px 30px; cursor: pointer; background: #f8f9fa; border: none; font-size: 16px; font-weight: 600; color: #666; transition: all 0.3s;">🏭 Warehouses</button>
@@ -319,17 +318,11 @@
                     </div>
                 </div>
 
-                <!-- Routes Tab -->
-                <div id="routesTab" class="tab-content" style="display: none;">
-                    <h3>🛣️ My Assigned Routes</h3>
-                    <button class="btn btn-primary" onclick="loadMyRoutes()" style="margin-bottom: 20px;">Refresh Routes</button>
-                    <div id="routesList" style="margin-top: 20px;"></div>
-                </div>
 
                 <!-- Orders Tab -->
                 <div id="ordersTab" class="tab-content" style="display: none;">
                     <h3>📦 Pending Orders</h3>
-                    <p style="color: #666; margin-bottom: 20px;">View and verify pending orders from shops on your assigned routes. Once confirmed or delivered, orders will move to the Deliveries tab.</p>
+                    <p style="color: #666; margin-bottom: 20px;">View and verify pending orders from shops in your assigned zone. Once confirmed or delivered, orders will move to the Deliveries tab.</p>
                     <button class="btn btn-primary" onclick="loadMyOrders()" style="margin-bottom: 20px;">Refresh Orders</button>
                     <div id="ordersList" style="margin-top: 20px;"></div>
                 </div>
@@ -340,15 +333,14 @@
                     <p style="color: #666; margin-bottom: 20px;">View all your deliveries with their status (Pending, Delivered, Cancelled).</p>
                     <button class="btn btn-primary" onclick="loadMyDeliveries()" style="margin-bottom: 20px;">Refresh Deliveries</button>
                     
-                    <!-- Filter by Status (Completed delivery tracking + confirmed orders) -->
+                    <!-- Filter by Status (All non-pending orders) -->
                     <div class="form-group" style="max-width: 300px; margin-bottom: 20px;">
                         <label>Filter by Status</label>
                         <select id="deliveryStatusFilter" onchange="filterDeliveriesByStatus()">
                             <option value="">All Deliveries</option>
-                            <option value="confirmed">Confirmed (Not Started)</option>
+                            <option value="confirmed">Confirmed</option>
                             <option value="delivered">Delivered</option>
-                            <option value="returned">Returned</option>
-                            <option value="failed">Failed</option>
+                            <option value="cancelled">Cancelled</option>
                         </select>
                     </div>
                     
@@ -372,17 +364,6 @@
             <h2 id="orderDetailsModalTitle">Order Details</h2>
             <div id="orderDetailsContent">
                 <!-- Order details will be populated here -->
-            </div>
-        </div>
-    </div>
-
-    <!-- Delivery Tracking Modal -->
-    <div id="deliveryTrackingModal" class="modal hidden">
-        <div class="modal-content" style="max-width: 900px; max-height: 90vh; overflow-y: auto;">
-            <span class="close-button" onclick="closeDeliveryTrackingModal()">&times;</span>
-            <h2 id="deliveryTrackingModalTitle">📊 Complete Delivery Tracking Details</h2>
-            <div id="deliveryTrackingContent">
-                <!-- Full tracking details will be populated here -->
             </div>
         </div>
     </div>
@@ -567,6 +548,35 @@
         let currentToken = null;
         let currentUser = null;
         let currentDeliveryManId = null;
+        
+        // Supabase credentials (loaded from backend)
+        let SUPABASE_URL = '';
+        let SUPABASE_ANON_KEY = '';
+        
+        // Load Supabase configuration from backend on page load
+        async function loadSupabaseConfig() {
+            try {
+                const response = await fetch(`${API_BASE}/config/supabase`);
+                if (response.ok) {
+                    const config = await response.json();
+                    SUPABASE_URL = config.supabase_url || '';
+                    SUPABASE_ANON_KEY = config.supabase_anon_key || '';
+                    
+                    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+                        console.warn('Supabase credentials not configured in backend .env file');
+                    } else {
+                        console.log('Supabase configuration loaded successfully');
+                    }
+                } else {
+                    console.warn('Failed to load Supabase configuration from backend');
+                }
+            } catch (error) {
+                console.error('Error loading Supabase configuration:', error);
+            }
+        }
+        
+        // Load config when page loads
+        loadSupabaseConfig();
 
         // Tab switching
         function switchTab(tabName) {
@@ -582,7 +592,6 @@
             // Show selected tab
             const tabContents = {
                 'dashboard': 'dashboardTab',
-                'routes': 'routesTab',
                 'orders': 'ordersTab',
                 'deliveries': 'deliveriesTab',
                 'warehouses': 'warehousesTab'
@@ -595,15 +604,13 @@
             }
             
             const tabButtons = document.querySelectorAll('.tab');
-            const tabIndex = ['dashboard', 'routes', 'orders', 'deliveries', 'warehouses'].indexOf(tabName);
+            const tabIndex = ['dashboard', 'orders', 'deliveries', 'warehouses'].indexOf(tabName);
             if (tabButtons[tabIndex]) {
                 tabButtons[tabIndex].classList.add('active');
             }
             
             // Load data when switching to these tabs
-            if (tabName === 'routes') {
-                loadMyRoutes();
-            } else if (tabName === 'orders') {
+            if (tabName === 'orders') {
                 loadMyOrders();
             } else if (tabName === 'deliveries') {
                 loadMyDeliveries();
@@ -683,58 +690,7 @@
             document.getElementById('loginPassword').value = '';
         }
 
-        // Load My Routes
-        async function loadMyRoutes() {
-            const listDiv = document.getElementById('routesList');
-            if (!currentDeliveryManId) {
-                listDiv.innerHTML = '<p>Please login first</p>';
-                return;
-            }
-
-            try {
-                const response = await fetch(`${API_BASE}/delivery-men/${currentDeliveryManId}/routes`, {
-                    headers: {
-                        'Authorization': `Bearer ${currentToken}`
-                    }
-                });
-
-                const data = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(data.detail || 'Failed to load routes');
-                }
-
-                if (data.length === 0) {
-                    listDiv.innerHTML = '<p>No routes assigned to you yet.</p>';
-                    return;
-                }
-
-                listDiv.innerHTML = data.map(route => `
-                    <div class="list-item">
-                        <div class="info-row">
-                            <span class="info-label"><strong>Route Name:</strong></span>
-                            <span class="info-value">${route.name}</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label">Zone:</span>
-                            <span class="info-value">${route.zone_name || `Zone ${route.zone_id || 'N/A'}`}</span>
-                        </div>
-                        ${route.order_booker_id ? `
-                        <div class="info-row">
-                            <span class="info-label">Order Booker ID:</span>
-                            <span class="info-value">${route.order_booker_id}</span>
-                        </div>
-                        ` : ''}
-                        <div class="info-row">
-                            <span class="info-label">Route ID:</span>
-                            <span class="info-value">${route.id}</span>
-                        </div>
-                    </div>
-                `).join('');
-            } catch (error) {
-                listDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
-            }
-        }
+        // Note: Delivery men no longer use routes - they work by zone only
 
         // Load My Orders (Show orders with delivery tracking)
         async function loadMyOrders() {
@@ -757,17 +713,29 @@
                     throw new Error(data.detail || 'Failed to load orders');
                 }
 
-                // Filter to only show orders that are NOT completed (pending, confirmed, or in delivery process)
-                // Completed orders (delivered, returned, failed) will appear in Deliveries tab
-                const orderStatusFilter = data.filter(o => {
-                    const status = o.status || 'pending';
-                    return status === 'pending' || status === 'confirmed';
+                // Debug: Log all orders received
+                console.log(`[loadMyOrders] Total orders received: ${data.length}`);
+                console.log(`[loadMyOrders] Orders by status:`, {
+                    pending: data.filter(o => o.status === 'pending').length,
+                    confirmed: data.filter(o => o.status === 'confirmed').length,
+                    delivered: data.filter(o => o.status === 'delivered').length,
+                    cancelled: data.filter(o => o.status === 'cancelled').length
                 });
 
-                // Load delivery data for each order to check delivery status
-                // Only show orders with active delivery status (not completed)
-                const activeOrders = [];
-                for (const order of orderStatusFilter) {
+                // Filter to only show orders that are NOT completed (pending, confirmed, or in delivery process)
+                // Completed orders (delivered, returned, cancelled) will appear in Deliveries tab
+                const activeOrders = data.filter(o => {
+                    const status = o.status || 'pending';
+                    // Only show pending or confirmed orders
+                    // Exclude delivered, returned, and cancelled orders
+                    return status === 'pending' || status === 'confirmed';
+                });
+                
+                console.log(`[loadMyOrders] Active orders (pending/confirmed): ${activeOrders.length}`);
+
+                // Load delivery data for each order and filter out completed deliveries
+                const filteredOrders = [];
+                for (const order of activeOrders) {
                     let delivery = null;
                     try {
                         const deliveryResponse = await fetch(`${API_BASE}/deliveries/order/${order.id}`, {
@@ -778,44 +746,43 @@
                         if (deliveryResponse.ok) {
                             delivery = await deliveryResponse.json();
                         } else if (deliveryResponse.status === 404) {
-                            // Delivery not found - this is normal for new orders, include them
+                            // Delivery not found - this is normal for new orders
+                            // Silently handle 404 - it's expected for orders without deliveries yet
                             delivery = null;
+                        } else {
+                            // Other error - log but don't break
+                            console.warn(`[loadMyOrders] Error fetching delivery for order ${order.id}: ${deliveryResponse.status}`);
                         }
-                        // Silently ignore other errors - delivery not found
                     } catch (e) {
-                        // Network error or other exception - delivery not found, include order
+                        // Network error or other exception - delivery not found (expected for new orders)
+                        // Don't log as error - 404 is normal for orders without deliveries
                         delivery = null;
                     }
 
                     const deliveryStatus = delivery ? delivery.status : 'not_started';
                     
-                    // Only include orders that are NOT completed
-                    // Completed statuses: 'delivered', 'returned', 'failed' should be excluded
-                    // Active statuses: 'not_started', 'pending_pickup', 'picked_up', 'in_transit', 'partially_delivered'
-                    const completedStatuses = ['delivered', 'returned', 'failed'];
-                    if (!completedStatuses.includes(deliveryStatus)) {
-                        // Add delivery object to order for later use
-                        order._delivery = delivery;
-                        order._deliveryStatus = deliveryStatus;
-                        activeOrders.push(order);
+                    // Skip orders with completed delivery status (delivered, returned, failed)
+                    // These should appear in Deliveries tab, not Orders tab
+                    if (deliveryStatus === 'delivered' || deliveryStatus === 'returned' || deliveryStatus === 'failed') {
+                        continue; // Skip this order - it's completed
                     }
+                    
+                    filteredOrders.push({ order, delivery, deliveryStatus });
                 }
 
-                // Update badge with active orders count
-                document.getElementById('ordersBadge').textContent = activeOrders.length;
+                // Update badge with filtered orders count (excluding completed deliveries)
+                document.getElementById('ordersBadge').textContent = filteredOrders.length;
 
-                if (activeOrders.length === 0) {
+                if (filteredOrders.length === 0) {
                     listDiv.innerHTML = '<p>No active orders assigned to you. All orders have been completed and moved to the Deliveries tab.</p>';
                     return;
                 }
 
                 let html = '<h4 style="color: #f5576c; margin-bottom: 15px;">📦 Active Orders</h4>';
-                html += '<p style="color: #666; margin-bottom: 20px; font-size: 14px;">These orders are in progress. Track your delivery process from warehouse pickup to shop delivery. Once completed, they will move to the Deliveries tab.</p>';
+                html += '<p style="color: #666; margin-bottom: 20px; font-size: 14px;">These orders are in progress. Track your delivery process from warehouse pickup to shop delivery.</p>';
 
-                // Display active orders
-                for (const order of activeOrders) {
-                    const delivery = order._delivery;
-                    const deliveryStatus = order._deliveryStatus;
+                // Render filtered orders
+                for (const { order, delivery, deliveryStatus } of filteredOrders) {
                     const statusLabels = {
                         'not_started': { text: 'Not Started', color: '#95a5a6', bg: '#ecf0f1' },
                         'pending_pickup': { text: 'Pending Pickup', color: '#f39c12', bg: '#fef5e7' },
@@ -901,7 +868,7 @@
                                 <button class="btn btn-danger" onclick="event.stopPropagation(); openReturnModal(${order.id}, ${delivery ? delivery.id : 'null'})">↩️ Return Remaining Stock</button>
                                 ` : ''}
                                 ${deliveryStatus === 'delivered' ? `
-                                <span style="color: #27ae60; font-weight: bold;">✓ Fully Delivered - Moving to Deliveries tab</span>
+                                <span style="color: #27ae60; font-weight: bold;">✓ Fully Delivered - No Returns Needed</span>
                                 ` : ''}
                                 <button class="btn" style="background: #95a5a6; color: white;" onclick="event.stopPropagation(); openOrderDetailsModal(${order.id})">👁️ View Details</button>
                             </div>
@@ -1157,16 +1124,16 @@
 
         // Upload Image to Supabase Storage
         async function uploadImageToSupabase(file, orderId) {
-            // NOTE: You need to configure your Supabase credentials
-            // Replace these with your actual Supabase project URL and anon key
-            // Find these in Supabase Dashboard → Settings → API
-            const SUPABASE_URL = 'YOUR_SUPABASE_URL'; // e.g., 'https://your-project.supabase.co'
-            const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
             const BUCKET_NAME = 'deliveries';
             
-            // Check if credentials are configured
-            if (SUPABASE_URL === 'YOUR_SUPABASE_URL' || SUPABASE_ANON_KEY === 'YOUR_SUPABASE_ANON_KEY') {
-                throw new Error('Supabase credentials not configured. Please update SUPABASE_URL and SUPABASE_ANON_KEY in delivery_man_dashboard.html');
+            // Check if credentials are loaded from backend
+            if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+                // Try to reload config if not loaded yet
+                await loadSupabaseConfig();
+                
+                if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+                    throw new Error('Supabase credentials not configured. Please set SUPABASE_URL and SUPABASE_ANON_KEY in backend .env file.');
+                }
             }
             
             // Generate unique filename
@@ -1432,7 +1399,7 @@
         // Store deliveries data for filtering
         let allDeliveriesData = [];
 
-        // Load My Deliveries (Orders with completed delivery tracking: delivered, returned, failed)
+        // Load My Deliveries (All non-pending orders: confirmed, delivered, cancelled)
         async function loadMyDeliveries() {
             const listDiv = document.getElementById('deliveriesList');
             if (!currentDeliveryManId) {
@@ -1453,80 +1420,105 @@
                     throw new Error(data.detail || 'Failed to load deliveries');
                 }
 
-                // Get all orders and check their delivery tracking status
-                // Show orders with completed delivery tracking (delivered, returned, failed)
-                // Also show confirmed orders that haven't started delivery yet
-                const completedDeliveries = [];
-                const confirmedOrders = [];
-                
+                // Debug: Log all orders received
+                console.log(`[loadMyDeliveries] Total orders received: ${data.length}`);
+                console.log(`[loadMyDeliveries] Orders by status:`, {
+                    pending: data.filter(o => o.status === 'pending').length,
+                    confirmed: data.filter(o => o.status === 'confirmed').length,
+                    delivered: data.filter(o => o.status === 'delivered').length,
+                    cancelled: data.filter(o => o.status === 'cancelled').length
+                });
+
+                // Fetch delivery details for all orders first
+                // Then filter based on both order status AND delivery status
+                const ordersWithDeliveries = [];
                 for (const order of data) {
-                    // Check if order has delivery tracking
                     let delivery = null;
                     try {
                         const deliveryResponse = await fetch(`${API_BASE}/deliveries/order/${order.id}`, {
-                            headers: { 'Authorization': `Bearer ${currentToken}` }
+                            headers: {
+                                'Authorization': `Bearer ${currentToken}`
+                            }
                         });
                         if (deliveryResponse.ok) {
                             delivery = await deliveryResponse.json();
                         } else if (deliveryResponse.status === 404) {
-                            // 404 is expected for orders without delivery records - silently ignore
+                            // No delivery record - this can happen for confirmed orders that haven't been picked up yet
                             delivery = null;
                         }
                     } catch (e) {
-                        // Silently ignore network errors
+                        // Network error - delivery not found
                         delivery = null;
                     }
-                    
-                    if (delivery) {
-                        const deliveryStatus = delivery.status;
-                        // Include orders with completed delivery tracking
-                        if (deliveryStatus === 'delivered' || deliveryStatus === 'returned' || deliveryStatus === 'failed') {
-                            order._delivery = delivery;
-                            order._deliveryStatus = deliveryStatus;
-                            completedDeliveries.push(order);
-                        }
-                    } else {
-                        // Include confirmed orders that haven't started delivery
-                        // Also include cancelled orders (order status = cancelled)
-                        if (order.status === 'confirmed' || order.status === 'cancelled') {
-                            confirmedOrders.push(order);
-                        }
-                    }
+                    ordersWithDeliveries.push({ order, delivery });
                 }
-
-                // Combine completed deliveries and confirmed orders
-                const allDeliveries = [...completedDeliveries, ...confirmedOrders];
+                
+                // Filter to show orders that should appear in Deliveries tab:
+                // 1. Orders with status: confirmed, delivered, cancelled
+                // 2. OR orders with delivery status: delivered, returned, failed
+                const deliveriesToShow = ordersWithDeliveries.filter(({order, delivery}) => {
+                    const orderStatus = order.status || 'pending';
+                    const deliveryStatus = delivery ? delivery.status : null;
+                    
+                    // Show if order status is completed
+                    if (orderStatus === 'confirmed' || orderStatus === 'delivered' || orderStatus === 'cancelled') {
+                        return true;
+                    }
+                    
+                    // Show if delivery status is completed (even if order status is still pending)
+                    if (deliveryStatus === 'delivered' || deliveryStatus === 'returned' || deliveryStatus === 'failed') {
+                        return true;
+                    }
+                    
+                    return false;
+                });
+                
+                console.log(`[loadMyDeliveries] Orders to show in Deliveries tab: ${deliveriesToShow.length}`);
 
                 // Store data for filtering
-                allDeliveriesData = allDeliveries;
+                allDeliveriesData = deliveriesToShow;
 
-                if (allDeliveries.length === 0) {
-                    listDiv.innerHTML = '<p>No completed deliveries yet. Orders with completed delivery tracking will appear here.</p>';
+                if (deliveriesToShow.length === 0) {
+                    listDiv.innerHTML = '<p>No confirmed or completed deliveries yet. Orders will appear here once they are confirmed or delivered.</p>';
                     return;
                 }
 
                 // Apply status filter if selected
                 const selectedStatus = document.getElementById('deliveryStatusFilter')?.value;
-                displayDeliveries(allDeliveries, selectedStatus);
+                displayDeliveries(deliveriesToShow, selectedStatus);
             } catch (error) {
                 listDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
             }
         }
 
-        // Display Deliveries with Status Filter (Completed delivery tracking + confirmed orders)
+        // Display Deliveries with Status Filter (All non-pending orders: confirmed, delivered, cancelled)
         function displayDeliveries(data, filterStatus = null) {
             const listDiv = document.getElementById('deliveriesList');
             
-            // Filter by status if specified
+            // Filter by status if specified (confirmed, delivered, or cancelled)
+            // data is now an array of {order, delivery} objects
             let filteredData = data;
             if (filterStatus) {
-                if (filterStatus === 'delivered' || filterStatus === 'returned' || filterStatus === 'failed') {
-                    // Filter by delivery status
-                    filteredData = data.filter(order => order._deliveryStatus === filterStatus);
-                } else if (filterStatus === 'confirmed') {
-                    // Filter by order status
-                    filteredData = data.filter(order => !order._deliveryStatus && order.status === 'confirmed');
-                }
+                filteredData = data.filter(({order, delivery}) => {
+                    // Check both order status and delivery status
+                    const orderStatus = order.status || 'pending';
+                    const deliveryStatus = delivery ? delivery.status : null;
+                    
+                    // Match by order status
+                    if (orderStatus === filterStatus) {
+                        return true;
+                    }
+                    
+                    // Also match by delivery status for certain filters
+                    if (filterStatus === 'delivered' && deliveryStatus === 'delivered') {
+                        return true;
+                    }
+                    if (filterStatus === 'delivered' && deliveryStatus === 'returned') {
+                        return true; // Show returned deliveries in delivered section
+                    }
+                    
+                    return false;
+                });
             }
 
             if (filteredData.length === 0) {
@@ -1534,12 +1526,26 @@
                 return;
             }
 
-            // Group deliveries by status
-            const confirmedDeliveries = filteredData.filter(o => !o._deliveryStatus && o.status === 'confirmed');
-            const cancelledDeliveries = filteredData.filter(o => !o._deliveryStatus && o.status === 'cancelled');
-            const deliveredDeliveries = filteredData.filter(o => o._deliveryStatus === 'delivered');
-            const returnedDeliveries = filteredData.filter(o => o._deliveryStatus === 'returned');
-            const failedDeliveries = filteredData.filter(o => o._deliveryStatus === 'failed');
+            // Group deliveries by status (confirmed, delivered, cancelled, returned)
+            // Check both order status and delivery status
+            const confirmedDeliveries = filteredData.filter(({order, delivery}) => {
+                const orderStatus = order.status || 'pending';
+                const deliveryStatus = delivery ? delivery.status : null;
+                return orderStatus === 'confirmed' && deliveryStatus !== 'delivered' && deliveryStatus !== 'returned' && deliveryStatus !== 'failed';
+            });
+            
+            const deliveredDeliveries = filteredData.filter(({order, delivery}) => {
+                const orderStatus = order.status || 'pending';
+                const deliveryStatus = delivery ? delivery.status : null;
+                // Include orders with status 'delivered' OR deliveries with status 'delivered' or 'returned'
+                return orderStatus === 'delivered' || deliveryStatus === 'delivered' || deliveryStatus === 'returned';
+            });
+            
+            const cancelledDeliveries = filteredData.filter(({order, delivery}) => {
+                const orderStatus = order.status || 'pending';
+                const deliveryStatus = delivery ? delivery.status : null;
+                return orderStatus === 'cancelled' || deliveryStatus === 'failed';
+            });
 
             let html = '';
 
@@ -1551,7 +1557,7 @@
                             ✓ Confirmed (${confirmedDeliveries.length})
                         </h3>
                 `;
-                html += confirmedDeliveries.map(order => {
+                html += confirmedDeliveries.map(({order, delivery}) => {
                     const orderJson = JSON.stringify(order).replace(/'/g, "\\'").replace(/"/g, '&quot;');
                     return `
                         <div class="list-item" onclick="openOrderDetailsModal('${orderJson}')" style="cursor: pointer; margin-bottom: 10px;">
@@ -1575,6 +1581,33 @@
                                     </span>
                                 </span>
                             </div>
+                            ${delivery ? `
+                            <div style="margin-top: 15px; padding: 15px; background: #d6eaf8; border-radius: 5px;">
+                                <h5 style="color: #3498db; margin-bottom: 10px;">📊 Delivery Timeline</h5>
+                                ${delivery.picked_up_at ? `
+                                <div style="margin-bottom: 8px;">
+                                    <strong>✓ Picked Up:</strong> ${new Date(delivery.picked_up_at).toLocaleString()}
+                                    ${delivery.pickup_gps_lat && delivery.pickup_gps_lng ? `
+                                    <a href="https://www.google.com/maps?q=${delivery.pickup_gps_lat},${delivery.pickup_gps_lng}" target="_blank" style="margin-left: 10px; color: #3498db;">📍 View Location</a>
+                                    ` : ''}
+                                </div>
+                                ` : ''}
+                                ${delivery.delivery_items && delivery.delivery_items.length > 0 ? `
+                                <div style="margin-top: 10px;">
+                                    <strong>Items:</strong>
+                                    <ul style="margin-top: 5px; padding-left: 20px;">
+                                        ${delivery.delivery_items.map(item => `
+                                            <li>${item.product_id ? 'Product ID: ' + item.product_id : 'Item'} - 
+                                                Picked: ${item.quantity_picked_up || 0}, 
+                                                Delivered: ${item.quantity_delivered || 0}, 
+                                                Returned: ${item.quantity_returned || 0}
+                                            </li>
+                                        `).join('')}
+                                    </ul>
+                                </div>
+                                ` : ''}
+                            </div>
+                            ` : ''}
                             ${order.scheduled_date ? `
                             <div class="info-row">
                                 <span class="info-label">Scheduled Date:</span>
@@ -1594,17 +1627,17 @@
                 html += `</div>`;
             }
 
-            // Delivered Deliveries - Show full tracking history
+            // Delivered Deliveries
             if (deliveredDeliveries.length > 0) {
                 html += `
                     <div style="margin-bottom: 30px; border: 2px solid #27ae60; border-radius: 8px; padding: 20px; background: #e8f8f5;">
                         <h3 style="color: #27ae60; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #27ae60;">
-                            ✅ Delivered (${deliveredDeliveries.length})
+                            ✅ Delivered & Returned (${deliveredDeliveries.length})
                         </h3>
                 `;
-                html += deliveredDeliveries.map(order => {
-                    const delivery = order._delivery;
+                html += deliveredDeliveries.map(({order, delivery}) => {
                     const orderJson = JSON.stringify(order).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                    const deliveryStatus = delivery ? delivery.status : 'unknown';
                     return `
                         <div class="list-item" onclick="openOrderDetailsModal('${orderJson}')" style="cursor: pointer; margin-bottom: 10px;">
                             <div class="info-row">
@@ -1622,115 +1655,111 @@
                             <div class="info-row">
                                 <span class="info-label">Status:</span>
                                 <span class="info-value">
+                                    ${deliveryStatus === 'returned' ? `
+                                    <span style="background: #f39c12; color: white; padding: 4px 10px; border-radius: 15px; font-size: 12px; font-weight: bold;">
+                                        RETURNED
+                                    </span>
+                                    ` : `
                                     <span style="background: #27ae60; color: white; padding: 4px 10px; border-radius: 15px; font-size: 12px; font-weight: bold;">
                                         DELIVERED
                                     </span>
+                                    `}
                                 </span>
                             </div>
-                            ${delivery && delivery.delivered_at ? `
+                            ${delivery ? `
+                            <div style="margin-top: 15px; padding: 15px; background: #d5f4e6; border-radius: 5px;">
+                                <h5 style="color: #27ae60; margin-bottom: 10px;">📊 Complete Delivery Timeline</h5>
+                                ${delivery.picked_up_at ? `
+                                <div style="margin-bottom: 8px;">
+                                    <strong>✓ Picked Up:</strong> ${new Date(delivery.picked_up_at).toLocaleString()}
+                                    ${delivery.pickup_gps_lat && delivery.pickup_gps_lng ? `
+                                    <a href="https://www.google.com/maps?q=${delivery.pickup_gps_lat},${delivery.pickup_gps_lng}" target="_blank" style="margin-left: 10px; color: #3498db;">📍 View Location</a>
+                                    ` : ''}
+                                </div>
+                                ` : ''}
+                                ${delivery.delivered_at ? `
+                                <div style="margin-bottom: 8px;">
+                                    <strong>✓ Delivered:</strong> ${new Date(delivery.delivered_at).toLocaleString()}
+                                    ${delivery.delivery_gps_lat && delivery.delivery_gps_lng ? `
+                                    <a href="https://www.google.com/maps?q=${delivery.delivery_gps_lat},${delivery.delivery_gps_lng}" target="_blank" style="margin-left: 10px; color: #3498db;">📍 View Location</a>
+                                    ` : ''}
+                                </div>
+                                ` : ''}
+                                ${delivery.returned_at ? `
+                                <div style="margin-bottom: 8px;">
+                                    <strong>✓ Returned:</strong> ${new Date(delivery.returned_at).toLocaleString()}
+                                    ${delivery.return_gps_lat && delivery.return_gps_lng ? `
+                                    <a href="https://www.google.com/maps?q=${delivery.return_gps_lat},${delivery.return_gps_lng}" target="_blank" style="margin-left: 10px; color: #3498db;">📍 View Location</a>
+                                    ` : ''}
+                                    ${delivery.return_reason ? `
+                                    <div style="margin-top: 5px; color: #666; font-size: 12px;">Reason: ${delivery.return_reason}</div>
+                                    ` : ''}
+                                </div>
+                                ` : ''}
+                                ${delivery.delivery_items && delivery.delivery_items.length > 0 ? `
+                                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #27ae60;">
+                                    <strong>📦 Delivery Items Details:</strong>
+                                    <table style="width: 100%; margin-top: 8px; border-collapse: collapse; font-size: 12px;">
+                                        <thead>
+                                            <tr style="background: #c8e6c9;">
+                                                <th style="padding: 6px; text-align: left; border: 1px solid #27ae60;">Item</th>
+                                                <th style="padding: 6px; text-align: right; border: 1px solid #27ae60;">Picked</th>
+                                                <th style="padding: 6px; text-align: right; border: 1px solid #27ae60;">Delivered</th>
+                                                <th style="padding: 6px; text-align: right; border: 1px solid #27ae60;">Returned</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            ${delivery.delivery_items.map((item, idx) => {
+                                                // Try to get product name from order items
+                                                const orderItem = order.order_items ? order.order_items.find(oi => oi.id === item.order_item_id) : null;
+                                                const productName = orderItem ? orderItem.product_name : `Item ${idx + 1}`;
+                                                return `
+                                                    <tr style="${idx % 2 === 0 ? 'background: #f1f8f4;' : ''}">
+                                                        <td style="padding: 6px; border: 1px solid #27ae60;">${productName}</td>
+                                                        <td style="padding: 6px; text-align: right; border: 1px solid #27ae60;">${item.quantity_picked_up || 0}</td>
+                                                        <td style="padding: 6px; text-align: right; border: 1px solid #27ae60;">${item.quantity_delivered || 0}</td>
+                                                        <td style="padding: 6px; text-align: right; border: 1px solid #27ae60;">${item.quantity_returned || 0}</td>
+                                                    </tr>
+                                                `;
+                                            }).join('')}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                ` : ''}
+                                ${delivery.delivery_remarks ? `
+                                <div style="margin-top: 10px; padding: 8px; background: #fff; border-radius: 3px; border-left: 3px solid #27ae60;">
+                                    <strong>📝 Delivery Remarks:</strong> ${delivery.delivery_remarks}
+                                </div>
+                                ` : ''}
+                                ${delivery.delivery_images && delivery.delivery_images.length > 0 ? `
+                                <div style="margin-top: 10px;">
+                                    <strong>📷 Proof Images (${delivery.delivery_images.length}):</strong>
+                                    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 5px; margin-top: 5px;">
+                                        ${delivery.delivery_images.map((img, idx) => `
+                                            <img src="${img}" alt="Proof ${idx + 1}" style="width: 100%; height: 60px; object-fit: cover; border-radius: 3px; cursor: pointer;" onclick="window.open('${img}', '_blank')" title="Click to view full size">
+                                        `).join('')}
+                                    </div>
+                                </div>
+                                ` : ''}
+                            </div>
+                            ` : ''}
+                            ${order.delivery_remarks ? `
+                            <div class="info-row">
+                                <span class="info-label">📝 Order Remarks:</span>
+                                <span class="info-value">${order.delivery_remarks.substring(0, 60)}${order.delivery_remarks.length > 60 ? '...' : ''}</span>
+                            </div>
+                            ` : ''}
+                            ${order.delivery_images && order.delivery_images.length > 0 ? `
+                            <div class="info-row">
+                                <span class="info-label">📷 Proof Images:</span>
+                                <span class="info-value">
+                                    ${order.delivery_images.length} image(s) uploaded
+                                </span>
+                            </div>
+                            ` : ''}
                             <div class="info-row">
                                 <span class="info-label">Delivered Date:</span>
-                                <span class="info-value">${new Date(delivery.delivered_at).toLocaleString()}</span>
-                            </div>
-                            ` : ''}
-                            <div style="margin-top: 10px;">
-                                <button class="btn" style="background: #27ae60; color: white;" onclick="event.stopPropagation(); openDeliveryTrackingModal(${order.id}, ${delivery ? delivery.id : 'null'})">📊 View Full Tracking Details</button>
-                            </div>
-                        </div>
-                    `;
-                }).join('');
-                html += `</div>`;
-            }
-            
-            // Returned Deliveries - Show full tracking history
-            if (returnedDeliveries.length > 0) {
-                html += `
-                    <div style="margin-bottom: 30px; border: 2px solid #e74c3c; border-radius: 8px; padding: 20px; background: #fde8e8;">
-                        <h3 style="color: #e74c3c; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #e74c3c;">
-                            ↩️ Returned (${returnedDeliveries.length})
-                        </h3>
-                `;
-                html += returnedDeliveries.map(order => {
-                    const delivery = order._delivery;
-                    const orderJson = JSON.stringify(order).replace(/'/g, "\\'").replace(/"/g, '&quot;');
-                    return `
-                        <div class="list-item" onclick="openOrderDetailsModal('${orderJson}')" style="cursor: pointer; margin-bottom: 10px;">
-                            <div class="info-row">
-                                <span class="info-label"><strong>Shop:</strong></span>
-                                <span class="info-value">${order.shop_name || 'N/A'}</span>
-                            </div>
-                            <div class="info-row">
-                                <span class="info-label">Order ID:</span>
-                                <span class="info-value">${order.id}</span>
-                            </div>
-                            <div class="info-row">
-                                <span class="info-label">Total Amount:</span>
-                                <span class="info-value"><strong style="color: #e74c3c;">Rs. ${parseFloat(order.total_amount || 0).toFixed(2)}</strong></span>
-                            </div>
-                            <div class="info-row">
-                                <span class="info-label">Status:</span>
-                                <span class="info-value">
-                                    <span style="background: #e74c3c; color: white; padding: 4px 10px; border-radius: 15px; font-size: 12px; font-weight: bold;">
-                                        RETURNED
-                                    </span>
-                                </span>
-                            </div>
-                            ${delivery && delivery.returned_at ? `
-                            <div class="info-row">
-                                <span class="info-label">Returned Date:</span>
-                                <span class="info-value">${new Date(delivery.returned_at).toLocaleString()}</span>
-                            </div>
-                            ` : ''}
-                            <div style="margin-top: 10px;">
-                                <button class="btn" style="background: #e74c3c; color: white;" onclick="event.stopPropagation(); openDeliveryTrackingModal(${order.id}, ${delivery ? delivery.id : 'null'})">📊 View Full Tracking Details</button>
-                            </div>
-                        </div>
-                    `;
-                }).join('');
-                html += `</div>`;
-            }
-            
-            // Failed Deliveries
-            if (failedDeliveries.length > 0) {
-                html += `
-                    <div style="margin-bottom: 30px; border: 2px solid #e74c3c; border-radius: 8px; padding: 20px; background: #fde8e8;">
-                        <h3 style="color: #e74c3c; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 2px solid #e74c3c;">
-                            ❌ Failed (${failedDeliveries.length})
-                        </h3>
-                `;
-                html += failedDeliveries.map(order => {
-                    const delivery = order._delivery;
-                    const orderJson = JSON.stringify(order).replace(/'/g, "\\'").replace(/"/g, '&quot;');
-                    return `
-                        <div class="list-item" onclick="openOrderDetailsModal('${orderJson}')" style="cursor: pointer; margin-bottom: 10px;">
-                            <div class="info-row">
-                                <span class="info-label"><strong>Shop:</strong></span>
-                                <span class="info-value">${order.shop_name || 'N/A'}</span>
-                            </div>
-                            <div class="info-row">
-                                <span class="info-label">Order ID:</span>
-                                <span class="info-value">${order.id}</span>
-                            </div>
-                            <div class="info-row">
-                                <span class="info-label">Total Amount:</span>
-                                <span class="info-value"><strong style="color: #e74c3c;">Rs. ${parseFloat(order.total_amount || 0).toFixed(2)}</strong></span>
-                            </div>
-                            <div class="info-row">
-                                <span class="info-label">Status:</span>
-                                <span class="info-value">
-                                    <span style="background: #e74c3c; color: white; padding: 4px 10px; border-radius: 15px; font-size: 12px; font-weight: bold;">
-                                        FAILED
-                                    </span>
-                                </span>
-                            </div>
-                            ${delivery && delivery.failure_reason ? `
-                            <div class="info-row">
-                                <span class="info-label">Failure Reason:</span>
-                                <span class="info-value" style="color: #e74c3c;">${delivery.failure_reason}</span>
-                            </div>
-                            ` : ''}
-                            <div style="margin-top: 10px;">
-                                <button class="btn" style="background: #e74c3c; color: white;" onclick="event.stopPropagation(); openDeliveryTrackingModal(${order.id}, ${delivery ? delivery.id : 'null'})">📊 View Full Tracking Details</button>
+                                <span class="info-value">${order.updated_at ? new Date(order.updated_at).toLocaleString() : (delivery && delivery.delivered_at ? new Date(delivery.delivered_at).toLocaleString() : 'N/A')}</span>
                             </div>
                         </div>
                     `;
@@ -1746,7 +1775,7 @@
                             ❌ Cancelled (${cancelledDeliveries.length})
                         </h3>
                 `;
-                html += cancelledDeliveries.map(order => {
+                html += cancelledDeliveries.map(({order, delivery}) => {
                     const orderJson = JSON.stringify(order).replace(/'/g, "\\'").replace(/"/g, '&quot;');
                     return `
                         <div class="list-item" onclick="openOrderDetailsModal('${orderJson}')" style="cursor: pointer; margin-bottom: 10px;">
@@ -1770,6 +1799,24 @@
                                     </span>
                                 </span>
                             </div>
+                            ${delivery ? `
+                            <div style="margin-top: 15px; padding: 15px; background: #fadbd8; border-radius: 5px;">
+                                <h5 style="color: #e74c3c; margin-bottom: 10px;">📊 Delivery Timeline</h5>
+                                ${delivery.picked_up_at ? `
+                                <div style="margin-bottom: 8px;">
+                                    <strong>✓ Picked Up:</strong> ${new Date(delivery.picked_up_at).toLocaleString()}
+                                    ${delivery.pickup_gps_lat && delivery.pickup_gps_lng ? `
+                                    <a href="https://www.google.com/maps?q=${delivery.pickup_gps_lat},${delivery.pickup_gps_lng}" target="_blank" style="margin-left: 10px; color: #3498db;">📍 View Location</a>
+                                    ` : ''}
+                                </div>
+                                ` : ''}
+                                ${delivery.failure_reason ? `
+                                <div style="margin-top: 8px; padding: 8px; background: #fff; border-radius: 3px; border-left: 3px solid #e74c3c;">
+                                    <strong>❌ Failure Reason:</strong> ${delivery.failure_reason}
+                                </div>
+                                ` : ''}
+                            </div>
+                            ` : ''}
                             ${order.delivery_remarks ? `
                             <div class="info-row">
                                 <span class="info-label">📝 Cancellation Reason:</span>
@@ -1799,152 +1846,50 @@
 
         // Load delivery tracking details
         async function loadDeliveryTracking(orderId, buttonElement) {
-            // Disable button to prevent multiple clicks
-            buttonElement.disabled = true;
-            buttonElement.textContent = 'Loading...';
-            
             try {
                 const response = await fetch(`${API_BASE}/deliveries/order/${orderId}`, {
                     headers: { 'Authorization': `Bearer ${currentToken}` }
                 });
                 
                 if (!response.ok) {
-                    if (response.status === 404) {
-                        // No delivery tracking record exists for this order
-                        const trackingDiv = document.createElement('div');
-                        trackingDiv.innerHTML = `
-                            <div style="margin-top: 15px; padding: 15px; background: #fff3cd; border-radius: 5px; border: 1px solid #ffc107;">
-                                <h5 style="color: #856404; margin-bottom: 10px;">📊 Delivery Tracking</h5>
-                                <p style="color: #856404; margin: 0;">No delivery tracking information available for this order. This order may have been delivered before the tracking system was implemented.</p>
-                            </div>
-                        `;
-                        buttonElement.parentElement.appendChild(trackingDiv);
-                        buttonElement.style.display = 'none';
-                        return;
-                    }
-                    throw new Error(`Failed to load tracking: ${response.status}`);
+                    throw new Error('Delivery tracking not found');
                 }
                 
                 const delivery = await response.json();
                 
-                // Check if there's any tracking data
-                const hasTrackingData = delivery.picked_up_at || delivery.delivered_at || delivery.returned_at;
-                
-                if (!hasTrackingData) {
-                    const trackingDiv = document.createElement('div');
-                    trackingDiv.innerHTML = `
-                        <div style="margin-top: 15px; padding: 15px; background: #fff3cd; border-radius: 5px; border: 1px solid #ffc107;">
-                            <h5 style="color: #856404; margin-bottom: 10px;">📊 Delivery Tracking</h5>
-                            <p style="color: #856404; margin: 0;">Delivery record exists but no tracking events have been recorded yet.</p>
-                        </div>
-                    `;
-                    buttonElement.parentElement.appendChild(trackingDiv);
-                    buttonElement.style.display = 'none';
-                    return;
-                }
-                
-                // Create tracking display with all available data
-                let trackingHtml = `
+                // Create a modal or expand the item to show tracking
+                const trackingHtml = `
                     <div style="margin-top: 15px; padding: 15px; background: #e8f8f5; border-radius: 5px;">
-                        <h5 style="color: #27ae60; margin-bottom: 15px;">📊 Complete Delivery Timeline</h5>
+                        <h5 style="color: #27ae60; margin-bottom: 10px;">📊 Complete Delivery Timeline</h5>
+                        ${delivery.picked_up_at ? `
+                        <div style="margin-bottom: 8px;">
+                            <strong>✓ Picked Up:</strong> ${new Date(delivery.picked_up_at).toLocaleString()}
+                            ${delivery.pickup_gps_lat && delivery.pickup_gps_lng ? `
+                            <a href="https://www.google.com/maps?q=${delivery.pickup_gps_lat},${delivery.pickup_gps_lng}" target="_blank" style="margin-left: 10px; color: #3498db;">📍 View Location</a>
+                            ` : ''}
+                        </div>
+                        ` : ''}
+                        ${delivery.delivered_at ? `
+                        <div style="margin-bottom: 8px;">
+                            <strong>✓ Delivered:</strong> ${new Date(delivery.delivered_at).toLocaleString()}
+                            ${delivery.delivery_gps_lat && delivery.delivery_gps_lng ? `
+                            <a href="https://www.google.com/maps?q=${delivery.delivery_gps_lat},${delivery.delivery_gps_lng}" target="_blank" style="margin-left: 10px; color: #3498db;">📍 View Location</a>
+                            ` : ''}
+                        </div>
+                        ` : ''}
+                        ${delivery.returned_at ? `
+                        <div style="margin-bottom: 8px;">
+                            <strong>✓ Returned:</strong> ${new Date(delivery.returned_at).toLocaleString()}
+                            ${delivery.return_gps_lat && delivery.return_gps_lng ? `
+                            <a href="https://www.google.com/maps?q=${delivery.return_gps_lat},${delivery.return_gps_lng}" target="_blank" style="margin-left: 10px; color: #3498db;">📍 View Location</a>
+                            ` : ''}
+                            ${delivery.return_reason ? `
+                            <div style="margin-top: 5px; color: #666; font-size: 12px;">Reason: ${delivery.return_reason}</div>
+                            ` : ''}
+                        </div>
+                        ` : ''}
+                    </div>
                 `;
-                
-                // Pickup information
-                if (delivery.picked_up_at) {
-                    trackingHtml += `
-                        <div style="margin-bottom: 12px; padding: 10px; background: white; border-radius: 5px; border-left: 4px solid #3498db;">
-                            <strong style="color: #3498db;">✓ Picked Up from Warehouse</strong>
-                            <div style="margin-top: 5px; color: #666; font-size: 14px;">
-                                <div>📅 ${new Date(delivery.picked_up_at).toLocaleString()}</div>
-                                ${delivery.pickup_gps_lat && delivery.pickup_gps_lng ? `
-                                <div style="margin-top: 5px;">
-                                    <a href="https://www.google.com/maps?q=${delivery.pickup_gps_lat},${delivery.pickup_gps_lng}" target="_blank" style="color: #3498db; text-decoration: none;">📍 View Pickup Location</a>
-                                </div>
-                                ` : ''}
-                            </div>
-                        </div>
-                    `;
-                }
-                
-                // Delivery information
-                if (delivery.delivered_at) {
-                    trackingHtml += `
-                        <div style="margin-bottom: 12px; padding: 10px; background: white; border-radius: 5px; border-left: 4px solid #27ae60;">
-                            <strong style="color: #27ae60;">✓ Delivered to Shop</strong>
-                            <div style="margin-top: 5px; color: #666; font-size: 14px;">
-                                <div>📅 ${new Date(delivery.delivered_at).toLocaleString()}</div>
-                                ${delivery.delivery_gps_lat && delivery.delivery_gps_lng ? `
-                                <div style="margin-top: 5px;">
-                                    <a href="https://www.google.com/maps?q=${delivery.delivery_gps_lat},${delivery.delivery_gps_lng}" target="_blank" style="color: #3498db; text-decoration: none;">📍 View Delivery Location</a>
-                                </div>
-                                ` : ''}
-                                ${delivery.delivery_remarks ? `
-                                <div style="margin-top: 5px; padding: 5px; background: #f8f9fa; border-radius: 3px;">
-                                    <strong>Remarks:</strong> ${delivery.delivery_remarks}
-                                </div>
-                                ` : ''}
-                                ${delivery.delivery_images && delivery.delivery_images.length > 0 ? `
-                                <div style="margin-top: 5px;">
-                                    <strong>Proof Images:</strong> ${delivery.delivery_images.length} image(s)
-                                </div>
-                                ` : ''}
-                            </div>
-                        </div>
-                    `;
-                }
-                
-                // Return information
-                if (delivery.returned_at) {
-                    trackingHtml += `
-                        <div style="margin-bottom: 12px; padding: 10px; background: white; border-radius: 5px; border-left: 4px solid #e74c3c;">
-                            <strong style="color: #e74c3c;">↩️ Returned to Warehouse</strong>
-                            <div style="margin-top: 5px; color: #666; font-size: 14px;">
-                                <div>📅 ${new Date(delivery.returned_at).toLocaleString()}</div>
-                                ${delivery.return_gps_lat && delivery.return_gps_lng ? `
-                                <div style="margin-top: 5px;">
-                                    <a href="https://www.google.com/maps?q=${delivery.return_gps_lat},${delivery.return_gps_lng}" target="_blank" style="color: #3498db; text-decoration: none;">📍 View Return Location</a>
-                                </div>
-                                ` : ''}
-                                ${delivery.return_reason ? `
-                                <div style="margin-top: 5px; padding: 5px; background: #f8f9fa; border-radius: 3px;">
-                                    <strong>Return Reason:</strong> ${delivery.return_reason}
-                                </div>
-                                ` : ''}
-                            </div>
-                        </div>
-                    `;
-                }
-                
-                // Delivery items information
-                if (delivery.delivery_items && delivery.delivery_items.length > 0) {
-                    trackingHtml += `
-                        <div style="margin-top: 15px; padding: 10px; background: white; border-radius: 5px;">
-                            <strong style="color: #27ae60;">📦 Items Summary</strong>
-                            <table style="width: 100%; margin-top: 10px; font-size: 13px; border-collapse: collapse;">
-                                <thead>
-                                    <tr style="background: #f8f9fa;">
-                                        <th style="padding: 8px; text-align: left;">Product</th>
-                                        <th style="padding: 8px; text-align: right;">Picked Up</th>
-                                        <th style="padding: 8px; text-align: right;">Delivered</th>
-                                        <th style="padding: 8px; text-align: right;">Returned</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${delivery.delivery_items.map(item => `
-                                        <tr>
-                                            <td style="padding: 8px;">${item.product_name || 'N/A'}</td>
-                                            <td style="padding: 8px; text-align: right;">${item.quantity_picked_up || 0}</td>
-                                            <td style="padding: 8px; text-align: right;">${item.quantity_delivered || 0}</td>
-                                            <td style="padding: 8px; text-align: right;">${item.quantity_returned || 0}</td>
-                                        </tr>
-                                    `).join('')}
-                                </tbody>
-                            </table>
-                        </div>
-                    `;
-                }
-                
-                trackingHtml += `</div>`;
                 
                 // Insert tracking HTML after the button
                 const trackingDiv = document.createElement('div');
@@ -1952,307 +1897,28 @@
                 buttonElement.parentElement.appendChild(trackingDiv);
                 buttonElement.style.display = 'none';
             } catch (error) {
-                buttonElement.disabled = false;
-                buttonElement.textContent = '📊 View Tracking';
-                const errorDiv = document.createElement('div');
-                errorDiv.innerHTML = `
-                    <div style="margin-top: 15px; padding: 15px; background: #f8d7da; border-radius: 5px; border: 1px solid #f5c6cb;">
-                        <h5 style="color: #721c24; margin-bottom: 10px;">❌ Error</h5>
-                        <p style="color: #721c24; margin: 0;">Failed to load delivery tracking: ${error.message}</p>
-                    </div>
-                `;
-                buttonElement.parentElement.appendChild(errorDiv);
+                alert('Error loading delivery tracking: ' + error.message);
             }
         }
 
-        // Open Delivery Tracking Modal with Full Details
-        async function openDeliveryTrackingModal(orderId, deliveryId) {
-            const modal = document.getElementById('deliveryTrackingModal');
-            const contentDiv = document.getElementById('deliveryTrackingContent');
-            const titleDiv = document.getElementById('deliveryTrackingModalTitle');
-            
-            modal.classList.remove('hidden');
-            modal.classList.add('active');
-            
-            contentDiv.innerHTML = '<p style="text-align: center; padding: 20px;">Loading tracking details...</p>';
-            
-            try {
-                // Fetch order details
-                const orderResponse = await fetch(`${API_BASE}/orders/${orderId}`, {
-                    headers: { 'Authorization': `Bearer ${currentToken}` }
-                });
-                if (!orderResponse.ok) throw new Error('Failed to load order details');
-                const order = await orderResponse.json();
-                
-                // Fetch delivery tracking details
-                let delivery = null;
-                if (deliveryId) {
-                    const deliveryResponse = await fetch(`${API_BASE}/deliveries/order/${orderId}`, {
-                        headers: { 'Authorization': `Bearer ${currentToken}` }
-                    });
-                    if (deliveryResponse.ok) {
-                        delivery = await deliveryResponse.json();
-                    }
-                }
-                
-                // Fetch warehouse details if delivery exists
-                // Get warehouse from delivery man's assigned warehouses
-                let warehouse = null;
-                if (delivery && delivery.warehouse_id) {
-                    try {
-                        // Get all warehouses assigned to delivery man and find the matching one
-                        const warehousesResponse = await fetch(`${API_BASE}/delivery-men/${delivery.delivery_man_id}/warehouses`, {
-                            headers: { 'Authorization': `Bearer ${currentToken}` }
-                        });
-                        if (warehousesResponse.ok) {
-                            const warehouses = await warehousesResponse.json();
-                            warehouse = warehouses.find(w => w.id === delivery.warehouse_id) || null;
-                        }
-                    } catch (e) {
-                        // Silently ignore warehouse fetch errors
-                    }
-                }
-                
-                titleDiv.textContent = `📊 Complete Delivery Tracking - Order #${order.id} - ${order.shop_name || 'Shop'}`;
-                
-                let html = `
-                    <div style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 5px;">
-                        <h3 style="color: #f5576c; margin-bottom: 15px;">Order Information</h3>
-                        <div class="info-row">
-                            <span class="info-label"><strong>Shop:</strong></span>
-                            <span class="info-value">${order.shop_name || 'N/A'}</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label"><strong>Order ID:</strong></span>
-                            <span class="info-value">${order.id}</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label"><strong>Total Amount:</strong></span>
-                            <span class="info-value"><strong style="color: #f5576c;">Rs. ${parseFloat(order.total_amount || 0).toFixed(2)}</strong></span>
-                        </div>
-                        <div class="info-row">
-                            <span class="info-label"><strong>Order Date:</strong></span>
-                            <span class="info-value">${new Date(order.created_at).toLocaleString()}</span>
-                        </div>
-                    </div>
-                `;
-                
-                if (delivery) {
-                    // Warehouse Information
-                    html += `
-                        <div style="margin-bottom: 20px; padding: 15px; background: #e8f4f8; border-radius: 5px; border-left: 4px solid #3498db;">
-                            <h3 style="color: #3498db; margin-bottom: 12px;">🏭 Warehouse Information</h3>
-                            ${warehouse ? `
-                                <div class="info-row">
-                                    <span class="info-label"><strong>Warehouse Name:</strong></span>
-                                    <span class="info-value">${warehouse.name || 'N/A'}</span>
-                                </div>
-                                ${warehouse.zone_name ? `
-                                <div class="info-row">
-                                    <span class="info-label"><strong>Zone:</strong></span>
-                                    <span class="info-value">${warehouse.zone_name}</span>
-                                </div>
-                                ` : ''}
-                                ${warehouse.address ? `
-                                <div class="info-row">
-                                    <span class="info-label"><strong>Address:</strong></span>
-                                    <span class="info-value">${warehouse.address}</span>
-                                </div>
-                                ` : ''}
-                            ` : `
-                                <div class="info-row">
-                                    <span class="info-label"><strong>Warehouse ID:</strong></span>
-                                    <span class="info-value">${delivery.warehouse_id || 'N/A'}</span>
-                                </div>
-                            `}
-                        </div>
-                    `;
-                    
-                    // Delivery Status
-                    const statusColors = {
-                        'delivered': { bg: '#e8f8f5', border: '#27ae60', text: 'DELIVERED' },
-                        'returned': { bg: '#fde8e8', border: '#e74c3c', text: 'RETURNED' },
-                        'failed': { bg: '#fde8e8', border: '#e74c3c', text: 'FAILED' },
-                        'partially_delivered': { bg: '#fef5e7', border: '#f39c12', text: 'PARTIALLY DELIVERED' }
-                    };
-                    const statusInfo = statusColors[delivery.status] || { bg: '#f8f9fa', border: '#95a5a6', text: delivery.status.toUpperCase() };
-                    
-                    html += `
-                        <div style="margin-bottom: 20px; padding: 15px; background: ${statusInfo.bg}; border-radius: 5px; border-left: 4px solid ${statusInfo.border};">
-                            <h3 style="color: ${statusInfo.border}; margin-bottom: 12px;">📊 Delivery Status</h3>
-                            <div class="info-row">
-                                <span class="info-label"><strong>Status:</strong></span>
-                                <span class="info-value">
-                                    <span style="background: ${statusInfo.border}; color: white; padding: 4px 10px; border-radius: 15px; font-size: 12px; font-weight: bold;">
-                                        ${statusInfo.text}
-                                    </span>
-                                </span>
-                            </div>
-                        </div>
-                    `;
-                    
-                    // Complete Tracking Timeline
-                    html += `
-                        <div style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 5px;">
-                            <h3 style="color: #f5576c; margin-bottom: 15px;">📋 Complete Delivery Flow Timeline</h3>
-                    `;
-                    
-                    // Pickup Information
-                    if (delivery.picked_up_at) {
-                        html += `
-                            <div style="margin-bottom: 15px; padding: 15px; background: white; border-radius: 5px; border-left: 4px solid #3498db;">
-                                <h4 style="color: #3498db; margin-bottom: 10px;">✓ Stock Picked Up from Warehouse</h4>
-                                <div class="info-row">
-                                    <span class="info-label"><strong>Date & Time:</strong></span>
-                                    <span class="info-value">${new Date(delivery.picked_up_at).toLocaleString()}</span>
-                                </div>
-                                ${delivery.pickup_gps_lat && delivery.pickup_gps_lng ? `
-                                <div class="info-row">
-                                    <span class="info-label"><strong>Location:</strong></span>
-                                    <span class="info-value">
-                                        <a href="https://www.google.com/maps?q=${delivery.pickup_gps_lat},${delivery.pickup_gps_lng}" target="_blank" style="color: #3498db; text-decoration: none;">
-                                            📍 ${delivery.pickup_gps_lat}, ${delivery.pickup_gps_lng} (View on Map)
-                                        </a>
-                                    </span>
-                                </div>
-                                ` : ''}
-                            </div>
-                        `;
-                    }
-                    
-                    // Delivery Information
-                    if (delivery.delivered_at) {
-                        html += `
-                            <div style="margin-bottom: 15px; padding: 15px; background: white; border-radius: 5px; border-left: 4px solid #27ae60;">
-                                <h4 style="color: #27ae60; margin-bottom: 10px;">✓ Delivered to Shop</h4>
-                                <div class="info-row">
-                                    <span class="info-label"><strong>Date & Time:</strong></span>
-                                    <span class="info-value">${new Date(delivery.delivered_at).toLocaleString()}</span>
-                                </div>
-                                ${delivery.delivery_gps_lat && delivery.delivery_gps_lng ? `
-                                <div class="info-row">
-                                    <span class="info-label"><strong>Location:</strong></span>
-                                    <span class="info-value">
-                                        <a href="https://www.google.com/maps?q=${delivery.delivery_gps_lat},${delivery.delivery_gps_lng}" target="_blank" style="color: #3498db; text-decoration: none;">
-                                            📍 ${delivery.delivery_gps_lat}, ${delivery.delivery_gps_lng} (View on Map)
-                                        </a>
-                                    </span>
-                                </div>
-                                ` : ''}
-                                ${delivery.delivery_remarks ? `
-                                <div class="info-row">
-                                    <span class="info-label"><strong>Remarks:</strong></span>
-                                    <span class="info-value">${delivery.delivery_remarks}</span>
-                                </div>
-                                ` : ''}
-                                ${delivery.delivery_images && delivery.delivery_images.length > 0 ? `
-                                <div class="info-row">
-                                    <span class="info-label"><strong>Proof Images:</strong></span>
-                                    <span class="info-value">
-                                        ${delivery.delivery_images.map((img, idx) => `
-                                            <a href="${img}" target="_blank" style="display: inline-block; margin-right: 10px; margin-top: 5px;">
-                                                <img src="${img}" alt="Proof ${idx + 1}" style="width: 80px; height: 80px; object-fit: cover; border-radius: 5px; border: 2px solid #ddd;">
-                                            </a>
-                                        `).join('')}
-                                    </span>
-                                </div>
-                                ` : ''}
-                            </div>
-                        `;
-                    }
-                    
-                    // Return Information
-                    if (delivery.returned_at) {
-                        html += `
-                            <div style="margin-bottom: 15px; padding: 15px; background: white; border-radius: 5px; border-left: 4px solid #e74c3c;">
-                                <h4 style="color: #e74c3c; margin-bottom: 10px;">↩️ Returned to Warehouse</h4>
-                                <div class="info-row">
-                                    <span class="info-label"><strong>Date & Time:</strong></span>
-                                    <span class="info-value">${new Date(delivery.returned_at).toLocaleString()}</span>
-                                </div>
-                                ${delivery.return_gps_lat && delivery.return_gps_lng ? `
-                                <div class="info-row">
-                                    <span class="info-label"><strong>Location:</strong></span>
-                                    <span class="info-value">
-                                        <a href="https://www.google.com/maps?q=${delivery.return_gps_lat},${delivery.return_gps_lng}" target="_blank" style="color: #3498db; text-decoration: none;">
-                                            📍 ${delivery.return_gps_lat}, ${delivery.return_gps_lng} (View on Map)
-                                        </a>
-                                    </span>
-                                </div>
-                                ` : ''}
-                                ${delivery.return_reason ? `
-                                <div class="info-row">
-                                    <span class="info-label"><strong>Return Reason:</strong></span>
-                                    <span class="info-value">${delivery.return_reason}</span>
-                                </div>
-                                ` : ''}
-                            </div>
-                        `;
-                    }
-                    
-                    html += `</div>`;
-                    
-                    // Products and Quantities Details
-                    if (delivery.delivery_items && delivery.delivery_items.length > 0) {
-                        html += `
-                            <div style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 5px;">
-                                <h3 style="color: #f5576c; margin-bottom: 15px;">📦 Products & Quantities Details</h3>
-                                <table style="width: 100%; border-collapse: collapse; background: white; border-radius: 5px; overflow: hidden;">
-                                    <thead>
-                                        <tr style="background: #f5576c; color: white;">
-                                            <th style="padding: 12px; text-align: left;">Product Name</th>
-                                            <th style="padding: 12px; text-align: right;">Picked Up</th>
-                                            <th style="padding: 12px; text-align: right;">Delivered</th>
-                                            <th style="padding: 12px; text-align: right;">Returned</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        ${delivery.delivery_items.map((item, idx) => `
-                                            <tr style="${idx % 2 === 0 ? 'background: #f8f9fa;' : 'background: white;'}">
-                                                <td style="padding: 12px; font-weight: 500;">${item.product_name || 'N/A'}</td>
-                                                <td style="padding: 12px; text-align: right;">${item.quantity_picked_up || 0}</td>
-                                                <td style="padding: 12px; text-align: right; color: #27ae60; font-weight: bold;">${item.quantity_delivered || 0}</td>
-                                                <td style="padding: 12px; text-align: right; color: #e74c3c; font-weight: bold;">${item.quantity_returned || 0}</td>
-                                            </tr>
-                                        `).join('')}
-                                    </tbody>
-                                </table>
-                            </div>
-                        `;
-                    }
-                } else {
-                    html += `
-                        <div style="margin-bottom: 20px; padding: 15px; background: #fff3cd; border-radius: 5px; border-left: 4px solid #ffc107;">
-                            <h3 style="color: #856404; margin-bottom: 10px;">⚠️ No Delivery Tracking</h3>
-                            <p style="color: #856404;">No delivery tracking information available for this order.</p>
-                        </div>
-                    `;
-                }
-                
-                contentDiv.innerHTML = html;
-            } catch (error) {
-                contentDiv.innerHTML = `
-                    <div style="padding: 20px; background: #f8d7da; border-radius: 5px; border: 1px solid #f5c6cb;">
-                        <h3 style="color: #721c24; margin-bottom: 10px;">❌ Error</h3>
-                        <p style="color: #721c24;">Failed to load delivery tracking details: ${error.message}</p>
-                    </div>
-                `;
-            }
-        }
-        
-        function closeDeliveryTrackingModal() {
-            const modal = document.getElementById('deliveryTrackingModal');
-            modal.classList.add('hidden');
-            modal.classList.remove('active');
-            document.getElementById('deliveryTrackingContent').innerHTML = '';
-        }
-
-        // Filter Deliveries by Status (Completed delivery tracking + confirmed orders)
+        // Filter Deliveries by Status (All non-pending orders)
         function filterDeliveriesByStatus() {
             const status = document.getElementById('deliveryStatusFilter').value;
             
             if (!status) {
-                // Show all deliveries
+                // Show all non-pending deliveries
+                if (allDeliveriesData.length > 0) {
+                    displayDeliveries(allDeliveriesData, null);
+                } else {
+                    loadMyDeliveries();
+                }
+                return;
+            }
+            
+            // Only allow filtering by 'confirmed', 'delivered', or 'cancelled'
+            if (status !== 'confirmed' && status !== 'delivered' && status !== 'cancelled') {
+                // Invalid status for deliveries tab - reset to show all
+                document.getElementById('deliveryStatusFilter').value = '';
                 if (allDeliveriesData.length > 0) {
                     displayDeliveries(allDeliveriesData, null);
                 } else {
@@ -2270,12 +1936,7 @@
         }
 
         // Pickup Modal Functions
-        let pickupModalLoading = false; // Prevent multiple simultaneous loads
         async function openPickupModal(orderId) {
-            // Prevent multiple simultaneous calls
-            if (pickupModalLoading) return;
-            pickupModalLoading = true;
-            
             const modal = document.getElementById('pickupModal');
             modal.classList.remove('hidden');
             modal.classList.add('active');
@@ -2296,18 +1957,27 @@
                 const warehouses = await warehouseResponse.json();
                 
                 // Check if delivery exists
-                // Note: 404 errors in console are expected for new orders without delivery records
-                // These are harmless and can be safely ignored - the browser logs them before JS can catch them
                 let delivery = null;
-                const deliveryResponse = await fetch(`${API_BASE}/deliveries/order/${orderId}`, {
-                    headers: { 'Authorization': `Bearer ${currentToken}` }
-                }).catch(() => null); // Silently catch network errors
-                
-                if (deliveryResponse && deliveryResponse.ok) {
-                    delivery = await deliveryResponse.json();
-                    document.getElementById('pickupDeliveryId').value = delivery.id;
+                try {
+                    const deliveryResponse = await fetch(`${API_BASE}/deliveries/order/${orderId}`, {
+                        headers: { 'Authorization': `Bearer ${currentToken}` }
+                    });
+                    if (deliveryResponse.ok) {
+                        delivery = await deliveryResponse.json();
+                        document.getElementById('pickupDeliveryId').value = delivery.id;
+                    } else if (deliveryResponse.status === 404) {
+                        // Delivery not found - this is normal for new orders
+                        // Silently handle 404 - it's expected for orders without deliveries yet
+                        delivery = null;
+                    } else {
+                        // Other error - log but continue
+                        console.warn(`[openPickupModal] Error fetching delivery for order ${orderId}: ${deliveryResponse.status}`);
+                    }
+                } catch (e) {
+                    // Network error - delivery not found (expected for new orders)
+                    // Don't log as error - 404 is normal for orders without deliveries
+                    delivery = null;
                 }
-                // 404 is expected for new orders - browser will log it but it's harmless
                 
                 document.getElementById('pickupModalTitle').textContent = `📦 Onboard Stock - Order #${order.id} - ${order.shop_name || 'Shop'}`;
                 
@@ -2315,25 +1985,37 @@
                 contentDiv.innerHTML = `
                     <div class="info-card" style="margin-bottom: 20px;">
                         <h3 style="color: #f5576c; margin-bottom: 15px;">Order Items</h3>
+                        <p style="color: #666; font-size: 13px; margin-bottom: 15px;">
+                            <strong>Note:</strong> Select a warehouse first to see available inventory. Pickup quantities cannot exceed available stock.
+                        </p>
                         ${order.order_items && order.order_items.length > 0 ? `
                         <table style="width: 100%; border-collapse: collapse;">
                             <thead>
                                 <tr style="background: #f8f9fa;">
                                     <th style="padding: 10px; text-align: left;">Product</th>
                                     <th style="padding: 10px; text-align: right;">Ordered Qty</th>
+                                    <th style="padding: 10px; text-align: right;">Available in Warehouse</th>
                                     <th style="padding: 10px; text-align: right;">Pickup Qty</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 ${order.order_items.map(item => `
-                                    <tr>
+                                    <tr id="pickup_row_${item.id}" 
+                                        data-product-id="${item.product_id || ''}" 
+                                        data-product-name="${(item.product_name || '').toLowerCase().trim()}">
                                         <td style="padding: 10px;">${item.product_name || 'N/A'}</td>
                                         <td style="padding: 10px; text-align: right;">${item.quantity || 0}</td>
+                                        <td style="padding: 10px; text-align: right;">
+                                            <span id="available_qty_${item.id}" style="font-weight: bold; color: #666;">--</span>
+                                        </td>
                                         <td style="padding: 10px; text-align: right;">
                                             <input type="number" id="pickup_qty_${item.id}" 
                                                    min="0" max="${item.quantity || 0}" 
                                                    value="${item.quantity || 0}" 
-                                                   style="width: 80px; padding: 5px; text-align: right;">
+                                                   data-ordered-qty="${item.quantity || 0}"
+                                                   style="width: 80px; padding: 5px; text-align: right;"
+                                                   onchange="validatePickupQuantity(${item.id})">
+                                            <div id="pickup_error_${item.id}" style="color: #e74c3c; font-size: 11px; margin-top: 3px; display: none;"></div>
                                         </td>
                                     </tr>
                                 `).join('')}
@@ -2358,8 +2040,6 @@
                 }
             } catch (error) {
                 document.getElementById('pickupContent').innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
-            } finally {
-                pickupModalLoading = false;
             }
         }
         
@@ -2373,7 +2053,14 @@
         
         async function loadWarehouseInventoryForPickup() {
             const warehouseId = document.getElementById('pickupWarehouseId').value;
-            if (!warehouseId) return;
+            if (!warehouseId) {
+                // Clear available quantities if no warehouse selected
+                document.querySelectorAll('[id^="available_qty_"]').forEach(el => {
+                    el.textContent = '--';
+                    el.style.color = '#666';
+                });
+                return;
+            }
             
             try {
                 const response = await fetch(`${API_BASE}/delivery-men/${currentDeliveryManId}/warehouses`, {
@@ -2383,17 +2070,127 @@
                 const warehouse = warehouses.find(w => w.id == warehouseId);
                 
                 if (warehouse && warehouse.inventory) {
-                    // Update quantity inputs with available inventory
+                    // Create maps for both product_id and product_name matching
+                    const inventoryMapById = {};
+                    const inventoryMapByName = {};
                     warehouse.inventory.forEach(inv => {
-                        // Find matching order items and update max values
-                        const orderItems = document.querySelectorAll('[id^="pickup_qty_"]');
-                        orderItems.forEach(input => {
-                            // This is simplified - in real implementation, match by product_id
-                        });
+                        const qty = inv.quantity || 0;
+                        // Map by product_id if available
+                        if (inv.product_id) {
+                            inventoryMapById[inv.product_id] = qty;
+                        }
+                        // Map by product_name or item_name (case-insensitive)
+                        const invName = (inv.product_name || inv.item_name || '').toLowerCase().trim();
+                        if (invName) {
+                            // If multiple items have same name, use the maximum quantity
+                            if (!inventoryMapByName[invName] || qty > inventoryMapByName[invName]) {
+                                inventoryMapByName[invName] = qty;
+                            }
+                        }
+                    });
+                    
+                    console.log('[loadWarehouseInventoryForPickup] Inventory maps:', {
+                        byId: inventoryMapById,
+                        byName: inventoryMapByName,
+                        totalItems: warehouse.inventory.length
+                    });
+                    
+                    // Update available quantities and max values for each order item
+                    document.querySelectorAll('[id^="pickup_row_"]').forEach(row => {
+                        const productId = row.getAttribute('data-product-id');
+                        const productName = row.getAttribute('data-product-name');
+                        const orderItemId = row.id.replace('pickup_row_', '');
+                        const availableQtyEl = document.getElementById(`available_qty_${orderItemId}`);
+                        const pickupQtyInput = document.getElementById(`pickup_qty_${orderItemId}`);
+                        const errorDiv = document.getElementById(`pickup_error_${orderItemId}`);
+                        
+                        // Try to find inventory by product_id first, then by name
+                        let availableQty = null;
+                        if (productId && inventoryMapById[productId] !== undefined) {
+                            availableQty = inventoryMapById[productId];
+                            console.log(`[loadWarehouseInventoryForPickup] Found by product_id ${productId}: ${availableQty}`);
+                        } else if (productName && inventoryMapByName[productName] !== undefined) {
+                            availableQty = inventoryMapByName[productName];
+                            console.log(`[loadWarehouseInventoryForPickup] Found by product_name "${productName}": ${availableQty}`);
+                        }
+                        
+                        if (availableQty !== null) {
+                            availableQtyEl.textContent = availableQty;
+                            
+                            if (availableQty === 0) {
+                                availableQtyEl.style.color = '#e74c3c';
+                                pickupQtyInput.disabled = true;
+                                pickupQtyInput.value = 0;
+                                pickupQtyInput.max = 0;
+                                errorDiv.textContent = 'Out of stock';
+                                errorDiv.style.display = 'block';
+                            } else {
+                                availableQtyEl.style.color = availableQty > 0 ? '#27ae60' : '#e74c3c';
+                                pickupQtyInput.disabled = false;
+                                
+                                // Set max to minimum of ordered quantity and available quantity
+                                const orderedQty = parseInt(pickupQtyInput.getAttribute('data-ordered-qty') || pickupQtyInput.max) || 0;
+                                const maxQty = Math.min(orderedQty, availableQty);
+                                pickupQtyInput.max = maxQty;
+                                
+                                // If current value exceeds available, reduce it
+                                if (parseInt(pickupQtyInput.value) > maxQty) {
+                                    pickupQtyInput.value = maxQty;
+                                }
+                                
+                                // Validate current quantity
+                                validatePickupQuantity(parseInt(orderItemId));
+                            }
+                        } else {
+                            // Product not found in warehouse inventory
+                            console.warn(`[loadWarehouseInventoryForPickup] Product not found - product_id: ${productId}, product_name: ${productName}`);
+                            availableQtyEl.textContent = '0';
+                            availableQtyEl.style.color = '#e74c3c';
+                            pickupQtyInput.disabled = true;
+                            pickupQtyInput.value = 0;
+                            pickupQtyInput.max = 0;
+                            errorDiv.textContent = 'Product not available in this warehouse';
+                            errorDiv.style.display = 'block';
+                        }
+                    });
+                } else {
+                    // No inventory data
+                    document.querySelectorAll('[id^="available_qty_"]').forEach(el => {
+                        el.textContent = 'N/A';
+                        el.style.color = '#666';
                     });
                 }
             } catch (error) {
                 console.error('Error loading warehouse inventory:', error);
+                document.querySelectorAll('[id^="available_qty_"]').forEach(el => {
+                    el.textContent = 'Error';
+                    el.style.color = '#e74c3c';
+                });
+            }
+        }
+        
+        function validatePickupQuantity(orderItemId) {
+            const pickupQtyInput = document.getElementById(`pickup_qty_${orderItemId}`);
+            const availableQtyEl = document.getElementById(`available_qty_${orderItemId}`);
+            const errorDiv = document.getElementById(`pickup_error_${orderItemId}`);
+            
+            if (!pickupQtyInput || !availableQtyEl || !errorDiv) return;
+            
+            const requestedQty = parseInt(pickupQtyInput.value) || 0;
+            const availableQty = parseInt(availableQtyEl.textContent) || 0;
+            
+            if (availableQtyEl.textContent === '--' || availableQtyEl.textContent === 'N/A' || availableQtyEl.textContent === 'Error') {
+                errorDiv.style.display = 'none';
+                return;
+            }
+            
+            if (requestedQty > availableQty) {
+                errorDiv.textContent = `Only ${availableQty} available in warehouse`;
+                errorDiv.style.display = 'block';
+                pickupQtyInput.style.borderColor = '#e74c3c';
+            } else {
+                errorDiv.style.display = 'none';
+                pickupQtyInput.style.borderColor = '';
             }
         }
         
@@ -2451,12 +2248,43 @@
                 const order = await orderResponse.json();
                 
                 const pickupQuantities = {};
+                const validationErrors = [];
+                
+                // Validate quantities against available inventory
                 order.order_items.forEach(item => {
                     const qtyInput = document.getElementById(`pickup_qty_${item.id}`);
+                    const availableQtyEl = document.getElementById(`available_qty_${item.id}`);
+                    
                     if (qtyInput) {
-                        pickupQuantities[item.id] = parseInt(qtyInput.value) || 0;
+                        const requestedQty = parseInt(qtyInput.value) || 0;
+                        const availableQty = parseInt(availableQtyEl?.textContent) || 0;
+                        
+                        if (availableQtyEl && (availableQtyEl.textContent !== '--' && availableQtyEl.textContent !== 'N/A' && availableQtyEl.textContent !== 'Error')) {
+                            if (requestedQty > availableQty) {
+                                validationErrors.push(`${item.product_name || 'Product'}: Requested ${requestedQty}, but only ${availableQty} available in warehouse`);
+                            } else if (requestedQty > 0) {
+                                pickupQuantities[item.id] = requestedQty;
+                            }
+                        } else if (requestedQty > 0) {
+                            // Warehouse not selected or inventory not loaded
+                            validationErrors.push(`${item.product_name || 'Product'}: Please select a warehouse first to check inventory availability`);
+                        }
                     }
                 });
+                
+                // Show validation errors if any
+                if (validationErrors.length > 0) {
+                    resultDiv.className = 'result error';
+                    resultDiv.textContent = `Cannot proceed: ${validationErrors.join('. ')}`;
+                    return;
+                }
+                
+                // Check if at least one quantity is greater than 0
+                if (Object.keys(pickupQuantities).length === 0 || Object.values(pickupQuantities).every(qty => qty === 0)) {
+                    resultDiv.className = 'result error';
+                    resultDiv.textContent = 'Error: Please enter at least one quantity to pickup.';
+                    return;
+                }
                 
                 // Create delivery if it doesn't exist
                 let finalDeliveryId = deliveryId;
@@ -2511,7 +2339,12 @@
                 const data = await pickupResponse.json();
                 
                 if (!pickupResponse.ok) {
-                    throw new Error(data.detail || 'Failed to record pickup');
+                    // Show detailed error message
+                    let errorMessage = data.detail || 'Failed to record pickup';
+                    if (errorMessage.includes('Insufficient inventory')) {
+                        errorMessage = `❌ ${errorMessage}\n\nPlease check the available quantities in the warehouse and adjust your pickup quantities accordingly.`;
+                    }
+                    throw new Error(errorMessage);
                 }
                 
                 resultDiv.className = 'result success';
@@ -2520,11 +2353,6 @@
                 setTimeout(() => {
                     closePickupModal();
                     loadMyOrders();
-                    // Refresh warehouses to show updated inventory
-                    const warehousesTab = document.getElementById('warehousesTab');
-                    if (warehousesTab && warehousesTab.style.display !== 'none') {
-                        loadMyWarehouses();
-                    }
                 }, 2000);
             } catch (error) {
                 resultDiv.className = 'result error';
@@ -2548,19 +2376,13 @@
                 const order = await orderResponse.json();
                 
                 let delivery = null;
-                try {
+                if (deliveryId) {
                     const deliveryResponse = await fetch(`${API_BASE}/deliveries/order/${orderId}`, {
                         headers: { 'Authorization': `Bearer ${currentToken}` }
                     });
                     if (deliveryResponse.ok) {
                         delivery = await deliveryResponse.json();
-                    } else if (deliveryResponse.status === 404) {
-                        // Delivery not found - this is normal for new orders
-                        delivery = null;
                     }
-                } catch (e) {
-                    // Network error - delivery not found
-                    delivery = null;
                 }
                 
                 document.getElementById('deliverModalTitle').textContent = `🚚 Deliver to Shop - Order #${order.id} - ${order.shop_name || 'Shop'}`;
@@ -2575,8 +2397,6 @@
                                 <tr style="background: #f8f9fa;">
                                     <th style="padding: 10px; text-align: left;">Product</th>
                                     <th style="padding: 10px; text-align: right;">Picked Up</th>
-                                    <th style="padding: 10px; text-align: right;">Already Delivered</th>
-                                    <th style="padding: 10px; text-align: right;">Remaining to Deliver</th>
                                     <th style="padding: 10px; text-align: right;">Deliver Qty</th>
                                 </tr>
                             </thead>
@@ -2584,20 +2404,15 @@
                                 ${order.order_items.map(item => {
                                     const deliveryItem = delivery ? delivery.delivery_items.find(di => di.order_item_id === item.id) : null;
                                     const pickedUp = deliveryItem ? deliveryItem.quantity_picked_up : 0;
-                                    const delivered = deliveryItem ? (deliveryItem.quantity_delivered || 0) : 0;
-                                    const remaining = pickedUp - delivered;
                                     return `
                                         <tr>
                                             <td style="padding: 10px;">${item.product_name || 'N/A'}</td>
                                             <td style="padding: 10px; text-align: right;">${pickedUp}</td>
-                                            <td style="padding: 10px; text-align: right;">${delivered}</td>
-                                            <td style="padding: 10px; text-align: right;"><strong style="color: #f5576c;">${remaining}</strong></td>
                                             <td style="padding: 10px; text-align: right;">
                                                 <input type="number" id="deliver_qty_${item.id}" 
-                                                       min="0" max="${remaining}" 
-                                                       value="${remaining > 0 ? remaining : 0}" 
-                                                       style="width: 80px; padding: 5px; text-align: right;"
-                                                       ${remaining <= 0 ? 'disabled' : ''}>
+                                                       min="0" max="${pickedUp}" 
+                                                       value="${pickedUp}" 
+                                                       style="width: 80px; padding: 5px; text-align: right;">
                                             </td>
                                         </tr>
                                     `;
@@ -2776,11 +2591,6 @@
                     closeDeliverModal();
                     loadMyOrders();
                     loadMyDeliveries();
-                    // Refresh warehouses to show updated inventory (if items were returned)
-                    const warehousesTab = document.getElementById('warehousesTab');
-                    if (warehousesTab && warehousesTab.style.display !== 'none') {
-                        loadMyWarehouses();
-                    }
                 }, 2000);
             } catch (error) {
                 resultDiv.className = 'result error';
@@ -2797,19 +2607,13 @@
                 const order = await orderResponse.json();
                 
                 let delivery = null;
-                try {
+                if (deliveryId) {
                     const deliveryResponse = await fetch(`${API_BASE}/deliveries/order/${orderId}`, {
                         headers: { 'Authorization': `Bearer ${currentToken}` }
                     });
                     if (deliveryResponse.ok) {
                         delivery = await deliveryResponse.json();
-                    } else if (deliveryResponse.status === 404) {
-                        // Delivery not found - this is normal for new orders
-                        delivery = null;
                     }
-                } catch (e) {
-                    // Network error - delivery not found
-                    delivery = null;
                 }
                 
                 // Check if there are any items available to return
@@ -2842,9 +2646,6 @@
                 contentDiv.innerHTML = `
                     <div class="info-card" style="margin-bottom: 20px;">
                         <h3 style="color: #f5576c; margin-bottom: 15px;">Items to Return</h3>
-                        <p style="color: #666; font-size: 13px; margin-bottom: 15px;">
-                            <strong>Note:</strong> Return quantities are automatically calculated (Picked Up - Delivered) and cannot be changed.
-                        </p>
                         ${order.order_items && order.order_items.length > 0 ? `
                         <table style="width: 100%; border-collapse: collapse;">
                             <thead>
@@ -2852,27 +2653,29 @@
                                     <th style="padding: 10px; text-align: left;">Product</th>
                                     <th style="padding: 10px; text-align: right;">Picked Up</th>
                                     <th style="padding: 10px; text-align: right;">Delivered</th>
-                                    <th style="padding: 10px; text-align: right;">Return Qty (Auto-calculated)</th>
+                                    <th style="padding: 10px; text-align: right;">Available to Return</th>
+                                    <th style="padding: 10px; text-align: right;">Return Qty</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 ${order.order_items.map(item => {
                                     const deliveryItem = delivery ? delivery.delivery_items.find(di => di.order_item_id === item.id) : null;
                                     const pickedUp = deliveryItem ? deliveryItem.quantity_picked_up : 0;
-                                    const delivered = deliveryItem ? (deliveryItem.quantity_delivered || 0) : 0;
-                                    const returnQty = pickedUp - delivered; // Static calculation: total - delivered
+                                    const delivered = deliveryItem ? deliveryItem.quantity_delivered : 0;
+                                    const availableToReturn = pickedUp - delivered;
                                     // Only show items with available quantity to return
-                                    if (returnQty <= 0) return '';
+                                    if (availableToReturn <= 0) return '';
                                     return `
                                         <tr>
                                             <td style="padding: 10px;">${item.product_name || 'N/A'}</td>
                                             <td style="padding: 10px; text-align: right;">${pickedUp}</td>
                                             <td style="padding: 10px; text-align: right;">${delivered}</td>
+                                            <td style="padding: 10px; text-align: right;"><strong>${availableToReturn}</strong></td>
                                             <td style="padding: 10px; text-align: right;">
                                                 <input type="number" id="return_qty_${item.id}" 
-                                                       value="${returnQty}" 
-                                                       readonly
-                                                       style="width: 80px; padding: 5px; text-align: right; background: #f0f0f0; border: 1px solid #ddd; cursor: not-allowed; font-weight: bold; color: #f5576c;">
+                                                       min="0" max="${availableToReturn}" 
+                                                       value="${availableToReturn}" 
+                                                       style="width: 80px; padding: 5px; text-align: right;">
                                             </td>
                                         </tr>
                                     `;
@@ -2978,11 +2781,6 @@
                     closeReturnModal();
                     loadMyOrders();
                     loadMyDeliveries();
-                    // Refresh warehouses to show updated inventory
-                    const warehousesTab = document.getElementById('warehousesTab');
-                    if (warehousesTab && warehousesTab.style.display !== 'none') {
-                        loadMyWarehouses();
-                    }
                 }, 2000);
             } catch (error) {
                 resultDiv.className = 'result error';

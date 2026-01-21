@@ -88,7 +88,7 @@ async def register_visit(
             visit_types=visit.visit_types or [],
             gps_lat=visit.gps_lat,
             gps_lng=visit.gps_lng,
-            visit_time=visit.visit_time,
+            visit_time=visit.visit_time,  # API uses visit_time, service maps it to visit_date internally
             photo=visit.photo,
             reason=visit.reason,
             order_items=order_items_dicts,

@@ -109,25 +109,16 @@ class ShopVisit(Base):
     - Example: 73.0479 (Islamabad)
     """
 
-    visit_time = Column(DateTime(timezone=True), nullable=True)
+    visit_date = Column(DateTime(timezone=True), server_default=func.now(), nullable=True)
     """
     Timestamp when visit occurred.
     - Can be set manually or automatically from device time
     - Timezone-aware (stores UTC)
     - Used for attendance tracking and route compliance
     - Example: 2026-01-07 10:30:00 UTC
+    - Note: Database column is named visit_date
     """
 
-    photo = Column(Text, nullable=True)
-    """
-    Photo proof of visit (legacy single photo field).
-    - Can be stored as base64 string or URL
-    - Used to verify visit actually occurred
-    - Optional but recommended for important visits
-    - Example: "data:image/jpeg;base64,..." or "https://..."
-    - Note: For multiple images, use photos field instead
-    """
-    
     photos = Column(Text, nullable=True)  # Will store JSON array as string
     """
     Multiple photos proof of visit (JSON array of Supabase storage URLs).
@@ -139,12 +130,13 @@ class ShopVisit(Base):
     - Stored as TEXT column containing JSON array string
     """
 
-    reason = Column(Text, nullable=True)
+    remarks = Column(Text, nullable=True)
     """
-    Reason or notes for the visit.
+    Remarks or notes for the visit.
     - Free-form text field for additional context
     - Can include visit purpose, issues found, etc.
     - Example: "Regular order booking visit", "Shop owner requested meeting"
+    - Note: Database column is named remarks
     """
 
     # Soft Delete
@@ -159,5 +151,5 @@ class ShopVisit(Base):
     # """
     
     # Note: The database table does not have a created_at column
-    # If you need timestamps, use visit_time field or add created_at to the database schema
+    # If you need timestamps, use visit_date field or add created_at to the database schema
 

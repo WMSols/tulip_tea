@@ -39,7 +39,7 @@ class DeliveryManService:
         """
         from repositories.zone_repository import ZoneRepository
         from repositories.route_repository import RouteRepository
-        from repositories.delivery_man_route_repository import DeliveryManRouteRepository
+        # DeliveryManRouteRepository removed - delivery men now work by zone, not routes
         
         # Verify distributor exists
         distributor = DistributorRepository.get_by_id(db, distributor_id)
@@ -52,32 +52,8 @@ class DeliveryManService:
             if not zone:
                 raise ValueError(f"Zone with ID {zone_id} not found")
         
-        # Verify routes exist and belong to the same zone (if provided)
-        assigned_route_ids = []
-        if route_ids:
-            for route_id in route_ids:
-                route = RouteRepository.get_by_id(db, route_id)
-                if not route:
-                    raise ValueError(f"Route with ID {route_id} not found")
-                
-                # Validate zone matching: route's zone must match delivery man's zone
-                if zone_id and route.zone_id:
-                    if route.zone_id != zone_id:
-                        raise ValueError(
-                            f"Cannot assign route '{route.name}': Route belongs to zone {route.zone_id}, "
-                            f"but delivery man is assigned to zone {zone_id}. They must be in the same zone."
-                        )
-                elif zone_id and not route.zone_id:
-                    raise ValueError(
-                        f"Cannot assign route '{route.name}': Route has no zone assigned, "
-                        f"but delivery man is assigned to zone {zone_id}."
-                    )
-                elif not zone_id and route.zone_id:
-                    # Auto-assign delivery man to route's zone if not specified
-                    zone_id = route.zone_id
-                    zone = ZoneRepository.get_by_id(db, zone_id)
-                    if not zone:
-                        raise ValueError(f"Route's zone {zone_id} not found")
+        # Note: route_ids parameter is ignored - delivery men work by zone only
+        # Routes are no longer assigned to delivery men
         
         # Check if phone already exists
         existing = DeliveryManRepository.get_by_phone(db, phone)
@@ -97,14 +73,9 @@ class DeliveryManService:
             zone_id=zone_id
         )
         
-        # Assign routes to delivery man
-        if route_ids:
-            DeliveryManRouteRepository.assign_routes_to_delivery_man(
-                db=db,
-                delivery_man_id=delivery_man.id,
-                route_ids=route_ids
-            )
-            assigned_route_ids = route_ids
+        # Route assignment removed - delivery men now work by zone, not routes
+        # Routes are no longer assigned to delivery men
+        assigned_route_ids = []
         
         return {
             "id": delivery_man.id,
@@ -159,16 +130,15 @@ class DeliveryManService:
     
     @staticmethod
     def get_delivery_men_by_distributor(db: Session, distributor_id: int) -> List[Dict]:
-        """Get all delivery men for a distributor with their route assignments."""
-        from repositories.delivery_man_route_repository import DeliveryManRouteRepository
-        
+        """Get all delivery men for a distributor (zone-based, not route-based)."""
         try:
             delivery_men = DeliveryManRepository.get_by_distributor(db, distributor_id)
             result = []
             for dm in delivery_men:
-                # Get assigned routes
-                route_assignments = DeliveryManRouteRepository.get_routes_by_delivery_man(db, dm.id)
-                route_ids = [ra.route_id for ra in route_assignments]
+                # Get routes in the delivery man's zone (for display purposes)
+                from repositories.route_repository import RouteRepository
+                routes_in_zone = RouteRepository.get_by_zone(db, dm.zone_id) if dm.zone_id else []
+                route_ids = [r.id for r in routes_in_zone]
                 
                 result.append({
                     "id": dm.id,
@@ -176,7 +146,7 @@ class DeliveryManService:
                     "phone": dm.phone,
                     "zone_id": dm.zone_id,
                     "distributor_id": dm.distributor_id,
-                    "route_ids": route_ids,
+                    "route_ids": route_ids,  # Routes in zone (for display)
                     "created_at": dm.created_at.isoformat() if dm.created_at else None
                 })
             return result

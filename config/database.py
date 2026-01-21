@@ -2,7 +2,7 @@
 Database configuration and connection management.
 Handles PostgreSQL connection using SQLAlchemy.
 """
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from pydantic_settings import BaseSettings
@@ -17,12 +17,16 @@ class Settings(BaseSettings):
     app_name: str = "Tulip Tea Backend API"
     app_version: str = "1.0.0"
     debug: bool = True
+    # Supabase configuration (for frontend) - loaded from environment
+    # These match the .env variable names (case-insensitive)
+    supabase_url: str = ""
+    supabase_anon_key: str = ""
 
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = False
-        extra = "ignore"  # Ignore extra fields in .env file (like Supabase keys)
+        extra = "ignore"  # Ignore extra fields in .env file
 
 
 settings = Settings()
@@ -45,35 +49,10 @@ def get_db():
     """
     Dependency function to get database session.
     Yields a database session and ensures it's closed after use.
-    
-    Handles database connection errors gracefully.
-    Note: Database connection errors will be caught by the global exception handler
-    which ensures CORS headers are sent.
     """
-    db = None
-    try:
-        db = SessionLocal()
-        # Test connection immediately to catch errors early
-        db.execute(text("SELECT 1"))
-    except Exception as e:
-        # Close any partial session
-        if db:
-            try:
-                db.close()
-            except:
-                pass
-        
-        # Log the error
-        print(f"❌ [DB] Database connection error in get_db: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        
-        # Re-raise - will be caught by global exception handler
-        raise
-    
+    db = SessionLocal()
     try:
         yield db
     finally:
-        if db:
-            db.close()
+        db.close()
 

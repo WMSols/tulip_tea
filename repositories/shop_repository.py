@@ -129,19 +129,15 @@ class ShopRepository:
     
     @staticmethod
     def get_by_route(db: Session, route_id: int, include_deleted: bool = False) -> List[Shop]:
-        """Get all shops in a route (excludes soft-deleted and inactive by default)."""
-        from models.route_shop import RouteShop
-        route_shops = db.query(RouteShop).filter(
-            RouteShop.route_id == route_id,
-            # RouteShop.deleted_at.is_(None)  # Uncomment after running sql/add_deleted_at_to_route_shops.sql
-        ).all()
-        shop_ids = [rs.shop_id for rs in route_shops]
-        if not shop_ids:
-            return []
-        query = db.query(Shop).filter(Shop.id.in_(shop_ids))
+        """
+        Get all shops in a route (excludes soft-deleted and inactive by default).
+        
+        NOTE: Shops now have route_id directly on the shops table (not via route_shops junction table).
+        """
+        query = db.query(Shop).filter(Shop.route_id == route_id)
         if not include_deleted:
             query = query.filter(Shop.deleted_at.is_(None), Shop.is_active == True)
-        return query.all()
+        return query.order_by(Shop.route_sequence.asc()).all()
     
     @staticmethod
     def get_by_registration_status(db: Session, status: str, include_deleted: bool = False) -> List[Shop]:

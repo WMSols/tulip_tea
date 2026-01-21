@@ -87,7 +87,7 @@ class DeliveryManCreate(BaseModel):
     phone: str
     password: str
     zone_id: Optional[int] = None
-    route_ids: Optional[List[int]] = None  # List of route IDs to assign
+    # Note: Delivery men work by zone, not routes - route_ids removed
 
 
 class DeliveryManLogin(BaseModel):
@@ -111,6 +111,7 @@ class DeliveryManResponse(BaseModel):
 class DeliveryManUpdate(BaseModel):
     name: Optional[str] = None
     phone: Optional[str] = None
+    zone_id: Optional[int] = None
     password: Optional[str] = None
 
 
@@ -280,9 +281,10 @@ class PaymentResponse(BaseModel):
 
 # Shop Visit Schemas
 class OrderItemCreate(BaseModel):
-    product_name: str
+    product_id: Optional[int] = None  # Product ID (preferred - price will be fetched from products table)
+    product_name: Optional[str] = None  # Product name (optional, can be fetched from product_id, used for logging/denormalization)
     quantity: int
-    unit_price: float
+    unit_price: Optional[float] = None  # Optional - will be fetched from products table if product_id is provided (backward compatibility)
     # Allow extra fields (like total_price from frontend) to be ignored
     class Config:
         extra = "ignore"  # Ignore extra fields like total_price
@@ -400,8 +402,8 @@ class CreditLimitRequestResponse(BaseModel):
     old_credit_limit: Optional[float] = None
     requested_credit_limit: float
     status: Optional[str] = None
-    reviewed_by_distributor: Optional[int] = None
-    reviewed_at: Optional[str] = None
+    approved_by_distributor: Optional[int] = None
+    approved_at: Optional[str] = None
     remarks: Optional[str] = None
     created_at: Optional[str] = None
 
@@ -492,6 +494,7 @@ class ProductResponse(BaseModel):
     code: str
     name: str
     unit: Optional[str] = None
+    price: Optional[float] = None
     is_active: bool
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
@@ -504,6 +507,7 @@ class ProductUpdate(BaseModel):
     code: Optional[str] = None
     name: Optional[str] = None
     unit: Optional[str] = None
+    price: Optional[float] = None
     is_active: Optional[bool] = None
 
 

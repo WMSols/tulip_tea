@@ -198,7 +198,7 @@ class CreditLimitRequestService:
         FLOW:
         1. Validates request exists and is pending
         2. Validates distributor exists
-        3. Approves request (sets status, reviewed_by, reviewed_at)
+        3. Approves request (sets status, approved_by, approved_at)
         4. Updates shop's credit_limit to final_credit_limit (or requested_credit_limit)
         5. Returns approved request data
         
@@ -267,8 +267,8 @@ class CreditLimitRequestService:
             "old_credit_limit": float(approved.old_credit_limit) if approved.old_credit_limit else 0,
             "requested_credit_limit": float(approved.requested_credit_limit),
             "status": approved.status,
-            "reviewed_by_distributor": approved.reviewed_by_distributor,
-            "reviewed_at": approved.reviewed_at.isoformat() if approved.reviewed_at else None,
+            "approved_by_distributor": approved.approved_by_distributor,
+            "approved_at": approved.approved_at.isoformat() if approved.approved_at else None,
             "remarks": approved.remarks,
             "created_at": approved.created_at.isoformat() if approved.created_at else None
         }
@@ -282,7 +282,7 @@ class CreditLimitRequestService:
         FLOW:
         1. Validates request exists and is pending
         2. Validates distributor exists
-        3. Rejects request (sets status, reviewed_by, reviewed_at)
+        3. Rejects request (sets status, approved_by, approved_at)
         4. Returns rejected request data
         
         Args:
@@ -338,8 +338,8 @@ class CreditLimitRequestService:
             "old_credit_limit": float(rejected.old_credit_limit) if rejected.old_credit_limit else 0,
             "requested_credit_limit": float(rejected.requested_credit_limit),
             "status": rejected.status,
-            "reviewed_by_distributor": rejected.reviewed_by_distributor,
-            "reviewed_at": rejected.reviewed_at.isoformat() if rejected.reviewed_at else None,
+            "approved_by_distributor": rejected.approved_by_distributor,
+            "approved_at": rejected.approved_at.isoformat() if rejected.approved_at else None,
             "remarks": rejected.remarks,
             "created_at": rejected.created_at.isoformat() if rejected.created_at else None
         }

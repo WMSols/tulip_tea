@@ -93,73 +93,41 @@ async def login_distributor(credentials: DistributorLogin, request: Request, db:
     Returns:
         TokenResponse: JWT token and user information
     """
-    try:
-        # Call service layer to handle login logic
-        result = DistributorService.login_distributor(
+    # Call service layer to handle login logic
+    result = DistributorService.login_distributor(
+        db=db,
+        phone=credentials.phone,
+        password=credentials.password
+    )
+    
+    # If service returns None, credentials are invalid
+    if not result:
+        # Log failed login attempt
+        ActivityLogService.log_failure(
             db=db,
-            phone=credentials.phone,
-            password=credentials.password
+            user_id=None,
+            user_role='system',
+            action_type='LOGIN',
+            entity_type='user',
+            error_message='Invalid phone number or password',
+            request=request
         )
-        
-        # If service returns None, credentials are invalid
-        if not result:
-            # Log failed login attempt (try-catch to avoid double error if DB fails)
-            try:
-                ActivityLogService.log_failure(
-                    db=db,
-                    user_id=None,
-                    user_role='system',
-                    action_type='LOGIN',
-                    entity_type='user',
-                    error_message='Invalid phone number or password',
-                    request=request
-                )
-            except:
-                pass  # Ignore logging errors
-            
-            origin = request.headers.get("origin") or request.headers.get("Origin") or "*"
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid phone number or password",
-                headers={
-                    "Access-Control-Allow-Origin": origin if origin != "null" else "*",
-                    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
-                    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
-                }
-            )
-        
-        # Log successful login (try-catch to avoid double error if DB fails)
-        try:
-            ActivityLogService.log_login(
-                db=db,
-                user_id=result['user']['id'],
-                user_role='distributor',
-                user_name=result['user'].get('name'),
-                request=request
-            )
-        except:
-            pass  # Ignore logging errors
-        
-        return result
-    except HTTPException:
-        # Re-raise HTTP exceptions (they already have CORS headers)
-        raise
-    except Exception as e:
-        # Handle database connection errors and other exceptions
-        import traceback
-        print(f"❌ [AUTH] Error in login_distributor: {str(e)}")
-        print(f"Traceback: {traceback.format_exc()}")
-        
-        origin = request.headers.get("origin") or request.headers.get("Origin") or "*"
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Database connection error. Please ensure Supabase local is running. Error: {str(e)}",
-            headers={
-                "Access-Control-Allow-Origin": origin if origin != "null" else "*",
-                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
-                "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
-            }
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid phone number or password"
         )
+    
+    # Log successful login
+    ActivityLogService.log_login(
+        db=db,
+        user_id=result['user']['id'],
+        user_role='distributor',
+        user_name=result['user'].get('name'),
+        request=request
+    )
+    
+    # Return token and user info
+    return result
 
 
 @router.post("/login/order-booker", response_model=TokenResponse)
@@ -179,71 +147,41 @@ async def login_order_booker(credentials: OrderBookerLogin, request: Request, db
     
     Response: Same format as distributor login, with role="order_booker"
     """
-    try:
-        # Call service layer to handle login logic
-        result = OrderBookerService.login_order_booker(
+    # Call service layer to handle login logic
+    result = OrderBookerService.login_order_booker(
+        db=db,
+        phone=credentials.phone,
+        password=credentials.password
+    )
+    
+    # If service returns None, credentials are invalid
+    if not result:
+        # Log failed login attempt
+        ActivityLogService.log_failure(
             db=db,
-            phone=credentials.phone,
-            password=credentials.password
+            user_id=None,
+            user_role='system',
+            action_type='LOGIN',
+            entity_type='user',
+            error_message='Invalid phone number or password',
+            request=request
         )
-        
-        # If service returns None, credentials are invalid
-        if not result:
-            # Log failed login attempt (try-catch to avoid double error if DB fails)
-            try:
-                ActivityLogService.log_failure(
-                    db=db,
-                    user_id=None,
-                    user_role='system',
-                    action_type='LOGIN',
-                    entity_type='user',
-                    error_message='Invalid phone number or password',
-                    request=request
-                )
-            except:
-                pass  # Ignore logging errors
-            
-            origin = request.headers.get("origin") or request.headers.get("Origin") or "*"
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid phone number or password",
-                headers={
-                    "Access-Control-Allow-Origin": origin if origin != "null" else "*",
-                    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
-                    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
-                }
-            )
-        
-        # Log successful login (try-catch to avoid double error if DB fails)
-        try:
-            ActivityLogService.log_login(
-                db=db,
-                user_id=result['user']['id'],
-                user_role='order_booker',
-                user_name=result['user'].get('name'),
-                request=request
-            )
-        except:
-            pass  # Ignore logging errors
-        
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        print(f"❌ [AUTH] Error in login_order_booker: {str(e)}")
-        print(f"Traceback: {traceback.format_exc()}")
-        
-        origin = request.headers.get("origin") or request.headers.get("Origin") or "*"
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Database connection error. Please ensure Supabase local is running. Error: {str(e)}",
-            headers={
-                "Access-Control-Allow-Origin": origin if origin != "null" else "*",
-                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
-                "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
-            }
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid phone number or password"
         )
+    
+    # Log successful login
+    ActivityLogService.log_login(
+        db=db,
+        user_id=result['user']['id'],
+        user_role='order_booker',
+        user_name=result['user'].get('name'),
+        request=request
+    )
+    
+    # Return token and user info
+    return result
 
 
 @router.post("/login/delivery-man", response_model=TokenResponse)
@@ -263,71 +201,41 @@ async def login_delivery_man(credentials: DeliveryManLogin, request: Request, db
     
     Response: Same format as distributor login, with role="delivery_man"
     """
-    try:
-        # Call service layer to handle login logic
-        result = DeliveryManService.login_delivery_man(
+    # Call service layer to handle login logic
+    result = DeliveryManService.login_delivery_man(
+        db=db,
+        phone=credentials.phone,
+        password=credentials.password
+    )
+    
+    # If service returns None, credentials are invalid
+    if not result:
+        # Log failed login attempt
+        ActivityLogService.log_failure(
             db=db,
-            phone=credentials.phone,
-            password=credentials.password
+            user_id=None,
+            user_role='system',
+            action_type='LOGIN',
+            entity_type='user',
+            error_message='Invalid phone number or password',
+            request=request
         )
-        
-        # If service returns None, credentials are invalid
-        if not result:
-            # Log failed login attempt (try-catch to avoid double error if DB fails)
-            try:
-                ActivityLogService.log_failure(
-                    db=db,
-                    user_id=None,
-                    user_role='system',
-                    action_type='LOGIN',
-                    entity_type='user',
-                    error_message='Invalid phone number or password',
-                    request=request
-                )
-            except:
-                pass  # Ignore logging errors
-            
-            origin = request.headers.get("origin") or request.headers.get("Origin") or "*"
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid phone number or password",
-                headers={
-                    "Access-Control-Allow-Origin": origin if origin != "null" else "*",
-                    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
-                    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
-                }
-            )
-        
-        # Log successful login (try-catch to avoid double error if DB fails)
-        try:
-            ActivityLogService.log_login(
-                db=db,
-                user_id=result['user']['id'],
-                user_role='delivery_man',
-                user_name=result['user'].get('name'),
-                request=request
-            )
-        except:
-            pass  # Ignore logging errors
-        
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        print(f"❌ [AUTH] Error in login_delivery_man: {str(e)}")
-        print(f"Traceback: {traceback.format_exc()}")
-        
-        origin = request.headers.get("origin") or request.headers.get("Origin") or "*"
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Database connection error. Please ensure Supabase local is running. Error: {str(e)}",
-            headers={
-                "Access-Control-Allow-Origin": origin if origin != "null" else "*",
-                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
-                "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
-            }
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid phone number or password"
         )
+    
+    # Log successful login
+    ActivityLogService.log_login(
+        db=db,
+        user_id=result['user']['id'],
+        user_role='delivery_man',
+        user_name=result['user'].get('name'),
+        request=request
+    )
+    
+    # Return token and user info
+    return result
 
 
 

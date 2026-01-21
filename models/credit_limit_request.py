@@ -17,7 +17,7 @@ WORKFLOW:
 RELATIONSHIPS:
 - Belongs to a Shop (via shop_id foreign key)
 - Requested by Order Booker or Delivery Man (via requested_by_role + requested_by_id)
-- Reviewed by Distributor (via reviewed_by_distributor foreign key)
+- Reviewed by Distributor (via approved_by_distributor foreign key)
 
 STATUS VALUES:
 - "pending" - Awaiting distributor review
@@ -56,10 +56,10 @@ class CreditLimitRequest(Base):
     - Used for filtering requests by shop
     """
 
-    reviewed_by_distributor = Column(BigInteger, ForeignKey("distributors.id"), nullable=True)
+    approved_by_distributor = Column(BigInteger, ForeignKey("distributors.id"), nullable=True)
     """
     Foreign key to distributors table.
-    - Links request to the distributor who reviewed it
+    - Links request to the distributor who approved/rejected it
     - Nullable: Set when distributor reviews the request
     - Used for tracking who approved/rejected the request
     """
@@ -124,9 +124,9 @@ class CreditLimitRequest(Base):
     """
 
     # Timestamps
-    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    approved_at = Column(DateTime(timezone=True), nullable=True)
     """
-    Timestamp when distributor reviewed the request.
+    Timestamp when distributor approved/rejected the request.
     - Nullable: Set when distributor approves/rejects
     - Timezone-aware (stores UTC)
     - Used for tracking when decision was made

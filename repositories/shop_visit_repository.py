@@ -20,6 +20,7 @@ from models.shop_visit import ShopVisit
 from typing import Optional, List
 from decimal import Decimal
 from datetime import datetime
+import json
 
 
 class ShopVisitRepository:
@@ -37,7 +38,7 @@ class ShopVisitRepository:
     def create(db: Session, shop_id: int = None, order_booker_id: int = None,
               delivery_man_id: int = None, visit_type: str = None,
               gps_lat: Decimal = None, gps_lng: Decimal = None,
-              visit_time: datetime = None, photo: str = None,
+              visit_date: datetime = None, photo: str = None,
               photos: str = None, reason: str = None) -> ShopVisit:
         """
         Create a new shop visit record in the database.
@@ -57,7 +58,7 @@ class ShopVisitRepository:
             visit_type: Type of visit (e.g., "order_booking", "delivery", "collection")
             gps_lat: GPS latitude where visit was recorded
             gps_lng: GPS longitude where visit was recorded
-            visit_time: Timestamp when visit occurred (defaults to now if not provided)
+            visit_date: Timestamp when visit occurred (defaults to now if not provided)
             photo: Photo proof as base64 string or URL (optional)
             reason: Reason or notes for the visit (optional)
         
@@ -66,11 +67,25 @@ class ShopVisitRepository:
         
         Note:
             - At least one of order_booker_id or delivery_man_id should be provided
-            - visit_time defaults to current time if not provided
+            - visit_date defaults to current time if not provided
         """
-        # Use current time if visit_time not provided
-        if visit_time is None:
-            visit_time = datetime.utcnow()
+        # Use current time if visit_date not provided
+        if visit_date is None:
+            visit_date = datetime.utcnow()
+        
+        # Convert single photo to photos array if needed
+        photos_json = photos
+        if photo and not photos:
+            # If single photo is provided, convert to JSON array format
+            photos_json = json.dumps([photo])
+        elif photo and photos:
+            # If both are provided, merge them
+            photos_list = json.loads(photos) if isinstance(photos, str) else photos
+            if isinstance(photos_list, list):
+                photos_list.append(photo)
+            else:
+                photos_list = [photo]
+            photos_json = json.dumps(photos_list)
         
         # Create model instance (maps to shop_visits table)
         visit = ShopVisit(
@@ -80,10 +95,9 @@ class ShopVisitRepository:
             visit_type=visit_type,
             gps_lat=gps_lat,
             gps_lng=gps_lng,
-            visit_time=visit_time,
-            photo=photo,
-            photos=photos,
-            reason=reason
+            visit_date=visit_date,
+            photos=photos_json,  # Store as JSON array string
+            remarks=reason  # Model uses 'remarks', API uses 'reason' for backward compatibility
         )
         # Add to session (staged, not yet saved)
         db.add(visit)
@@ -150,7 +164,7 @@ class ShopVisitRepository:
         return db.query(ShopVisit).filter(
             ShopVisit.order_booker_id == order_booker_id
             # ShopVisit.deleted_at.is_(None)  # Uncomment after running sql/add_deleted_at_to_shop_visits.sql
-        ).order_by(ShopVisit.visit_time.desc()).offset(skip).limit(limit).all()
+        ).order_by(ShopVisit.visit_date.desc()).offset(skip).limit(limit).all()
     
     @staticmethod
     def get_by_shop(db: Session, shop_id: int, skip: int = 0, limit: int = 100) -> List[ShopVisit]:
@@ -182,7 +196,7 @@ class ShopVisitRepository:
         return db.query(ShopVisit).filter(
             ShopVisit.shop_id == shop_id
             # ShopVisit.deleted_at.is_(None)  # Uncomment after running sql/add_deleted_at_to_shop_visits.sql
-        ).order_by(ShopVisit.visit_time.desc()).offset(skip).limit(limit).all()
+        ).order_by(ShopVisit.visit_date.desc()).offset(skip).limit(limit).all()
     
     @staticmethod
     def get_by_delivery_man(db: Session, delivery_man_id: int,
@@ -215,7 +229,7 @@ class ShopVisitRepository:
         return db.query(ShopVisit).filter(
             ShopVisit.delivery_man_id == delivery_man_id
             # ShopVisit.deleted_at.is_(None)  # Uncomment after running sql/add_deleted_at_to_shop_visits.sql
-        ).order_by(ShopVisit.visit_time.desc()).offset(skip).limit(limit).all()
+        ).order_by(ShopVisit.visit_date.desc()).offset(skip).limit(limit).all()
     
     @staticmethod
     def get_all(db: Session, skip: int = 0, limit: int = 1000) -> List[ShopVisit]:
@@ -243,6 +257,6 @@ class ShopVisitRepository:
         #      ORDER BY visit_time DESC OFFSET skip LIMIT limit
         # NOTE: deleted_at filtering temporarily disabled until database column is added
         # Uncomment the filter after running sql/add_deleted_at_to_shop_visits.sql:
-        # return db.query(ShopVisit).filter(ShopVisit.deleted_at.is_(None)).order_by(ShopVisit.visit_time.desc()).offset(skip).limit(limit).all()
-        return db.query(ShopVisit).order_by(ShopVisit.visit_time.desc()).offset(skip).limit(limit).all()
+        # return db.query(ShopVisit).filter(ShopVisit.deleted_at.is_(None)).order_by(ShopVisit.visit_date.desc()).offset(skip).limit(limit).all()
+        return db.query(ShopVisit).order_by(ShopVisit.visit_date.desc()).offset(skip).limit(limit).all()
 

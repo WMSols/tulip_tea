@@ -4,11 +4,12 @@ Handles order booker CRUD operations.
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict
 from config.database import get_db
 from models.schemas import OrderBookerCreate, OrderBookerResponse, OrderBookerUpdate
 from services.order_booker_service import OrderBookerService
 from utils.auth_helpers import get_current_user_from_request
+from utils.dependencies import get_current_user, get_current_distributor
 
 router = APIRouter(prefix="/order-bookers", tags=["Order Bookers"])
 
@@ -17,9 +18,10 @@ router = APIRouter(prefix="/order-bookers", tags=["Order Bookers"])
 @router.get("/distributor/{distributor_id}", response_model=List[OrderBookerResponse])
 async def list_order_bookers_by_distributor(
     distributor_id: int,
+    current_user: Dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """List all order bookers for a specific distributor."""
+    """List all order bookers for a specific distributor. Requires authentication."""
     try:
         order_bookers = OrderBookerService.get_order_bookers_by_distributor(
             db=db,
@@ -37,10 +39,11 @@ async def list_order_bookers_by_distributor(
 async def list_order_bookers_by_zone(
     zone_id: int,
     distributor_id: Optional[int] = Query(None, description="Optional distributor ID to filter order bookers"),
+    current_user: Dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
-    List all order bookers assigned to a specific zone.
+    List all order bookers assigned to a specific zone. Requires authentication.
     
     Query Parameters:
         distributor_id: Optional - Filter order bookers by distributor
@@ -67,9 +70,10 @@ async def list_order_bookers_by_zone(
 async def update_order_booker(
     order_booker_id: int,
     update_data: OrderBookerUpdate,
+    current_user: Dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Update an order booker."""
+    """Update an order booker. Requires authentication."""
     try:
         result = OrderBookerService.update_order_booker(
             db=db,
@@ -165,12 +169,19 @@ async def delete_order_booker(
 async def create_order_booker(
     distributor_id: int,
     order_booker: OrderBookerCreate,
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
     """
     Create a new order booker.
     Only distributors can create order bookers.
     """
+    # Verify distributor can only create order bookers for their own account
+    if distributor['user_id'] != distributor_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only create order bookers for your own distributor account"
+        )
     try:
         result = OrderBookerService.create_order_booker(
             db=db,

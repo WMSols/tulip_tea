@@ -12,12 +12,12 @@ API ENDPOINTS:
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Dict
 from config.database import get_db
 from models.schemas import ProductCreate, ProductResponse, ProductUpdate
 from services.product_service import ProductService
 from services.activity_log_service import ActivityLogService
-from utils.auth_helpers import get_current_user_from_request
+from utils.dependencies import get_current_user, get_current_distributor
 
 router = APIRouter(prefix="/products", tags=["Products"])
 
@@ -25,10 +25,10 @@ router = APIRouter(prefix="/products", tags=["Products"])
 @router.post("/", response_model=ProductResponse, status_code=status.HTTP_201_CREATED)
 async def create_product(
     product: ProductCreate,
-    request: Request,
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
-    """Create a new product."""
+    """Create a new product. Only distributors can create products."""
     try:
         result = ProductService.create_product(
             db=db,
@@ -39,7 +39,7 @@ async def create_product(
         
         # Log activity (with error handling - don't fail if logging fails)
         try:
-            current_user = get_current_user_from_request(request)
+            current_user = distributor
             ActivityLogService.log_activity(
                 db=db,
                 user_id=current_user['id'],
@@ -48,8 +48,7 @@ async def create_product(
                 entity_type='product',
                 entity_id=result['id'],
                 new_values={'code': result['code'], 'name': result['name']},
-                changes_summary=f"Product '{result['name']}' (Code: {result['code']}) created",
-                request=request
+                changes_summary=f"Product '{result['name']}' (Code: {result['code']}) created"
             )
         except Exception as log_error:
             # Log error but don't fail the request
@@ -75,9 +74,10 @@ async def create_product(
 @router.get("/", response_model=List[ProductResponse])
 async def list_products(
     include_inactive: bool = Query(False, description="Include inactive products"),
+    current_user: Dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """List all products."""
+    """List all products. Requires authentication."""
     try:
         products = ProductService.get_all_products(db, include_inactive=include_inactive)
         return products
@@ -89,8 +89,11 @@ async def list_products(
 
 
 @router.get("/active", response_model=List[ProductResponse])
-async def list_active_products(db: Session = Depends(get_db)):
-    """List all active products (for order bookers)."""
+async def list_active_products(
+    current_user: Dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List all active products (for order bookers). Requires authentication."""
     try:
         products = ProductService.get_active_products(db)
         return products
@@ -102,8 +105,12 @@ async def list_active_products(db: Session = Depends(get_db)):
 
 
 @router.get("/{product_id}", response_model=ProductResponse)
-async def get_product(product_id: int, db: Session = Depends(get_db)):
-    """Get product by ID."""
+async def get_product(
+    product_id: int,
+    current_user: Dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get product by ID. Requires authentication."""
     try:
         product = ProductService.get_product_by_id(db, product_id)
         if not product:
@@ -125,10 +132,10 @@ async def get_product(product_id: int, db: Session = Depends(get_db)):
 async def update_product(
     product_id: int,
     product: ProductUpdate,
-    request: Request,
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
-    """Update product."""
+    """Update product. Only distributors can update products."""
     try:
         # Get product before update for logging
         old_product = ProductService.get_product_by_id(db, product_id, include_deleted=True)
@@ -158,7 +165,7 @@ async def update_product(
         
         # Log activity (with error handling - don't fail if logging fails)
         try:
-            current_user = get_current_user_from_request(request)
+            current_user = distributor
             # Get updated fields from product (handle both Pydantic v1 and v2)
             try:
                 if hasattr(product, 'model_dump'):
@@ -189,8 +196,8 @@ async def update_product(
             
             ActivityLogService.log_update(
                 db=db,
-                user_id=current_user['id'],
-                user_role=current_user['role'],
+                user_id=current_user['user_id'],
+                user_role=current_user['user_role'],
                 entity_type='product',
                 entity_id=product_id,
                 old_values=old_values,
@@ -223,10 +230,10 @@ async def update_product(
 @router.delete("/{product_id}", status_code=status.HTTP_200_OK)
 async def delete_product(
     product_id: int,
-    request: Request,
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
-    """Soft delete product."""
+    """Soft delete product. Only distributors can delete products."""
     try:
         # Get product before delete for logging (include deleted to get soft-deleted products)
         product = ProductService.get_product_by_id(db, product_id, include_deleted=True)
@@ -245,11 +252,11 @@ async def delete_product(
         
         # Log activity (with error handling - don't fail if logging fails)
         try:
-            current_user = get_current_user_from_request(request)
+            current_user = distributor
             ActivityLogService.log_delete(
                 db=db,
-                user_id=current_user['id'],
-                user_role=current_user['role'],
+                user_id=current_user['user_id'],
+                user_role=current_user['user_role'],
                 entity_type='product',
                 entity_id=product_id,
                 old_values={'code': product['code'], 'name': product['name']},

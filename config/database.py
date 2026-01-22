@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     app_name: str = "Tulip Tea Backend API"
     app_version: str = "1.0.0"
     debug: bool = True
+    # Frontend URL for CORS (production)
+    frontend_url: str = ""
     # Supabase configuration (for frontend) - loaded from environment
     # These match the .env variable names (case-insensitive)
     supabase_url: str = ""

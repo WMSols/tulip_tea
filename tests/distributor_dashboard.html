@@ -2823,7 +2823,7 @@
         // Store visits data for filtering
         let allVisitsData = [];
 
-        // Load All Visits
+        // Load All Visits (including deliveries)
         async function loadAllVisits() {
             const listDiv = document.getElementById('visitsList');
             if (!currentDistributorId) {
@@ -2831,26 +2831,58 @@
                 return;
             }
 
-            const endpoint = `${API_BASE}/shop-visits/all?limit=1000`;
-            showApiCall('GET', endpoint, 'Load All Visits', 'loading');
+            listDiv.innerHTML = '<p style="color: #666; text-align: center;">Loading visits and deliveries...</p>';
 
             try {
-                const response = await fetch(endpoint, {
-                    headers: { 'Authorization': `Bearer ${currentToken}` }
-                });
-                const data = await response.json();
-                if (!response.ok) {
-                    showApiCall('GET', endpoint, 'Load All Visits', 'error');
-                    throw new Error(data.detail || 'Failed to load visits');
+                // Fetch both shop visits and deliveries in parallel
+                const [visitsResponse, deliveriesResponse] = await Promise.all([
+                    fetch(`${API_BASE}/shop-visits/all?limit=1000`, {
+                        headers: { 'Authorization': `Bearer ${currentToken}` }
+                    }),
+                    fetch(`${API_BASE}/deliveries/distributor/${currentDistributorId}?limit=1000`, {
+                        headers: { 'Authorization': `Bearer ${currentToken}` }
+                    })
+                ]);
+
+                const visitsData = await visitsResponse.json();
+                const deliveriesData = await deliveriesResponse.json();
+
+                if (!visitsResponse.ok) {
+                    throw new Error(visitsData.detail || 'Failed to load visits');
+                }
+                if (!deliveriesResponse.ok) {
+                    console.warn('Failed to load deliveries:', deliveriesData.detail);
                 }
 
-                showApiCall('GET', endpoint, 'Load All Visits', 'success');
+                // Convert deliveries to visit-like format for display
+                const deliveryVisits = (deliveriesData || []).map(delivery => {
+                    return {
+                        id: `delivery_${delivery.id}`, // Prefix to avoid conflicts
+                        delivery_id: delivery.id,
+                        shop_id: delivery.shop_id,
+                        shop_name: delivery.shop_name,
+                        shop_zone_id: delivery.shop_zone_id,
+                        order_id: delivery.order_id,
+                        delivery_man_id: delivery.delivery_man_id,
+                        delivery_man_name: delivery.delivery_man_name,
+                        visit_types: ['delivery'],
+                        visit_time: delivery.picked_up_at || delivery.created_at,
+                        gps_lat: delivery.delivery_gps_lat || delivery.pickup_gps_lat,
+                        gps_lng: delivery.delivery_gps_lng || delivery.pickup_gps_lng,
+                        photos: delivery.delivery_images || [],
+                        reason: delivery.delivery_remarks,
+                        delivery_data: delivery // Store full delivery data
+                    };
+                });
+
+                // Combine shop visits and delivery visits
+                const allData = [...(visitsData || []), ...deliveryVisits];
 
                 // Store data for filtering
-                allVisitsData = data;
+                allVisitsData = allData;
 
-                if (data.length === 0) {
-                    listDiv.innerHTML = '<p>No visits found.</p>';
+                if (allData.length === 0) {
+                    listDiv.innerHTML = '<p>No visits or deliveries found.</p>';
                     return;
                 }
 
@@ -2861,7 +2893,7 @@
 
                 // Apply zone filter if selected
                 const selectedZoneId = document.getElementById('visitZoneFilter')?.value;
-                displayVisits(data, selectedZoneId);
+                displayVisits(allData, selectedZoneId);
 
                 // Populate zone filter
                 const zoneFilter = document.getElementById('visitZoneFilter');
@@ -3014,10 +3046,17 @@
                     // Escape JSON string for data attribute - only need to escape quotes
                     const visitTypesJson = JSON.stringify(visit.visit_types || (visit.visit_type ? [visit.visit_type] : [])).replace(/"/g, '&quot;');
                     
+                    // Check if this is a delivery visit (has delivery_id)
+                    const isDeliveryVisit = visit.delivery_id || (visit.id && visit.id.toString().startsWith('delivery_'));
+                    const deliveryId = visit.delivery_id || (isDeliveryVisit ? visit.id.toString().replace('delivery_', '') : '');
+                    const deliveryDataJson = visit.delivery_data ? JSON.stringify(visit.delivery_data).replace(/"/g, '&quot;') : '';
+                    
                     // Use data attributes to store complex data and a simpler onclick
                     html += `
                         <div class="list-item visit-item" 
                              data-visit-id="${visit.id}"
+                             data-delivery-id="${deliveryId}"
+                             data-delivery-data="${deliveryDataJson}"
                              data-shop-name="${shopName}"
                              data-shop-id="${visit.shop_id || ''}"
                              data-shop-zone-id="${visit.shop_zone_id || ''}"
@@ -3099,7 +3138,7 @@
         let currentVisitData = null;
 
         // Open View Visit Modal
-        function openViewVisitModal(visitId, shopName, shopId, shopZoneId, orderBookerName, orderBookerId, deliveryManName, deliveryManId, visitTypesJson, gpsLat, gpsLng, visitTime, photo, photosJson, reason, orderId, collectionId, shopRoutesJson) {
+        function openViewVisitModal(visitId, shopName, shopId, shopZoneId, orderBookerName, orderBookerId, deliveryManName, deliveryManId, visitTypes, gpsLat, gpsLng, visitTime, photo, photosJson, reason, orderId, collectionId, shopRoutesJson, deliveryData = null, deliveryId = null) {
             const modal = document.getElementById('viewVisitModal');
             modal.classList.remove('hidden');
             modal.style.display = 'flex';
@@ -3112,27 +3151,26 @@
                 photos = [];
             }
             
+            // visitTypes is already parsed (passed as array)
+            if (!Array.isArray(visitTypes)) {
+                visitTypes = [];
+            }
+            
             // Store visit data for potential reload
             currentVisitData = {
                 visitId, shopName, shopId, shopZoneId, orderBookerName, orderBookerId,
-                deliveryManName, deliveryManId, visitTypesJson, gpsLat, gpsLng,
-                visitTime, photo, photos, reason, orderId, collectionId, shopRoutesJson
+                deliveryManName, deliveryManId, visitTypes, gpsLat, gpsLng,
+                visitTime, photo, photos, reason, orderId, collectionId, shopRoutesJson,
+                deliveryData, deliveryId
             };
             
             const visitTypeColors = {
                 'order_booking': '#3498db',
+                'delivery': '#27ae60',
                 'daily_collections': '#f39c12',
                 'inspection': '#9b59b6',
                 'other': '#95a5a6'
             };
-            
-            // Parse visit types
-            let visitTypes = [];
-            try {
-                visitTypes = typeof visitTypesJson === 'string' ? JSON.parse(visitTypesJson) : (visitTypesJson || []);
-            } catch (e) {
-                visitTypes = [];
-            }
             
             // Generate visit types HTML
             const visitTypesHtml = visitTypes.length > 0 
@@ -3248,14 +3286,53 @@
             `;
             
             // Load linked order and collection data
-            loadVisitLinkedData(visitId, orderId, collectionId);
+            loadVisitLinkedData(visitId, orderId, collectionId, deliveryManId, visitTypes, deliveryData, deliveryId);
         }
         
-        function loadVisitLinkedData(visitId, orderId, collectionId) {
+        function loadVisitLinkedData(visitId, orderId, collectionId, deliveryManId, visitTypes, deliveryData = null, deliveryId = null) {
             const linkedDataDiv = document.getElementById('visitLinkedData');
             linkedDataDiv.innerHTML = '<p style="color: #999; text-align: center;">Loading linked data...</p>';
             
             let promises = [];
+            
+            // Check if this is a delivery man visit (has delivery_man_id and visit_types includes 'delivery')
+            // OR if we have deliveryData directly
+            const isDeliveryVisit = deliveryData || (deliveryManId && visitTypes && (
+                (Array.isArray(visitTypes) && visitTypes.includes('delivery')) ||
+                (typeof visitTypes === 'string' && visitTypes.includes('delivery'))
+            ));
+            
+            // If we have deliveryData, use it directly; otherwise fetch it
+            if (deliveryData) {
+                // Use the provided delivery data
+                promises.push(Promise.resolve({ type: 'delivery', data: deliveryData, orderId: orderId }));
+            } else if (isDeliveryVisit && orderId) {
+                // Fetch delivery details for delivery visit
+                promises.push(
+                    fetch(`${API_BASE}/deliveries/order/${orderId}`, {
+                        headers: {
+                            'Authorization': `Bearer ${currentToken}`
+                        }
+                    })
+                        .then(res => {
+                            if (!res.ok && res.status !== 200) {
+                                throw new Error(`HTTP error! status: ${res.status}`);
+                            }
+                            return res.json();
+                        })
+                        .then(delivery => {
+                            // Backend returns null if no delivery found (200 OK)
+                            if (delivery === null) {
+                                return { type: 'delivery', data: null, orderId: orderId };
+                            }
+                            return { type: 'delivery', data: delivery, orderId: orderId };
+                        })
+                        .catch(err => {
+                            console.error('Error loading delivery:', err);
+                            return { type: 'delivery', data: null, error: err.message, orderId: orderId };
+                        })
+                );
+            }
             
             // Load order if orderId exists
             if (orderId && orderId !== 'null' && orderId !== null) {
@@ -3303,6 +3380,9 @@
             
             Promise.all(promises).then(results => {
                 let html = '';
+                
+                // Find order result to get product names for delivery items
+                const orderResult = results.find(r => r.type === 'order' && r.data);
                 
                 results.forEach(result => {
                     if (result.type === 'order') {
@@ -3380,6 +3460,128 @@
                                             📋 View Full Order Details
                                         </button>
                                     </div>
+                                </div>
+                            `;
+                        }
+                    } else if (result.type === 'delivery') {
+                        // Display delivery information (same as delivery man sees)
+                        if (result.error) {
+                            html += `
+                                <div class="info-card" style="margin-bottom: 20px; border-left: 4px solid #e74c3c;">
+                                    <h3 style="color: #e74c3c; margin-bottom: 15px;">❌ Error Loading Delivery</h3>
+                                    <p style="color: #666;">Failed to load delivery details: ${result.error}</p>
+                                    ${result.orderId ? `<p style="color: #999; font-size: 12px; margin-top: 10px;">Order ID: ${result.orderId}</p>` : ''}
+                                </div>
+                            `;
+                        } else if (result.data) {
+                            const delivery = result.data;
+                            const deliveryStatus = delivery.status || 'unknown';
+                            
+                            // Build delivery items HTML before template string
+                            let deliveryItemsHtml = '';
+                            if (delivery.delivery_items && delivery.delivery_items.length > 0) {
+                                const itemsRows = delivery.delivery_items.map((item, idx) => {
+                                    // Try to get product name from order items (if order was loaded)
+                                    let productName = 'Item ' + (idx + 1);
+                                    if (orderResult && orderResult.data && orderResult.data.order_items) {
+                                        const orderItem = orderResult.data.order_items.find(oi => oi.id === item.order_item_id);
+                                        if (orderItem) {
+                                            productName = orderItem.product_name || orderItem.name || productName;
+                                        }
+                                    }
+                                    const rowStyle = idx % 2 === 0 ? 'background: #f1f8f4;' : '';
+                                    return '<tr style="' + rowStyle + '">' +
+                                        '<td style="padding: 6px; border: 1px solid #27ae60;">' + productName + '</td>' +
+                                        '<td style="padding: 6px; text-align: right; border: 1px solid #27ae60;">' + (item.quantity_picked_up || 0) + '</td>' +
+                                        '<td style="padding: 6px; text-align: right; border: 1px solid #27ae60;">' + (item.quantity_delivered || 0) + '</td>' +
+                                        '<td style="padding: 6px; text-align: right; border: 1px solid #27ae60;">' + (item.quantity_returned || 0) + '</td>' +
+                                        '</tr>';
+                                }).join('');
+                                deliveryItemsHtml = '<div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #27ae60;">' +
+                                    '<strong>📦 Delivery Items Details:</strong>' +
+                                    '<table style="width: 100%; margin-top: 8px; border-collapse: collapse; font-size: 12px;">' +
+                                    '<thead>' +
+                                    '<tr style="background: #c8e6c9;">' +
+                                    '<th style="padding: 6px; text-align: left; border: 1px solid #27ae60;">Item</th>' +
+                                    '<th style="padding: 6px; text-align: right; border: 1px solid #27ae60;">Picked</th>' +
+                                    '<th style="padding: 6px; text-align: right; border: 1px solid #27ae60;">Delivered</th>' +
+                                    '<th style="padding: 6px; text-align: right; border: 1px solid #27ae60;">Returned</th>' +
+                                    '</tr>' +
+                                    '</thead>' +
+                                    '<tbody>' + itemsRows + '</tbody>' +
+                                    '</table>' +
+                                    '</div>';
+                            }
+                            
+                            html += `
+                                <div class="info-card" style="margin-bottom: 20px; border-left: 4px solid #27ae60;">
+                                    <h3 style="color: #27ae60; margin-bottom: 15px;">🚚 Delivery Information</h3>
+                                    <div class="info-row">
+                                        <span class="info-label">Delivery Status:</span>
+                                        <span class="info-value">
+                                            ${deliveryStatus === 'returned' ? `
+                                            <span style="background: #f39c12; color: white; padding: 4px 10px; border-radius: 15px; font-size: 12px; font-weight: bold;">
+                                                RETURNED
+                                            </span>
+                                            ` : `
+                                            <span style="background: #27ae60; color: white; padding: 4px 10px; border-radius: 15px; font-size: 12px; font-weight: bold;">
+                                                DELIVERED
+                                            </span>
+                                            `}
+                                        </span>
+                                    </div>
+                                    ${delivery.picked_up_at ? `
+                                    <div class="info-row">
+                                        <span class="info-label">✓ Picked Up:</span>
+                                        <span class="info-value">
+                                            ${new Date(delivery.picked_up_at).toLocaleString()}
+                                            ${delivery.pickup_gps_lat && delivery.pickup_gps_lng ? `
+                                            <a href="https://www.google.com/maps?q=${delivery.pickup_gps_lat},${delivery.pickup_gps_lng}" target="_blank" style="margin-left: 10px; color: #3498db;">📍 View Location</a>
+                                            ` : ''}
+                                        </span>
+                                    </div>
+                                    ` : ''}
+                                    ${delivery.delivered_at ? `
+                                    <div class="info-row">
+                                        <span class="info-label">✓ Delivered:</span>
+                                        <span class="info-value">
+                                            ${new Date(delivery.delivered_at).toLocaleString()}
+                                            ${delivery.delivery_gps_lat && delivery.delivery_gps_lng ? `
+                                            <a href="https://www.google.com/maps?q=${delivery.delivery_gps_lat},${delivery.delivery_gps_lng}" target="_blank" style="margin-left: 10px; color: #3498db;">📍 View Location</a>
+                                            ` : ''}
+                                        </span>
+                                    </div>
+                                    ` : ''}
+                                    ${delivery.returned_at ? `
+                                    <div class="info-row">
+                                        <span class="info-label">✓ Returned:</span>
+                                        <span class="info-value">
+                                            ${new Date(delivery.returned_at).toLocaleString()}
+                                            ${delivery.return_gps_lat && delivery.return_gps_lng ? `
+                                            <a href="https://www.google.com/maps?q=${delivery.return_gps_lat},${delivery.return_gps_lng}" target="_blank" style="margin-left: 10px; color: #3498db;">📍 View Location</a>
+                                            ` : ''}
+                                            ${delivery.return_reason ? `
+                                            <div style="margin-top: 5px; color: #666; font-size: 12px;">Reason: ${delivery.return_reason}</div>
+                                            ` : ''}
+                                        </span>
+                                    </div>
+                                    ` : ''}
+                                    ${deliveryItemsHtml}
+                                    ${delivery.delivery_remarks ? `
+                                    <div style="margin-top: 10px; padding: 8px; background: #fff; border-radius: 3px; border-left: 3px solid #27ae60;">
+                                        <strong>📝 Delivery Remarks:</strong> ${delivery.delivery_remarks}
+                                    </div>
+                                    ` : ''}
+                                    ${delivery.delivery_images && delivery.delivery_images.length > 0 ? `
+                                    <div style="margin-top: 10px;">
+                                        <strong>📷 Proof Images (${delivery.delivery_images.length}):</strong>
+                                        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 5px; margin-top: 5px;">
+                                            ${delivery.delivery_images.map((img, idx) => `
+                                                <img src="${img}" alt="Proof ${idx + 1}" style="width: 100%; height: 60px; object-fit: cover; border-radius: 3px; cursor: pointer;" onclick="window.open('${img}', '_blank')" title="Click to view full size">
+                                            `).join('')}
+                                        </div>
+                                    </div>
+                                    ` : ''}
                                 </div>
                             `;
                         }
@@ -3702,7 +3904,9 @@
                     loadVisitLinkedData(
                         currentVisitData.visitId,
                         currentVisitData.orderId && currentVisitData.orderId !== 'null' ? currentVisitData.orderId : null,
-                        currentVisitData.collectionId && currentVisitData.collectionId !== 'null' ? currentVisitData.collectionId : null
+                        currentVisitData.collectionId && currentVisitData.collectionId !== 'null' ? currentVisitData.collectionId : null,
+                        currentVisitData.deliveryManId && currentVisitData.deliveryManId !== 'null' ? currentVisitData.deliveryManId : null,
+                        currentVisitData.visitTypes || []
                     );
                 }
             } catch (error) {
@@ -3848,6 +4052,8 @@
                 const reason = visitItem.getAttribute('data-reason') || '';
                 const orderId = visitItem.getAttribute('data-order-id') || null;
                 const collectionId = visitItem.getAttribute('data-collection-id') || null;
+                const deliveryId = visitItem.getAttribute('data-delivery-id') || null;
+                let deliveryDataJson = visitItem.getAttribute('data-delivery-data') || '';
                 
                 // Decode HTML entities for text fields
                 const decodedShopName = shopName.replace(/&quot;/g, '"').replace(/&#39;/g, "'");
@@ -3857,6 +4063,26 @@
                 const decodedPhoto = photo.replace(/&quot;/g, '"').replace(/&#39;/g, "'");
                 const decodedVisitTime = visitTime.replace(/&quot;/g, '"').replace(/&#39;/g, "'");
                 photosJson = photosJson.replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+                deliveryDataJson = deliveryDataJson.replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+                
+                // Parse visit types
+                let parsedVisitTypes = [];
+                try {
+                    parsedVisitTypes = typeof visitTypesJson === 'string' ? JSON.parse(visitTypesJson) : (visitTypesJson || []);
+                } catch (e) {
+                    parsedVisitTypes = [];
+                }
+                
+                // Parse delivery data
+                let deliveryData = null;
+                if (deliveryDataJson && deliveryDataJson !== '') {
+                    try {
+                        deliveryData = JSON.parse(deliveryDataJson);
+                    } catch (e) {
+                        console.error('Error parsing delivery data:', e);
+                        deliveryData = null;
+                    }
+                }
                 
                 openViewVisitModal(
                     parseInt(visitId),
@@ -3867,7 +4093,7 @@
                     orderBookerId && orderBookerId !== '' ? parseInt(orderBookerId) : null,
                     decodedDeliveryManName,
                     deliveryManId && deliveryManId !== '' ? parseInt(deliveryManId) : null,
-                    visitTypesJson,
+                    parsedVisitTypes,
                     gpsLat && gpsLat !== '' ? parseFloat(gpsLat) : null,
                     gpsLng && gpsLng !== '' ? parseFloat(gpsLng) : null,
                     decodedVisitTime,
@@ -3876,7 +4102,9 @@
                     decodedReason,
                     orderId && orderId !== '' ? parseInt(orderId) : null,
                     collectionId && collectionId !== '' ? parseInt(collectionId) : null,
-                    shopRoutesJson
+                    shopRoutesJson,
+                    deliveryData,
+                    deliveryId && deliveryId !== '' ? parseInt(deliveryId) : null
                 );
                 return; // Don't process modal close logic
             }

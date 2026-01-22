@@ -4,13 +4,14 @@ Handles warehouse CRUD operations, inventory management, and delivery man assign
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Dict
 from config.database import get_db
 from models.schemas import (
     WarehouseCreate, WarehouseResponse, WarehouseUpdate,
     InventoryCreate, InventoryResponse, InventoryUpdate
 )
 from services.warehouse_service import WarehouseService
+from utils.dependencies import get_current_user, get_current_distributor
 
 router = APIRouter(prefix="/warehouses", tags=["Warehouses"])
 
@@ -18,9 +19,10 @@ router = APIRouter(prefix="/warehouses", tags=["Warehouses"])
 @router.post("/", response_model=WarehouseResponse, status_code=status.HTTP_201_CREATED)
 async def create_warehouse(
     warehouse: WarehouseCreate,
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
-    """Create a new warehouse."""
+    """Create a new warehouse. Only distributors can create warehouses."""
     try:
         result = WarehouseService.create_warehouse(
             db=db,
@@ -37,8 +39,11 @@ async def create_warehouse(
 
 
 @router.get("/", response_model=List[WarehouseResponse])
-async def list_warehouses(db: Session = Depends(get_db)):
-    """List all warehouses."""
+async def list_warehouses(
+    current_user: Dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List all warehouses. Requires authentication."""
     try:
         warehouses = WarehouseService.get_all_warehouses(db)
         return warehouses
@@ -52,9 +57,10 @@ async def list_warehouses(db: Session = Depends(get_db)):
 @router.get("/{warehouse_id}/inventory", response_model=List[InventoryResponse])
 async def get_warehouse_inventory(
     warehouse_id: int,
+    current_user: Dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get all inventory items for a warehouse."""
+    """Get all inventory items for a warehouse. Requires authentication."""
     try:
         inventory = WarehouseService.get_warehouse_inventory(db, warehouse_id)
         return inventory
@@ -74,9 +80,10 @@ async def get_warehouse_inventory(
 async def add_inventory_item(
     warehouse_id: int,
     inventory: InventoryCreate,
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
-    """Add inventory item to warehouse from active product."""
+    """Add inventory item to warehouse from active product. Only distributors can add inventory."""
     try:
         result = WarehouseService.add_inventory_item(
             db=db,
@@ -102,9 +109,10 @@ async def update_inventory_item(
     warehouse_id: int,
     inventory_id: int,
     inventory: InventoryUpdate,
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
-    """Update inventory item (can change product or quantity)."""
+    """Update inventory item (can change product or quantity). Only distributors can update inventory."""
     try:
         result = WarehouseService.update_inventory_item(
             db=db,
@@ -130,9 +138,10 @@ async def update_inventory_item(
 async def delete_inventory_item(
     warehouse_id: int,
     inventory_id: int,
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
-    """Delete inventory item."""
+    """Delete inventory item. Only distributors can delete inventory."""
     try:
         success = WarehouseService.delete_inventory_item(db, warehouse_id, inventory_id)
         if not success:
@@ -150,9 +159,10 @@ async def delete_inventory_item(
 @router.get("/{warehouse_id}/delivery-men", response_model=List[dict])
 async def get_warehouse_delivery_men(
     warehouse_id: int,
+    current_user: Dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get all delivery men assigned to a warehouse."""
+    """Get all delivery men assigned to a warehouse. Requires authentication."""
     try:
         delivery_men = WarehouseService.get_warehouse_delivery_men(db, warehouse_id)
         return delivery_men
@@ -172,9 +182,10 @@ async def get_warehouse_delivery_men(
 async def assign_delivery_man(
     warehouse_id: int,
     delivery_man_id: int,
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
-    """Assign a delivery man to a warehouse."""
+    """Assign a delivery man to a warehouse. Only distributors can assign delivery men."""
     try:
         result = WarehouseService.assign_delivery_man(db, warehouse_id, delivery_man_id)
         return result
@@ -189,9 +200,10 @@ async def assign_delivery_man(
 async def unassign_delivery_man(
     warehouse_id: int,
     delivery_man_id: int,
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
-    """Unassign a delivery man from a warehouse."""
+    """Unassign a delivery man from a warehouse. Only distributors can unassign delivery men."""
     try:
         success = WarehouseService.unassign_delivery_man(db, warehouse_id, delivery_man_id)
         if not success:
@@ -209,9 +221,10 @@ async def unassign_delivery_man(
 @router.delete("/{warehouse_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_warehouse(
     warehouse_id: int,
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
-    """Soft delete warehouse."""
+    """Soft delete warehouse. Only distributors can delete warehouses."""
     try:
         success = WarehouseService.delete_warehouse(db, warehouse_id)
         if not success:

@@ -9,6 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from sqlalchemy import text
 from config.database import settings, engine, Base
 import traceback
+import os
 
 # Import all models to register them with Base
 from models import distributor, order_booker, delivery_man, zone, route, shop, credit_limit_request, daily_collection, payment, shop_visit, visit_type, order, order_item, activity_log, super_admin, warehouse, inventory, delivery_man_warehouse, product, delivery, delivery_item
@@ -38,7 +39,8 @@ async def startup_event():
         # Create tables
         Base.metadata.create_all(bind=engine)
         print("✅ Database tables created/verified successfully!")
-        print(f"🌐 Server ready at http://0.0.0.0:8000")
+        port = os.environ.get("PORT", "8000")
+        print(f"🌐 Server ready at http://0.0.0.0:{port}")
     except Exception as e:
         print(f"⚠️ Warning: Error during startup: {e}")
         import traceback
@@ -47,13 +49,23 @@ async def startup_event():
         print("💡 Tip: Run 'python scripts/test_db_connection.py' for detailed diagnostics.")
         # Don't raise - allow server to start even if there are issues
 
-# CORS middleware (allow all origins for development)
+# CORS middleware - configured for production with environment variable
 # Must be added before other middleware
+frontend_url = os.environ.get("FRONTEND_URL", "")
+# If FRONTEND_URL is set, use it; otherwise allow all (for development)
+if frontend_url:
+    allowed_origins = [frontend_url]
+    allow_credentials = True
+else:
+    # Development mode - allow all origins
+    allowed_origins = ["*"]
+    allow_credentials = False
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify exact origins
-    allow_credentials=False,  # Set to False when using allow_origins=["*"]
-    allow_methods=["*"],
+    allow_origins=allowed_origins,
+    allow_credentials=allow_credentials,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
     expose_headers=["*"],
 )
@@ -72,12 +84,15 @@ async def global_exception_handler(request: Request, exc: Exception):
     else:
         error_detail = {"error": "Internal server error"}
     
+    # Get CORS origin from environment or use wildcard
+    cors_origin = os.environ.get("FRONTEND_URL", "*")
+    
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content=error_detail,
         headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Origin": cors_origin,
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
             "Access-Control-Allow-Headers": "*",
         }
     )
@@ -158,5 +173,7 @@ async def get_supabase_config():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Use PORT from environment (Render provides this), default to 8000 for local dev
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
 

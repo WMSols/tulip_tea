@@ -4,10 +4,11 @@ Handles delivery man CRUD operations.
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Dict
 from config.database import get_db
 from models.schemas import DeliveryManCreate, DeliveryManResponse, DeliveryManUpdate
 from services.delivery_man_service import DeliveryManService
+from utils.dependencies import get_current_user, get_current_distributor
 
 router = APIRouter(prefix="/delivery-men", tags=["Delivery Men"])
 
@@ -16,9 +17,10 @@ router = APIRouter(prefix="/delivery-men", tags=["Delivery Men"])
 @router.get("/distributor/{distributor_id}", response_model=List[DeliveryManResponse])
 async def list_delivery_men_by_distributor(
     distributor_id: int,
+    current_user: Dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """List all delivery men for a specific distributor."""
+    """List all delivery men for a specific distributor. Requires authentication."""
     try:
         delivery_men = DeliveryManService.get_delivery_men_by_distributor(
             db=db,
@@ -37,9 +39,10 @@ async def list_delivery_men_by_distributor(
 async def update_delivery_man(
     delivery_man_id: int,
     update_data: DeliveryManUpdate,
+    current_user: Dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Update a delivery man."""
+    """Update a delivery man. Requires authentication."""
     try:
         result = DeliveryManService.update_delivery_man(
             db=db,
@@ -60,9 +63,10 @@ async def update_delivery_man(
 @router.delete("/{delivery_man_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_delivery_man(
     delivery_man_id: int,
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
-    """Delete a delivery man."""
+    """Delete a delivery man. Only distributors can delete delivery men."""
     try:
         DeliveryManService.delete_delivery_man(db=db, delivery_man_id=delivery_man_id)
         return None
@@ -77,9 +81,10 @@ async def delete_delivery_man(
 @router.get("/{delivery_man_id}/routes", response_model=List[dict])
 async def get_delivery_man_routes(
     delivery_man_id: int,
+    current_user: Dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get all routes in the delivery man's zone (zone-based assignment, not route-specific)."""
+    """Get all routes in the delivery man's zone (zone-based assignment, not route-specific). Requires authentication."""
     try:
         from repositories.delivery_man_repository import DeliveryManRepository
         from repositories.route_repository import RouteRepository
@@ -116,9 +121,10 @@ async def get_delivery_man_routes(
 @router.get("/{delivery_man_id}/warehouses", response_model=List[dict])
 async def get_delivery_man_warehouses(
     delivery_man_id: int,
+    current_user: Dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get all warehouses assigned to a delivery man with inventory details."""
+    """Get all warehouses assigned to a delivery man with inventory details. Requires authentication."""
     try:
         from repositories.delivery_man_warehouse_repository import DeliveryManWarehouseRepository
         from repositories.warehouse_repository import WarehouseRepository
@@ -180,12 +186,19 @@ async def get_delivery_man_warehouses(
 async def create_delivery_man(
     distributor_id: int,
     delivery_man: DeliveryManCreate,
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
     """
     Create a new delivery man.
     Only distributors can create delivery men.
     """
+    # Verify distributor can only create delivery men for their own account
+    if distributor['user_id'] != distributor_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only create delivery men for your own distributor account"
+        )
     try:
         result = DeliveryManService.create_delivery_man(
             db=db,

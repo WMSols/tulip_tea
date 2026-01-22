@@ -81,3 +81,13 @@ MIGRATION_SUMMARY.md
 QUICK_START_SUPABASE_CLOUD.md
 STORAGE_BUCKETS_SETUP.md
 SUPABASE_CLOUD_SETUP.md
+DISTRIBUTOR_DASHBOARD_API_GUIDE.md
+env.example
+JWT_SECRET_SETUP.md
+SECURITY_IMPLEMENTATION_SUMMARY.md
+sql/add_missing_order_columns.sql
+sql/fix_daily_collections_schema.sql
+RENDER_DEPLOYMENT_GUIDE.md
+env.example
+env.example
+env.example

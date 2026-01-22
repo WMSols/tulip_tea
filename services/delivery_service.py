@@ -275,23 +275,33 @@ class DeliveryService:
             quantity_delivered = delivery_quantities.get(order_item_id, 0)
             quantity_picked = delivery_item.quantity_picked_up
             
-            if quantity_delivered > quantity_picked:
+            # Get current delivered quantity (for partial deliveries)
+            current_quantity_delivered = delivery_item.quantity_delivered or 0
+            
+            # Validate total delivered doesn't exceed picked
+            total_delivered_after = current_quantity_delivered + quantity_delivered
+            if total_delivered_after > quantity_picked:
                 raise ValueError(
                     f"Cannot deliver more than picked up. "
-                    f"Picked: {quantity_picked}, Delivered: {quantity_delivered}"
+                    f"Picked: {quantity_picked}, Already delivered: {current_quantity_delivered}, "
+                    f"New delivery: {quantity_delivered}, Total would be: {total_delivered_after}"
                 )
             
-            # Calculate returned quantity
-            quantity_returned = quantity_picked - quantity_delivered
+            # Update delivered quantity (additive for partial deliveries)
+            new_total_delivered = current_quantity_delivered + quantity_delivered
+            
+            # Don't set quantity_returned here - it should only be set when explicitly returning
+            # quantity_returned will be calculated as: quantity_picked - new_total_delivered
+            # when the user explicitly returns
             
             DeliveryItemRepository.update_quantities(
                 db=db,
                 delivery_item_id=delivery_item.id,
-                quantity_delivered=quantity_delivered,
-                quantity_returned=quantity_returned
+                quantity_delivered=new_total_delivered,
+                quantity_returned=None  # Don't set returned quantity during delivery
             )
             
-            total_delivered += quantity_delivered
+            total_delivered += new_total_delivered  # Use total delivered, not just new delivery
             total_picked += quantity_picked
         
         # Determine status
@@ -357,11 +367,11 @@ class DeliveryService:
             new_quantity_returned = return_quantities.get(order_item_id, 0)
             
             if new_quantity_returned > 0:
-                # Get the current quantity_returned (may have been set during delivery)
+                # Get the current quantity_returned (should be 0 or None since we don't set it during delivery)
                 current_quantity_returned = delivery_item.quantity_returned or 0
                 
                 # Validate return quantity
-                max_returnable = delivery_item.quantity_picked_up - delivery_item.quantity_delivered
+                max_returnable = delivery_item.quantity_picked_up - (delivery_item.quantity_delivered or 0)
                 if new_quantity_returned > max_returnable:
                     raise ValueError(
                         f"Cannot return more than available. "
@@ -369,7 +379,7 @@ class DeliveryService:
                     )
                 
                 # Calculate the NET amount to add back (incremental return)
-                # If quantity_returned was already set during delivery, we only add the difference
+                # This handles cases where user returns in multiple steps
                 net_return_amount = new_quantity_returned - current_quantity_returned
                 
                 print(f"[return_to_warehouse] order_item_id={order_item_id}, current_returned={current_quantity_returned}, new_returned={new_quantity_returned}, net_return={net_return_amount}")
@@ -381,7 +391,7 @@ class DeliveryService:
                     quantity_returned=new_quantity_returned
                 )
                 
-                # Only add back to inventory if there's a net increase in returned quantity
+                # Add back to inventory the net return amount (incremental)
                 if net_return_amount > 0:
                     # Add back to inventory
                     inventory = None
@@ -453,6 +463,29 @@ class DeliveryService:
             # Get delivery items
             delivery_items = DeliveryItemRepository.get_by_delivery(db, delivery.id)
             
+            # Get order and shop information
+            order = OrderRepository.get_by_id(db, delivery.order_id)
+            shop_id = None
+            shop_name = None
+            shop_zone_id = None
+            delivery_man_name = None
+            
+            if order:
+                shop_id = order.shop_id
+                if shop_id:
+                    from repositories.shop_repository import ShopRepository
+                    shop = ShopRepository.get_by_id(db, shop_id)
+                    if shop:
+                        shop_name = shop.name
+                        shop_zone_id = shop.zone_id
+            
+            # Get delivery man name
+            if delivery.delivery_man_id:
+                from repositories.delivery_man_repository import DeliveryManRepository
+                delivery_man = DeliveryManRepository.get_by_id(db, delivery.delivery_man_id)
+                if delivery_man:
+                    delivery_man_name = delivery_man.name
+            
             # Parse delivery images
             delivery_images = []
             if delivery.delivery_images:
@@ -483,7 +516,11 @@ class DeliveryService:
                 "id": delivery.id,
                 "order_id": delivery.order_id,
                 "delivery_man_id": delivery.delivery_man_id,
+                "delivery_man_name": delivery_man_name,
                 "warehouse_id": delivery.warehouse_id,
+                "shop_id": shop_id,
+                "shop_name": shop_name,
+                "shop_zone_id": shop_zone_id,
                 "status": delivery.status,
                 "picked_up_at": safe_isoformat(delivery.picked_up_at),
                 "pickup_gps_lat": safe_float(delivery.pickup_gps_lat),
@@ -534,6 +571,18 @@ class DeliveryService:
         deliveries = DeliveryRepository.get_by_delivery_man(
             db=db,
             delivery_man_id=delivery_man_id,
+            skip=skip,
+            limit=limit
+        )
+        return [DeliveryService._format_delivery_data(db, d) for d in deliveries]
+    
+    @staticmethod
+    def get_deliveries_by_distributor(db: Session, distributor_id: int,
+                                     skip: int = 0, limit: int = 1000) -> List[Dict]:
+        """Get all deliveries for a distributor (through their delivery men)."""
+        deliveries = DeliveryRepository.get_by_distributor(
+            db=db,
+            distributor_id=distributor_id,
             skip=skip,
             limit=limit
         )

@@ -231,17 +231,15 @@ async def get_delivery_by_order(
     request: Request,
     db: Session = Depends(get_db)
 ):
-    """Get delivery data for an order."""
+    """
+    Get delivery data for an order.
+    
+    Returns null if no delivery exists yet (this is normal for new orders).
+    """
     try:
         result = DeliveryService.get_delivery_by_order(db=db, order_id=order_id)
-        if not result:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Delivery not found for this order"
-            )
-        return result
-    except HTTPException:
-        raise
+        # Return null instead of 404 - it's expected for orders without deliveries yet
+        return result if result else None
     except Exception as e:
         import traceback
         error_trace = traceback.format_exc()
@@ -266,6 +264,30 @@ async def get_deliveries_by_delivery_man(
         result = DeliveryService.get_deliveries_by_delivery_man(
             db=db,
             delivery_man_id=delivery_man_id,
+            skip=skip,
+            limit=limit
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching deliveries: {str(e)}"
+        )
+
+
+@router.get("/distributor/{distributor_id}")
+async def get_deliveries_by_distributor(
+    distributor_id: int,
+    skip: int = 0,
+    limit: int = 1000,
+    request: Request = None,
+    db: Session = Depends(get_db)
+):
+    """Get all deliveries for a distributor (through their delivery men)."""
+    try:
+        result = DeliveryService.get_deliveries_by_distributor(
+            db=db,
+            distributor_id=distributor_id,
             skip=skip,
             limit=limit
         )

@@ -2404,15 +2404,21 @@
                                 ${order.order_items.map(item => {
                                     const deliveryItem = delivery ? delivery.delivery_items.find(di => di.order_item_id === item.id) : null;
                                     const pickedUp = deliveryItem ? deliveryItem.quantity_picked_up : 0;
+                                    const alreadyDelivered = deliveryItem ? (deliveryItem.quantity_delivered || 0) : 0;
+                                    const remainingToDeliver = pickedUp - alreadyDelivered;
                                     return `
                                         <tr>
                                             <td style="padding: 10px;">${item.product_name || 'N/A'}</td>
-                                            <td style="padding: 10px; text-align: right;">${pickedUp}</td>
+                                            <td style="padding: 10px; text-align: right;">
+                                                ${pickedUp} ${alreadyDelivered > 0 ? `<span style="color: #27ae60; font-size: 11px;">(already delivered: ${alreadyDelivered})</span>` : ''}
+                                            </td>
                                             <td style="padding: 10px; text-align: right;">
                                                 <input type="number" id="deliver_qty_${item.id}" 
-                                                       min="0" max="${pickedUp}" 
-                                                       value="${pickedUp}" 
-                                                       style="width: 80px; padding: 5px; text-align: right;">
+                                                       min="0" max="${remainingToDeliver}" 
+                                                       value="${remainingToDeliver > 0 ? remainingToDeliver : 0}" 
+                                                       style="width: 80px; padding: 5px; text-align: right;"
+                                                       ${remainingToDeliver <= 0 ? 'disabled' : ''}>
+                                                ${remainingToDeliver <= 0 ? '<div style="color: #e74c3c; font-size: 11px; margin-top: 3px;">All delivered</div>' : ''}
                                             </td>
                                         </tr>
                                     `;

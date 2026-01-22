@@ -4,10 +4,11 @@ Handles route CRUD operations.
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Dict
 from config.database import get_db
 from models.schemas import RouteCreate, RouteResponse, RouteAssign
 from services.route_service import RouteService
+from utils.dependencies import get_current_user, get_current_distributor
 
 router = APIRouter(prefix="/routes", tags=["Routes"])
 
@@ -16,9 +17,16 @@ router = APIRouter(prefix="/routes", tags=["Routes"])
 async def create_route(
     distributor_id: int,
     route: RouteCreate,
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
-    """Create a new route."""
+    """Create a new route. Only distributors can create routes."""
+    # Verify distributor can only create routes for their own account
+    if distributor['user_id'] != distributor_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only create routes for your own distributor account"
+        )
     try:
         result = RouteService.create_route(
             db=db,
@@ -35,22 +43,34 @@ async def create_route(
 
 
 @router.get("/distributor/{distributor_id}", response_model=List[RouteResponse])
-async def list_routes_by_distributor(distributor_id: int, db: Session = Depends(get_db)):
-    """List all routes created by a distributor."""
+async def list_routes_by_distributor(
+    distributor_id: int,
+    current_user: Dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List all routes created by a distributor. Requires authentication."""
     routes = RouteService.get_routes_by_distributor(db=db, distributor_id=distributor_id)
     return routes
 
 
 @router.get("/zone/{zone_id}", response_model=List[RouteResponse])
-async def list_routes_by_zone(zone_id: int, db: Session = Depends(get_db)):
-    """List all routes in a zone."""
+async def list_routes_by_zone(
+    zone_id: int,
+    current_user: Dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List all routes in a zone. Requires authentication."""
     routes = RouteService.get_routes_by_zone(db=db, zone_id=zone_id)
     return routes
 
 
 @router.get("/order-booker/{order_booker_id}", response_model=List[RouteResponse])
-async def list_routes_by_order_booker(order_booker_id: int, db: Session = Depends(get_db)):
-    """List all routes assigned to an order booker."""
+async def list_routes_by_order_booker(
+    order_booker_id: int,
+    current_user: Dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List all routes assigned to an order booker. Requires authentication."""
     routes = RouteService.get_routes_by_order_booker(db=db, order_booker_id=order_booker_id)
     return routes
 
@@ -59,9 +79,10 @@ async def list_routes_by_order_booker(order_booker_id: int, db: Session = Depend
 async def assign_route_to_order_booker(
     route_id: int,
     assignment: RouteAssign,
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
-    """Assign a route to an order booker."""
+    """Assign a route to an order booker. Only distributors can assign routes."""
     try:
         result = RouteService.assign_route_to_order_booker(
             db=db,
@@ -77,8 +98,12 @@ async def assign_route_to_order_booker(
 
 
 @router.delete("/{route_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_route(route_id: int, db: Session = Depends(get_db)):
-    """Delete a route."""
+async def delete_route(
+    route_id: int,
+    distributor: Dict = Depends(get_current_distributor),
+    db: Session = Depends(get_db)
+):
+    """Delete a route. Only distributors can delete routes."""
     try:
         RouteService.delete_route(db=db, route_id=route_id)
         return None

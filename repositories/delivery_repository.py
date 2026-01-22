@@ -55,6 +55,19 @@ class DeliveryRepository:
         return query.order_by(Delivery.created_at.desc()).offset(skip).limit(limit).all()
     
     @staticmethod
+    def get_by_distributor(db: Session, distributor_id: int,
+                          skip: int = 0, limit: int = 1000,
+                          include_deleted: bool = False) -> List[Delivery]:
+        """Get all deliveries for a distributor (through their delivery men)."""
+        from models.delivery_man import DeliveryMan
+        query = db.query(Delivery).join(
+            DeliveryMan, Delivery.delivery_man_id == DeliveryMan.id
+        ).filter(DeliveryMan.distributor_id == distributor_id)
+        if not include_deleted:
+            query = query.filter(Delivery.deleted_at.is_(None), DeliveryMan.deleted_at.is_(None), DeliveryMan.is_active == True)
+        return query.order_by(Delivery.created_at.desc()).offset(skip).limit(limit).all()
+    
+    @staticmethod
     def update_pickup(db: Session, delivery_id: int, picked_up_at: datetime,
                      pickup_gps_lat: Decimal = None, pickup_gps_lng: Decimal = None,
                      status: str = 'picked_up') -> Optional[Delivery]:

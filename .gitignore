@@ -91,3 +91,6 @@ RENDER_DEPLOYMENT_GUIDE.md
 env.example
 env.example
 env.example
+env.example
+.gitignore
+DISTRIBUTOR_API_DOCUMENTATION.md

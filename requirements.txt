@@ -15,7 +15,7 @@ bcrypt>=4.1.1
 pydantic>=2.5.0
 pydantic-settings>=2.1.0
 pydantic[email]
-
+supabase
 # CORS Support (included with FastAPI but explicit)
 # fastapi.middleware.cors is part of FastAPI
 

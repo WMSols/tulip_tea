@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Dict
 from config.database import get_db
-from models.schemas import ZoneCreate, ZoneResponse
+from models.schemas import ZoneCreate, ZoneUpdate, ZoneResponse
 from services.zone_service import ZoneService
 from utils.dependencies import get_current_user, get_current_distributor
 
@@ -53,6 +53,24 @@ async def get_zone(
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+
+
+@router.put("/{zone_id}", response_model=ZoneResponse)
+async def update_zone(
+    zone_id: int,
+    zone: ZoneUpdate,
+    distributor: Dict = Depends(get_current_distributor),
+    db: Session = Depends(get_db)
+):
+    """Update zone name. Only distributors can update zones."""
+    try:
+        result = ZoneService.update_zone(db=db, zone_id=zone_id, name=zone.name)
+        return result
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
 

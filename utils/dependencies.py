@@ -140,3 +140,4 @@ def get_current_delivery_man(request: Request) -> Dict:
         )
     return user_info
 
+

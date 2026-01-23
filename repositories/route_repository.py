@@ -78,6 +78,17 @@ class RouteRepository:
         return True
     
     @staticmethod
+    def update(db: Session, route_id: int, name: str) -> Optional[Route]:
+        """Update route name."""
+        route = db.query(Route).filter(Route.id == route_id).first()
+        if not route:
+            return None
+        route.name = name
+        db.commit()
+        db.refresh(route)
+        return route
+    
+    @staticmethod
     def delete(db: Session, route_id: int) -> bool:
         """Delete a route."""
         route = db.query(Route).filter(Route.id == route_id).first()

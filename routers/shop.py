@@ -166,6 +166,10 @@ async def get_shop_credit_info(shop_id: int, db: Session = Depends(get_db)):
             detail="Shop not found"
         )
     
+    # Explicitly refresh the shop object to get the latest outstanding_balance
+    # This ensures we get the most recent value after any updates (e.g., from daily collections)
+    db.refresh(shop)
+    
     credit_limit = float(shop.credit_limit or 0)
     legacy_balance = float(shop.legacy_balance or 0)
     

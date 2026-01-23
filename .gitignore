@@ -94,3 +94,6 @@ env.example
 env.example
 .gitignore
 DISTRIBUTOR_API_DOCUMENTATION.md
+tests/distributor_dashboard.html
+tests/order_booker_dashboard.html
+tests/distributor_dashboard.html

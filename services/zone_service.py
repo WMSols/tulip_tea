@@ -52,6 +52,29 @@ class ZoneService:
         }
     
     @staticmethod
+    def update_zone(db: Session, zone_id: int, name: str) -> Dict:
+        """Update zone name."""
+        # Check if zone exists
+        zone = ZoneRepository.get_by_id(db, zone_id)
+        if not zone:
+            raise ValueError("Zone not found")
+        
+        # Check if another zone with the same name exists (excluding current zone)
+        existing = ZoneRepository.get_by_name(db, name)
+        if existing and existing.id != zone_id:
+            raise ValueError("Zone with this name already exists")
+        
+        updated_zone = ZoneRepository.update(db, zone_id, name)
+        if not updated_zone:
+            raise ValueError("Failed to update zone")
+        
+        return {
+            "id": updated_zone.id,
+            "name": updated_zone.name,
+            "created_at": updated_zone.created_at.isoformat() if updated_zone.created_at else None
+        }
+    
+    @staticmethod
     def delete_zone(db: Session, zone_id: int) -> bool:
         """Delete a zone."""
         zone = ZoneRepository.get_by_id(db, zone_id)

@@ -323,6 +323,7 @@ class ShopVisitService:
         
         # Handle daily_collections type - create collection
         collection_id = None
+        collection_credit_info = None  # Store collection credit info to include in response
         if visit_types and "daily_collections" in visit_types:
             if not shop_id:
                 raise ValueError("shop_id is required when visit_type includes 'daily_collections'")
@@ -343,13 +344,31 @@ class ShopVisitService:
                     visit_id=visit.id  # Link collection to visit directly
                 )
                 collection_id = collection_data["id"]
+                
+                # Store collection credit info to include in response
+                collection_credit_info = {
+                    "shop_outstanding_balance": collection_data.get("shop_outstanding_balance"),
+                    "shop_credit_limit": collection_data.get("shop_credit_limit"),
+                    "shop_available_credit": collection_data.get("shop_available_credit")
+                }
+                
+                # Ensure the outstanding balance update is visible to other queries
+                # The create_collection method already commits, but we flush to ensure
+                # the session state is synchronized
+                db.flush()
             except Exception as e:
                 print(f"Error creating collection during visit: {e}")
                 # Visit is still created, but collection creation failed
                 raise ValueError(f"Failed to create collection: {str(e)}")
         
         # Format and return visit data
-        return ShopVisitService._format_visit_data(db, visit, include_linked_data=True)
+        result = ShopVisitService._format_visit_data(db, visit, include_linked_data=True)
+        
+        # Include collection credit info if collection was created
+        if collection_credit_info:
+            result.update(collection_credit_info)
+        
+        return result
     
     @staticmethod
     def get_visits_by_order_booker(db: Session, order_booker_id: int,

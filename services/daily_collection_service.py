@@ -28,7 +28,11 @@ class DailyCollectionService:
         1. Validates shop exists
         2. Validates order booker exists
         3. Creates collection with status="pending"
-        4. Returns collection data
+        4. **INSTANTLY reduces shop's outstanding_balance** (for immediate credit limit increase)
+        5. Returns collection data
+        
+        Note: Outstanding balance is reduced immediately so shop can order right away.
+        Payment record is created later when distributor approves.
         
         Args:
             db: Database session
@@ -40,7 +44,7 @@ class DailyCollectionService:
             visit_id: Optional visit ID this collection is linked to
         
         Returns:
-            Dict: Collection data
+            Dict: Collection data with updated outstanding balance
         """
         # Validate shop exists
         shop = ShopRepository.get_by_id(db, shop_id)
@@ -62,8 +66,54 @@ class DailyCollectionService:
             visit_id=visit_id
         )
         
-        shop = ShopRepository.get_by_id(db, shop_id)
+        # **INSTANTLY REDUCE OUTSTANDING BALANCE** (for immediate credit limit increase)
+        # This allows shop to order immediately without waiting for distributor approval
+        current_outstanding = Decimal(str(shop.outstanding_balance or 0))
+        credit_limit = Decimal(str(shop.credit_limit or 0))
+        payment_amount = Decimal(str(amount))
+        
+        # Calculate new outstanding balance (cannot go below 0)
+        # If shop pays more than outstanding, outstanding becomes 0 (they've overpaid)
+        new_outstanding = max(Decimal('0'), current_outstanding - payment_amount)
+        
+        # Calculate new available credit
+        # Available credit = credit_limit - outstanding_balance
+        # This will be between 0 and credit_limit automatically since outstanding >= 0
+        new_available_credit = credit_limit - new_outstanding if credit_limit > 0 else Decimal('0')
+        
+        # Validation: Ensure the calculation is correct
+        # new_available_credit should be between 0 and credit_limit
+        # This is automatically satisfied, but we validate for safety
+        if credit_limit > 0:
+            if new_available_credit < 0:
+                raise ValueError(
+                    f"Calculation error: Available credit cannot be negative. "
+                    f"This should not happen. Please contact support."
+                )
+            if new_available_credit > credit_limit:
+                raise ValueError(
+                    f"Calculation error: Available credit (Rs. {new_available_credit}) "
+                    f"exceeds credit limit (Rs. {credit_limit}). "
+                    f"This should not happen. Please contact support."
+                )
+        
+        # Note: If payment_amount > current_outstanding, outstanding becomes 0 and available credit = credit_limit
+        # This is correct behavior - shop can pay more than owed, and will have full credit limit available
+        
+        # Update shop's outstanding balance (this commits and refreshes automatically)
+        updated_shop = ShopRepository.update(
+            db=db,
+            shop_id=shop_id,
+            outstanding_balance=new_outstanding
+        )
+        
+        if not updated_shop:
+            raise ValueError("Shop not found after update")
+        
+        # Use the updated shop (already refreshed by update method)
+        shop = updated_shop
         order_booker = OrderBookerRepository.get_by_id(db, order_booker_id)
+        
         return {
             "id": collection.id,
             "shop_id": collection.shop_id,
@@ -78,7 +128,11 @@ class DailyCollectionService:
             "status": collection.status,
             "visit_id": collection.visit_id,
             "collection_date": collection.collection_date.isoformat() if collection.collection_date else None,
-            "photo_proof": collection.photo_proof
+            "photo_proof": collection.photo_proof,
+            # Include updated credit information in response
+            "shop_outstanding_balance": float(shop.outstanding_balance) if shop.outstanding_balance else 0.0,
+            "shop_credit_limit": float(shop.credit_limit) if shop.credit_limit else 0.0,
+            "shop_available_credit": float(shop.credit_limit - shop.outstanding_balance) if shop.credit_limit and shop.outstanding_balance is not None else (float(shop.credit_limit) if shop.credit_limit else 0.0)
         }
     
     @staticmethod
@@ -174,8 +228,9 @@ class DailyCollectionService:
         1. Validates collection exists and is pending
         2. Validates distributor exists
         3. Verifies collection (sets status="verified", verified_by_distributor)
-        4. Creates payment record from collection
-        5. Returns verified collection and payment data
+        4. Creates payment record from collection (for accounting/audit)
+        5. **Note: Outstanding balance was already reduced when collection was created**
+        6. Returns verified collection and payment data
         
         Args:
             db: Database session
@@ -205,7 +260,8 @@ class DailyCollectionService:
             distributor_id=distributor_id
         )
         
-        # Create payment record (payments table has: id, shop_id, order_id, amount, received_by_distributor, payment_date)
+        # Create payment record (for accounting/audit trail)
+        # Note: Outstanding balance was already reduced when collection was created
         payment = PaymentRepository.create(
             db=db,
             shop_id=approved.shop_id,
@@ -215,20 +271,10 @@ class DailyCollectionService:
             payment_date=approved.collection_date or datetime.utcnow()
         )
         
-        # Update shop's outstanding balance: Reduce by payment amount
-        shop = ShopRepository.get_by_id(db, approved.shop_id)
-        if shop:
-            current_outstanding = Decimal(str(shop.outstanding_balance or 0))
-            payment_amount = Decimal(str(approved.amount or 0))
-            new_outstanding = max(Decimal('0'), current_outstanding - payment_amount)  # Don't go below 0
-            
-            ShopRepository.update(
-                db=db,
-                shop_id=approved.shop_id,
-                outstanding_balance=new_outstanding
-            )
+        # **DO NOT REDUCE OUTSTANDING BALANCE AGAIN** - it was already reduced when collection was created
+        # This allows shop to order immediately after payment, while payment record is created later for audit
         
-        # Get shop name for response (refresh to get updated outstanding_balance)
+        # Get shop name for response
         shop = ShopRepository.get_by_id(db, approved.shop_id)
         order_booker = OrderBookerRepository.get_by_id(db, approved.collected_by_order_booker)
         
@@ -260,7 +306,8 @@ class DailyCollectionService:
                 # Note: collected_by_order_booker info comes from the daily_collection record
                 "collected_by_order_booker": approved.collected_by_order_booker,
                 "order_booker_name": order_booker.name if order_booker else None
-            }
+            },
+            "message": "Collection approved. Outstanding balance was already reduced when collection was created."
         }
     
     @staticmethod
@@ -271,8 +318,9 @@ class DailyCollectionService:
         FLOW:
         1. Validates collection exists and is pending
         2. Validates distributor exists
-        3. Rejects collection (sets status="rejected", verified_by_distributor)
-        4. Returns rejected collection data
+        3. **REVERSES outstanding balance reduction** (adds amount back)
+        4. Rejects collection (sets status="rejected", verified_by_distributor)
+        5. Returns rejected collection data
         
         Args:
             db: Database session
@@ -295,6 +343,20 @@ class DailyCollectionService:
         if not distributor:
             raise ValueError("Distributor not found")
         
+        # **REVERSE OUTSTANDING BALANCE REDUCTION** (add amount back)
+        # Since outstanding balance was reduced when collection was created, we need to reverse it
+        shop = ShopRepository.get_by_id(db, collection.shop_id)
+        if shop:
+            current_outstanding = Decimal(str(shop.outstanding_balance or 0))
+            collection_amount = Decimal(str(collection.amount or 0))
+            new_outstanding = current_outstanding + collection_amount  # Add back the amount
+            
+            ShopRepository.update(
+                db=db,
+                shop_id=collection.shop_id,
+                outstanding_balance=new_outstanding
+            )
+        
         # Reject collection
         rejected = DailyCollectionRepository.reject(
             db=db,
@@ -306,7 +368,6 @@ class DailyCollectionService:
         shop = ShopRepository.get_by_id(db, rejected.shop_id)
         order_booker = OrderBookerRepository.get_by_id(db, rejected.collected_by_order_booker)
         
-        shop = ShopRepository.get_by_id(db, rejected.shop_id)
         return {
             "id": rejected.id,
             "shop_id": rejected.shop_id,
@@ -321,6 +382,7 @@ class DailyCollectionService:
             "status": rejected.status,
             "visit_id": rejected.visit_id,
             "collection_date": rejected.collection_date.isoformat() if rejected.collection_date else None,
-            "photo_proof": rejected.photo_proof
+            "photo_proof": rejected.photo_proof,
+            "message": "Collection rejected. Outstanding balance has been reversed."
         }
 

@@ -829,7 +829,48 @@
         </div>
     </div>
 
+    <!-- Edit Zone Modal -->
+    <div id="editZoneModal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeEditZoneModal()">&times;</span>
+            <h2>Edit Zone</h2>
+            <form id="editZoneForm" onsubmit="updateZone(event)">
+                <input type="hidden" id="editZoneId">
+                <div class="form-group">
+                    <label>Zone Name *</label>
+                    <input type="text" id="editZoneName" required placeholder="e.g., Rawalpindi, Chakwal">
+                </div>
+                <div class="modal-actions">
+                    <button type="submit" class="btn btn-primary">Update Zone</button>
+                    <button type="button" class="btn" onclick="closeEditZoneModal()" style="background: #6c757d; color: white;">Cancel</button>
+                </div>
+            </form>
+            <div id="editZoneResult" class="result"></div>
+        </div>
+    </div>
+
+    <!-- Edit Route Modal -->
+    <div id="editRouteModal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeEditRouteModal()">&times;</span>
+            <h2>Edit Route</h2>
+            <form id="editRouteForm" onsubmit="updateRoute(event)">
+                <input type="hidden" id="editRouteId">
+                <div class="form-group">
+                    <label>Route Name *</label>
+                    <input type="text" id="editRouteName" required placeholder="e.g., Route 1, Route 2">
+                </div>
+                <div class="modal-actions">
+                    <button type="submit" class="btn btn-primary">Update Route</button>
+                    <button type="button" class="btn" onclick="closeEditRouteModal()" style="background: #6c757d; color: white;">Cancel</button>
+                </div>
+            </form>
+            <div id="editRouteResult" class="result"></div>
+        </div>
+    </div>
+
     <script>
+        // const API_BASE = 'https://tulip-tea-backend.onrender.com';
         const API_BASE = 'http://localhost:8000';
         let currentToken = null;
         let currentUser = null;
@@ -1249,11 +1290,12 @@
                     return;
                 }
                 listDiv.innerHTML = data.map(zone => `
-                    <div class="list-item">
+                    <div class="list-item" style="display: flex; justify-content: space-between; align-items: center;">
                         <div class="list-item-info">
                             <strong>${zone.name}</strong><br>
                             <small>ID: ${zone.id} | Created: ${new Date(zone.created_at).toLocaleDateString()}</small>
                         </div>
+                        <button class="btn btn-primary" onclick="openEditZoneModal(${zone.id}, '${zone.name.replace(/'/g, "\\'")}')" style="padding: 8px 15px; font-size: 14px;">✏️ Edit</button>
                     </div>
                 `).join('');
                 
@@ -1345,13 +1387,14 @@
                 listDiv.innerHTML = data.map(route => {
                     const zoneName = route.zone_id ? (zoneMap[route.zone_id] || `Zone ${route.zone_id}`) : 'No Zone';
                     return `
-                    <div class="list-item">
+                    <div class="list-item" style="display: flex; justify-content: space-between; align-items: center;">
                         <div class="list-item-info">
                             <strong>${route.name}</strong><br>
                             Zone: ${zoneName}<br>
                             ${route.order_booker_id ? `Assigned to Order Booker ID: ${route.order_booker_id}` : 'Not assigned'}<br>
                             <small>ID: ${route.id} | Created: ${new Date(route.created_at).toLocaleDateString()}</small>
                         </div>
+                        <button class="btn btn-primary" onclick="openEditRouteModal(${route.id}, '${route.name.replace(/'/g, "\\'")}')" style="padding: 8px 15px; font-size: 14px;">✏️ Edit</button>
                     </div>
                 `;
                 }).join('');
@@ -1507,6 +1550,134 @@
                 resultDiv.textContent = `Route "${data.name}" assigned successfully!`;
                 document.getElementById('assignRouteForm').reset();
                 loadRoutes();
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // Open Edit Zone Modal
+        function openEditZoneModal(zoneId, zoneName) {
+            const modal = document.getElementById('editZoneModal');
+            document.getElementById('editZoneId').value = zoneId;
+            document.getElementById('editZoneName').value = zoneName;
+            modal.classList.remove('hidden');
+            modal.classList.add('active');
+        }
+
+        // Close Edit Zone Modal
+        function closeEditZoneModal() {
+            const modal = document.getElementById('editZoneModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('active');
+            document.getElementById('editZoneForm').reset();
+            document.getElementById('editZoneResult').className = 'result';
+            document.getElementById('editZoneResult').textContent = '';
+        }
+
+        // Update Zone
+        async function updateZone(event) {
+            event.preventDefault();
+            const resultDiv = document.getElementById('editZoneResult');
+            const zoneId = document.getElementById('editZoneId').value;
+            const name = document.getElementById('editZoneName').value;
+            
+            if (!zoneId || !name) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Please fill in all required fields';
+                return;
+            }
+            
+            try {
+                const endpoint = `${API_BASE}/zones/${zoneId}`;
+                showApiCall('PUT', endpoint, 'Update Zone', 'loading');
+                
+                const response = await fetch(endpoint, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify({ name })
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    showApiCall('PUT', endpoint, 'Update Zone', 'error');
+                    throw new Error(data.detail || 'Failed to update zone');
+                }
+                
+                showApiCall('PUT', endpoint, 'Update Zone', 'success');
+                resultDiv.className = 'result success';
+                resultDiv.textContent = `Zone updated successfully!`;
+                
+                setTimeout(() => {
+                    closeEditZoneModal();
+                    loadZones();
+                }, 1500);
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // Open Edit Route Modal
+        function openEditRouteModal(routeId, routeName) {
+            const modal = document.getElementById('editRouteModal');
+            document.getElementById('editRouteId').value = routeId;
+            document.getElementById('editRouteName').value = routeName;
+            modal.classList.remove('hidden');
+            modal.classList.add('active');
+        }
+
+        // Close Edit Route Modal
+        function closeEditRouteModal() {
+            const modal = document.getElementById('editRouteModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('active');
+            document.getElementById('editRouteForm').reset();
+            document.getElementById('editRouteResult').className = 'result';
+            document.getElementById('editRouteResult').textContent = '';
+        }
+
+        // Update Route
+        async function updateRoute(event) {
+            event.preventDefault();
+            const resultDiv = document.getElementById('editRouteResult');
+            const routeId = document.getElementById('editRouteId').value;
+            const name = document.getElementById('editRouteName').value;
+            
+            if (!routeId || !name) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Please fill in all required fields';
+                return;
+            }
+            
+            try {
+                const endpoint = `${API_BASE}/routes/${routeId}`;
+                showApiCall('PUT', endpoint, 'Update Route', 'loading');
+                
+                const response = await fetch(endpoint, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify({ name })
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    showApiCall('PUT', endpoint, 'Update Route', 'error');
+                    throw new Error(data.detail || 'Failed to update route');
+                }
+                
+                showApiCall('PUT', endpoint, 'Update Route', 'success');
+                resultDiv.className = 'result success';
+                resultDiv.textContent = `Route updated successfully!`;
+                
+                setTimeout(() => {
+                    closeEditRouteModal();
+                    loadRoutes();
+                }, 1500);
             } catch (error) {
                 resultDiv.className = 'result error';
                 resultDiv.textContent = `Error: ${error.message}`;
@@ -4117,6 +4288,14 @@
             const visitModal = document.getElementById('viewVisitModal');
             if (event.target === visitModal) {
                 closeViewVisitModal();
+            }
+            const editZoneModal = document.getElementById('editZoneModal');
+            if (event.target === editZoneModal) {
+                closeEditZoneModal();
+            }
+            const editRouteModal = document.getElementById('editRouteModal');
+            if (event.target === editRouteModal) {
+                closeEditRouteModal();
             }
             const orderModal = document.getElementById('orderDetailsModal');
             if (event.target === orderModal) {

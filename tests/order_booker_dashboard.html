@@ -621,9 +621,32 @@
                         <!-- Daily Collections Form (shown when daily_collections is selected) -->
                         <div id="dailyCollectionsForm" style="display: none; margin-top: 20px; padding: 20px; background: #f0fff0; border-radius: 8px; border-left: 4px solid #27ae60;">
                             <h4 style="color: #27ae60; margin-bottom: 15px;">💰 Collection Details</h4>
+                            <div style="margin-bottom: 15px; padding: 10px; background: #d4edda; border-radius: 5px; border-left: 3px solid #27ae60; font-size: 13px; color: #155724;">
+                                <strong>⚡ Instant Credit Limit Increase:</strong> When you record a collection, the shop's outstanding balance will be reduced immediately, allowing them to place orders right away without waiting for distributor approval.
+                            </div>
                             <div class="form-group">
                                 <label>Collection Amount (Rs.) *</label>
-                                <input type="number" id="collectionAmount" step="0.01" min="0.01" placeholder="0.00">
+                                <input type="number" id="collectionAmount" step="0.01" min="0.01" placeholder="0.00" oninput="calculateCollectionImpact()" onchange="calculateCollectionImpact()">
+                                <small style="color: #666; display: block; margin-top: 5px;">Enter the amount collected from the shop</small>
+                            </div>
+                            <!-- Collection Impact Preview -->
+                            <div id="collectionImpactPreview" style="display: none; margin-top: 15px; padding: 15px; background: white; border-radius: 5px; border: 2px solid #27ae60;">
+                                <h5 style="color: #27ae60; margin-bottom: 10px; font-size: 14px;">📊 Impact Preview:</h5>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 13px;">
+                                    <div>
+                                        <strong>Current Outstanding:</strong> <span id="currentOutstandingPreview" style="color: #e74c3c;">Rs. 0.00</span>
+                                    </div>
+                                    <div>
+                                        <strong>Collection Amount:</strong> <span id="collectionAmountPreview" style="color: #27ae60;">Rs. 0.00</span>
+                                    </div>
+                                    <div>
+                                        <strong>New Outstanding:</strong> <span id="newOutstandingPreview" style="color: #2c3e50; font-weight: bold;">Rs. 0.00</span>
+                                    </div>
+                                    <div>
+                                        <strong>New Available Credit:</strong> <span id="newAvailableCreditPreview" style="color: #27ae60; font-weight: bold; font-size: 14px;">Rs. 0.00</span>
+                                    </div>
+                                </div>
+                                <div id="collectionValidationMessage" style="margin-top: 10px; padding: 8px; border-radius: 3px; font-size: 12px; display: none;"></div>
                             </div>
                             <div class="form-group">
                                 <label>Collection Remarks (Optional)</label>
@@ -687,6 +710,7 @@
         let currentUser = null;
         let myRoutesData = []; // Store routes assigned to order booker
         let availableZones = []; // Store zones from assigned routes
+        let currentShopCreditInfo = null; // Store current shop credit info for collection calculation
 
         /**
          * Show API call information in the helper panel
@@ -1572,12 +1596,21 @@
                 if (amountInput) {
                     amountInput.setAttribute('required', 'required');
                 }
+                // Calculate impact if shop is selected and amount is already entered
+                if (currentShopCreditInfo && amountInput && amountInput.value) {
+                    calculateCollectionImpact();
+                }
             } else {
                 form.style.display = 'none';
                 // Remove required attribute when form is hidden to prevent validation errors
                 if (amountInput) {
                     amountInput.removeAttribute('required');
                     amountInput.value = ''; // Clear value when hidden
+                }
+                // Hide impact preview
+                const impactPreview = document.getElementById('collectionImpactPreview');
+                if (impactPreview) {
+                    impactPreview.style.display = 'none';
                 }
             }
         }
@@ -2003,10 +2036,40 @@
                 }
                 if (data.collection_id) {
                     resultHtml += `<br><strong style="color: #27ae60;">✅ Collection Created!</strong><br>Collection ID: ${data.collection_id}<br>`;
+                    resultHtml += `<div style="margin-top: 10px; padding: 10px; background: #d4edda; border-radius: 5px; border-left: 4px solid #27ae60;">`;
+                    resultHtml += `<strong style="color: #155724;">💰 Outstanding Balance Reduced Instantly!</strong><br>`;
+                    if (data.shop_outstanding_balance !== undefined) {
+                        resultHtml += `<div style="margin-top: 8px; font-size: 13px;">`;
+                        resultHtml += `New Outstanding Balance: <strong>Rs. ${data.shop_outstanding_balance.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong><br>`;
+                        if (data.shop_available_credit !== undefined) {
+                            resultHtml += `New Available Credit: <strong style="color: #27ae60;">Rs. ${data.shop_available_credit.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong>`;
+                        }
+                        resultHtml += `</div>`;
+                    }
+                    resultHtml += `<small style="color: #155724; display: block; margin-top: 8px;">The shop can now place orders right away without waiting for distributor approval.</small>`;
+                    resultHtml += `</div>`;
                 }
                 resultHtml += `<br><small>Visit ID: ${data.id}</small>`;
                 resultDiv.innerHTML = resultHtml;
                 showApiCall('POST', endpoint, 'Register Shop Visit', 'success');
+
+                // Save shop ID before resetting form (needed for credit info refresh)
+                const shopIdForRefresh = document.getElementById('visitShopId').value;
+                
+                // Refresh shop credit info if shop is selected and collection was created
+                if (data.collection_id && shopIdForRefresh) {
+                    // Delay to ensure backend has committed the transaction and updated the balance
+                    // Use a longer delay to ensure database consistency
+                    setTimeout(() => {
+                        // Set shop ID back temporarily to refresh credit info
+                        const shopSelect = document.getElementById('visitShopId');
+                        shopSelect.value = shopIdForRefresh;
+                        // Force refresh by calling loadShopCreditInfo
+                        loadShopCreditInfo();
+                        // Also trigger change event to ensure UI updates
+                        shopSelect.dispatchEvent(new Event('change'));
+                    }, 1000); // Increased delay to 1 second for database consistency
+                }
 
                 document.getElementById('visitRegistrationForm').reset();
                 clearPhoto();
@@ -2034,10 +2097,12 @@
                 document.getElementById('collectionRemarks').value = '';
                 // Reset order total
                 document.getElementById('orderTotalAmount').textContent = '0.00';
-                // Hide credit info display
-                const creditInfoDisplay = document.getElementById('shopCreditInfoDisplay');
-                if (creditInfoDisplay) {
-                    creditInfoDisplay.style.display = 'none';
+                // Don't hide credit info display if collection was created - keep it visible to show updated balance
+                if (!data.collection_id) {
+                    const creditInfoDisplay = document.getElementById('shopCreditInfoDisplay');
+                    if (creditInfoDisplay) {
+                        creditInfoDisplay.style.display = 'none';
+                    }
                 }
                 loadMyVisits();
             } catch (error) {
@@ -2088,6 +2153,12 @@
             
             if (!shopId) {
                 creditInfoDisplay.style.display = 'none';
+                currentShopCreditInfo = null;
+                // Hide collection impact preview if shop is deselected
+                const impactPreview = document.getElementById('collectionImpactPreview');
+                if (impactPreview) {
+                    impactPreview.style.display = 'none';
+                }
                 return;
             }
             
@@ -2098,6 +2169,9 @@
                 
                 if (response.ok) {
                     const creditInfo = await response.json();
+                    
+                    // Store credit info globally for collection calculation
+                    currentShopCreditInfo = creditInfo;
                     
                     // Update display values
                     document.getElementById('creditLimitValue').textContent = `Rs. ${creditInfo.credit_limit.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
@@ -2122,13 +2196,100 @@
                     
                     // Update order total display warning if order booking is selected
                     updateOrderTotalWithCreditWarning();
+                    
+                    // Recalculate collection impact if collection form is visible and amount is entered
+                    const collectionAmountInput = document.getElementById('collectionAmount');
+                    if (collectionAmountInput && collectionAmountInput.value) {
+                        calculateCollectionImpact();
+                    }
                 } else {
                     console.error('Error loading shop credit info:', await response.json());
                     creditInfoDisplay.style.display = 'none';
+                    currentShopCreditInfo = null;
                 }
             } catch (error) {
                 console.error('Error loading shop credit info:', error);
                 creditInfoDisplay.style.display = 'none';
+                currentShopCreditInfo = null;
+            }
+        }
+
+        // Calculate collection impact in real-time
+        function calculateCollectionImpact() {
+            const collectionAmountInput = document.getElementById('collectionAmount');
+            const impactPreview = document.getElementById('collectionImpactPreview');
+            const validationMessage = document.getElementById('collectionValidationMessage');
+            
+            if (!collectionAmountInput || !impactPreview || !currentShopCreditInfo) {
+                impactPreview.style.display = 'none';
+                return;
+            }
+            
+            const collectionAmount = parseFloat(collectionAmountInput.value) || 0;
+            
+            if (collectionAmount <= 0) {
+                impactPreview.style.display = 'none';
+                return;
+            }
+            
+            // Show preview
+            impactPreview.style.display = 'block';
+            
+            // Get current values
+            const currentOutstanding = parseFloat(currentShopCreditInfo.outstanding_balance) || 0;
+            const creditLimit = parseFloat(currentShopCreditInfo.credit_limit) || 0;
+            
+            // Calculate new values
+            const newOutstanding = Math.max(0, currentOutstanding - collectionAmount);
+            const newAvailableCredit = creditLimit > 0 ? (creditLimit - newOutstanding) : 0;
+            
+            // Update preview display
+            document.getElementById('currentOutstandingPreview').textContent = `Rs. ${currentOutstanding.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+            document.getElementById('collectionAmountPreview').textContent = `Rs. ${collectionAmount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+            document.getElementById('newOutstandingPreview').textContent = `Rs. ${newOutstanding.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+            document.getElementById('newAvailableCreditPreview').textContent = `Rs. ${newAvailableCredit.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+            
+            // Validation: Available credit should be between 0 and credit_limit
+            let isValid = true;
+            let message = '';
+            let messageColor = '#155724'; // Green
+            
+            if (creditLimit > 0) {
+                if (newAvailableCredit < 0) {
+                    isValid = false;
+                    message = '❌ Error: Available credit cannot be negative. Maximum collection amount: Rs. ' + currentOutstanding.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                    messageColor = '#721c24'; // Red
+                } else if (newAvailableCredit > creditLimit) {
+                    isValid = false;
+                    message = '❌ Error: Available credit cannot exceed credit limit. Maximum collection amount: Rs. ' + currentOutstanding.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                    messageColor = '#721c24'; // Red
+                } else if (newAvailableCredit === creditLimit) {
+                    message = '✅ Perfect! Shop will have full credit limit available after this collection.';
+                    messageColor = '#155724'; // Green
+                } else if (newOutstanding === 0) {
+                    message = '✅ Good! Shop will have no outstanding balance. Available credit: Rs. ' + newAvailableCredit.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                    messageColor = '#155724'; // Green
+                } else {
+                    message = '✅ Valid collection. Shop will have Rs. ' + newAvailableCredit.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' available credit after this collection.';
+                    messageColor = '#155724'; // Green
+                }
+            } else {
+                message = '⚠️ Shop has no credit limit set. Collection will still be recorded.';
+                messageColor = '#856404'; // Yellow
+            }
+            
+            // Show validation message
+            validationMessage.style.display = 'block';
+            validationMessage.textContent = message;
+            validationMessage.style.background = messageColor === '#721c24' ? '#f8d7da' : (messageColor === '#856404' ? '#fff3cd' : '#d4edda');
+            validationMessage.style.color = messageColor;
+            validationMessage.style.border = `1px solid ${messageColor === '#721c24' ? '#f5c6cb' : (messageColor === '#856404' ? '#ffeaa7' : '#c3e6cb')}`;
+            
+            // Update input border color based on validation
+            if (isValid) {
+                collectionAmountInput.style.borderColor = '#27ae60';
+            } else {
+                collectionAmountInput.style.borderColor = '#e74c3c';
             }
         }
 

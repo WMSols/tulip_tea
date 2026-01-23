@@ -38,3 +38,4 @@ if __name__ == "__main__":
         print(f"Error generating secret key: {e}", file=sys.stderr)
         sys.exit(1)
 
+

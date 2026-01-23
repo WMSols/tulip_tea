@@ -108,6 +108,11 @@ class OrderService:
         shop = ShopRepository.get_by_id(db, shop_id)
         if not shop:
             raise ValueError("Shop not found")
+        
+        # Refresh shop to ensure we have the latest outstanding_balance
+        # This is critical after daily collections which update outstanding_balance instantly
+        db.refresh(shop)
+        
         if shop.registration_status != "approved":
             raise ValueError(f"Orders can only be placed for approved shops. Shop status: {shop.registration_status}")
         
@@ -196,6 +201,10 @@ class OrderService:
         
         if total_amount <= 0:
             raise ValueError("Order total amount must be greater than 0")
+        
+        # Explicitly refresh shop to get the latest outstanding_balance
+        # This ensures we get the most recent value after any updates (e.g., from daily collections)
+        db.refresh(shop)
         
         # Validate credit limit using shop's outstanding_balance field
         credit_limit = Decimal(str(shop.credit_limit or 0))

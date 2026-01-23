@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Dict
 from config.database import get_db
-from models.schemas import RouteCreate, RouteResponse, RouteAssign
+from models.schemas import RouteCreate, RouteUpdate, RouteResponse, RouteAssign
 from services.route_service import RouteService
 from utils.dependencies import get_current_user, get_current_distributor
 
@@ -89,6 +89,39 @@ async def assign_route_to_order_booker(
             route_id=route_id,
             order_booker_id=assignment.order_booker_id
         )
+        return result
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+
+@router.put("/{route_id}", response_model=RouteResponse)
+async def update_route(
+    route_id: int,
+    route: RouteUpdate,
+    distributor: Dict = Depends(get_current_distributor),
+    db: Session = Depends(get_db)
+):
+    """Update route name. Only distributors can update routes."""
+    try:
+        # Verify route exists and belongs to the distributor
+        from repositories.route_repository import RouteRepository
+        existing_route = RouteRepository.get_by_id(db, route_id)
+        if not existing_route:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Route not found"
+            )
+        
+        if existing_route.created_by_distributor != distributor['user_id']:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only update routes that you created"
+            )
+        
+        result = RouteService.update_route(db=db, route_id=route_id, name=route.name)
         return result
     except ValueError as e:
         raise HTTPException(

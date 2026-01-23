@@ -120,6 +120,10 @@ class ZoneCreate(BaseModel):
     name: str
 
 
+class ZoneUpdate(BaseModel):
+    name: str
+
+
 class ZoneResponse(BaseModel):
     id: int
     name: str
@@ -133,6 +137,10 @@ class ZoneResponse(BaseModel):
 class RouteCreate(BaseModel):
     name: str
     zone_id: int
+
+
+class RouteUpdate(BaseModel):
+    name: str
 
 
 class RouteResponse(BaseModel):

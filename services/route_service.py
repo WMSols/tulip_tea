@@ -147,6 +147,27 @@ class RouteService:
         ]
     
     @staticmethod
+    def update_route(db: Session, route_id: int, name: str) -> Dict:
+        """Update route name."""
+        # Check if route exists
+        route = RouteRepository.get_by_id(db, route_id)
+        if not route:
+            raise ValueError("Route not found")
+        
+        updated_route = RouteRepository.update(db, route_id, name)
+        if not updated_route:
+            raise ValueError("Failed to update route")
+        
+        return {
+            "id": updated_route.id,
+            "name": updated_route.name,
+            "zone_id": updated_route.zone_id,
+            "order_booker_id": updated_route.order_booker_id,
+            "created_by_distributor": updated_route.created_by_distributor,
+            "created_at": updated_route.created_at.isoformat() if updated_route.created_at else None
+        }
+    
+    @staticmethod
     def delete_route(db: Session, route_id: int) -> bool:
         """Delete a route."""
         route = RouteRepository.get_by_id(db, route_id)

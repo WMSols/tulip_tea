@@ -9,9 +9,9 @@ Orders contain order items and are assigned to Delivery Men for delivery.
 
 WORKFLOW:
 1. Order Booker visits shop and places order
-2. Order is created with status="pending" or "confirmed"
+2. Order is created with status="pending"
 3. Distributor assigns order to Delivery Man
-4. Delivery Man delivers order (status="delivered") or marks as failed
+4. Delivery Man delivers order (status="delivered") or marks as disapproved
 5. Payment is collected (linked via payments table)
 
 RELATIONSHIPS:
@@ -25,9 +25,18 @@ RELATIONSHIPS:
 
 DATABASE TABLE: orders
 """
-from sqlalchemy import Column, BigInteger, Numeric, DateTime, ForeignKey, String, Date, Text
+from sqlalchemy import Column, BigInteger, Numeric, DateTime, ForeignKey, String, Date, Text, Enum, Boolean
+from sqlalchemy.dialects.postgresql import ENUM
 from sqlalchemy.sql import func
+import enum
 from config.database import Base
+
+
+class OrderStatus(str, enum.Enum):
+    """Order status enumeration."""
+    PENDING = "pending"
+    DELIVERED = "delivered"
+    DISAPPROVED = "disapproved"
 
 
 class Order(Base):
@@ -90,24 +99,86 @@ class Order(Base):
     # Financial Information
     total_amount = Column(Numeric(10, 2), nullable=True)
     """
-    Total order amount.
+    Final order amount (affects outstanding balance).
     - Calculated from sum of order_items.total_price
     - Format: Decimal (10 digits total, 2 decimal places)
     - Example: 5000.00 (Rs. 5,000)
-    - Used for credit limit validation
+    - For normal orders: total_amount = original order amount
+    - For subsidy orders: total_amount = discounted amount (after subsidy applied)
+    - For payment_before_delivery: total_amount = full order amount
+    - Used for credit limit validation and outstanding balance calculation
+    """
+
+    # Conditional Order Information
+    order_resolution_type = Column(String, nullable=True)
+    """
+    How order was resolved when credit was insufficient.
+    - Values: "normal", "subsidy", "payment_before_delivery"
+    - "normal": Order placed normally (credit was sufficient)
+    - "subsidy": Subsidy was applied to reduce order amount
+    - "payment_before_delivery": Order placed with payment collection required before delivery
+    - Nullable: For backward compatibility with existing orders
+    """
+
+    subsidy_id = Column(BigInteger, ForeignKey("subsidies.id"), nullable=True)
+    """
+    Foreign key to subsidies table.
+    - Links order to the subsidy applied (if order_resolution_type = "subsidy")
+    - Nullable: Only set when subsidy is applied
+    - Used to track which subsidy rate was used
+    """
+
+    original_amount = Column(Numeric(10, 2), nullable=True)
+    """
+    Original order amount before subsidy was applied.
+    - Only set when order_resolution_type = "subsidy"
+    - Format: Decimal (10 digits total, 2 decimal places)
+    - Example: 5000.00 (Rs. 5,000)
+    - Used to show original amount vs final amount (total_amount)
+    - For subsidy orders: original_amount = before discount, total_amount = after discount
+    - For normal orders: original_amount = NULL, total_amount = order amount
+    """
+
+    payment_collected_before_delivery = Column(Boolean, default=False, nullable=False)
+    """
+    Whether payment was collected by delivery man before delivery.
+    - Only relevant when order_resolution_type = "payment_before_delivery"
+    - Default: FALSE
+    - Set to TRUE when delivery man collects payment
+    - Used to prevent delivery until payment is collected
+    """
+
+    payment_collected_amount = Column(Numeric(10, 2), nullable=True)
+    """
+    Amount collected by delivery man before delivery.
+    - Only set when order_resolution_type = "payment_before_delivery" and payment_collected_before_delivery = TRUE
+    - Format: Decimal (10 digits total, 2 decimal places)
+    - Example: 5000.00 (Rs. 5,000)
+    - Used to track how much was collected before delivery
+    """
+
+    payment_collected_at = Column(DateTime(timezone=True), nullable=True)
+    """
+    Timestamp when payment was collected by delivery man before delivery.
+    - Only set when payment_collected_before_delivery = TRUE
+    - Timezone-aware (stores UTC)
+    - Used for auditing and tracking payment collection
     """
 
     # Status and Scheduling
-    status = Column(String, nullable=True)
+    status = Column(
+        ENUM(OrderStatus, name='order_status_enum', create_type=False),
+        nullable=False,
+        default=OrderStatus.PENDING,
+        server_default='pending'
+    )
     """
     Order status.
-    - Values: "pending", "confirmed", "delivered", "cancelled", "paid"
+    - Values: "pending", "delivered", "disapproved"
     - Default: "pending" when first created
-    - "pending": Order placed, awaiting confirmation
-    - "confirmed": Order confirmed, ready for delivery
+    - "pending": Order placed, awaiting delivery
     - "delivered": Order delivered to shop
-    - "cancelled": Order cancelled
-    - "paid": Order paid (outstanding balance cleared)
+    - "disapproved": Order disapproved/rejected
     """
 
     scheduled_date = Column(Date, nullable=True)

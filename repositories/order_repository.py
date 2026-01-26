@@ -4,7 +4,7 @@ Order Repository
 Data access layer for Order operations.
 """
 from sqlalchemy.orm import Session
-from models.order import Order
+from models.order import Order, OrderStatus
 from typing import Optional, List
 from decimal import Decimal
 from datetime import date, datetime
@@ -17,7 +17,9 @@ class OrderRepository:
     def create(db: Session, shop_id: int, order_booker_id: int,
               total_amount: Decimal, distributor_id: int = None,
               delivery_man_id: int = None, visit_id: int = None,
-              status: str = "pending", scheduled_date: date = None) -> Order:
+              status: OrderStatus = OrderStatus.PENDING, scheduled_date: date = None,
+              order_resolution_type: str = None, subsidy_id: int = None,
+              original_amount: Decimal = None) -> Order:
         """
         Create a new order.
         
@@ -31,6 +33,9 @@ class OrderRepository:
             visit_id: Visit ID where order was placed (optional)
             status: Order status (default: "pending")
             scheduled_date: Scheduled delivery date (optional)
+            order_resolution_type: How order was resolved ('normal', 'subsidy', 'payment_before_delivery')
+            subsidy_id: Subsidy ID applied (if order_resolution_type='subsidy')
+            original_amount: Original amount before subsidy (only for subsidy orders)
         
         Returns:
             Created order instance
@@ -43,7 +48,10 @@ class OrderRepository:
             visit_id=visit_id,
             total_amount=total_amount,
             status=status,
-            scheduled_date=scheduled_date
+            scheduled_date=scheduled_date,
+            order_resolution_type=order_resolution_type,
+            subsidy_id=subsidy_id,
+            original_amount=original_amount
         )
         db.add(order)
         db.commit()
@@ -78,7 +86,7 @@ class OrderRepository:
     @staticmethod
     def get_pending(db: Session, distributor_id: int = None) -> List[Order]:
         """Get all pending orders."""
-        query = db.query(Order).filter(Order.status == "pending")
+        query = db.query(Order).filter(Order.status == OrderStatus.PENDING)
         if distributor_id:
             query = query.filter(Order.distributor_id == distributor_id)
         return query.order_by(Order.created_at.desc()).all()
@@ -90,7 +98,8 @@ class OrderRepository:
         if not order:
             return None
         order.delivery_man_id = delivery_man_id
-        order.status = "confirmed"
+        # Status remains "pending" until delivery man marks it as delivered or disapproved
+        # order.status = "pending"  # Already pending, no need to change
         db.commit()
         db.refresh(order)
         return order
@@ -107,7 +116,7 @@ class OrderRepository:
         return order
     
     @staticmethod
-    def update_delivery_proof(db: Session, order_id: int, status: str,
+    def update_delivery_proof(db: Session, order_id: int, status: OrderStatus,
                               delivery_gps_lat: Decimal = None,
                               delivery_gps_lng: Decimal = None,
                               delivery_remarks: str = None,
@@ -118,9 +127,9 @@ class OrderRepository:
         Args:
             db: Database session
             order_id: Order ID
-            status: Order status ("delivered" or "cancelled")
-            delivery_gps_lat: GPS latitude when delivered/cancelled
-            delivery_gps_lng: GPS longitude when delivered/cancelled
+            status: Order status (OrderStatus.DELIVERED or OrderStatus.DISAPPROVED)
+            delivery_gps_lat: GPS latitude when delivered/disapproved
+            delivery_gps_lng: GPS longitude when delivered/disapproved
             delivery_remarks: Remarks/notes from delivery man
             delivery_images: JSON string or list of image URLs (PostgreSQL TEXT[] array)
         

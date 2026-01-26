@@ -86,7 +86,7 @@ class CreditLimitRequestService:
             "requested_by_id": request.requested_by_id,
             "old_credit_limit": float(request.old_credit_limit) if request.old_credit_limit else 0,
             "requested_credit_limit": float(request.requested_credit_limit),
-            "status": request.status,
+            "status": request.status.value if hasattr(request.status, 'value') else str(request.status),
             "remarks": request.remarks,
             "created_at": request.created_at.isoformat() if request.created_at else None
         }
@@ -136,7 +136,7 @@ class CreditLimitRequestService:
                 "requested_by_name": requested_by_name,
                 "old_credit_limit": float(req.old_credit_limit) if req.old_credit_limit else 0,
                 "requested_credit_limit": float(req.requested_credit_limit),
-                "status": req.status,
+                "status": req.status.value if hasattr(req.status, 'value') else str(req.status),
                 "remarks": req.remarks,
                 "created_at": req.created_at.isoformat() if req.created_at else None
             })
@@ -168,7 +168,8 @@ class CreditLimitRequestService:
         if not request:
             raise ValueError("Credit limit request not found")
         
-        if request.status != "pending":
+        from models.credit_limit_request import CreditLimitRequestStatus
+        if request.status != CreditLimitRequestStatus.PENDING:
             raise ValueError("Can only update pending requests")
         
         update_data = {}
@@ -185,7 +186,7 @@ class CreditLimitRequestService:
             "id": updated.id,
             "shop_id": updated.shop_id,
             "requested_credit_limit": float(updated.requested_credit_limit),
-            "status": updated.status,
+            "status": updated.status.value if hasattr(updated.status, 'value') else str(updated.status),
             "remarks": updated.remarks
         }
     
@@ -217,7 +218,8 @@ class CreditLimitRequestService:
         if not request:
             raise ValueError("Credit limit request not found")
         
-        if request.status != "pending":
+        from models.credit_limit_request import CreditLimitRequestStatus
+        if request.status != CreditLimitRequestStatus.PENDING:
             raise ValueError("Request is not pending")
         
         # Validate distributor
@@ -266,7 +268,7 @@ class CreditLimitRequestService:
             "requested_by_name": requested_by_name,
             "old_credit_limit": float(approved.old_credit_limit) if approved.old_credit_limit else 0,
             "requested_credit_limit": float(approved.requested_credit_limit),
-            "status": approved.status,
+            "status": approved.status.value if hasattr(approved.status, 'value') else str(approved.status),
             "approved_by_distributor": approved.approved_by_distributor,
             "approved_at": approved.approved_at.isoformat() if approved.approved_at else None,
             "remarks": approved.remarks,
@@ -299,7 +301,8 @@ class CreditLimitRequestService:
         if not request:
             raise ValueError("Credit limit request not found")
         
-        if request.status != "pending":
+        from models.credit_limit_request import CreditLimitRequestStatus
+        if request.status != CreditLimitRequestStatus.PENDING:
             raise ValueError("Request is not pending")
         
         # Validate distributor
@@ -337,7 +340,7 @@ class CreditLimitRequestService:
             "requested_by_name": requested_by_name,
             "old_credit_limit": float(rejected.old_credit_limit) if rejected.old_credit_limit else 0,
             "requested_credit_limit": float(rejected.requested_credit_limit),
-            "status": rejected.status,
+            "status": rejected.status.value if hasattr(rejected.status, 'value') else str(rejected.status),
             "approved_by_distributor": rejected.approved_by_distributor,
             "approved_at": rejected.approved_at.isoformat() if rejected.approved_at else None,
             "remarks": rejected.remarks,

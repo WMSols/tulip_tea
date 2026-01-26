@@ -394,6 +394,12 @@ class OrderDeliveryUpdate(BaseModel):
     delivery_images: Optional[List[str]] = None  # Array of Supabase storage URLs
 
 
+class OrderPaymentCollection(BaseModel):
+    """Schema for collecting payment before delivery."""
+    payment_amount: float
+    remarks: Optional[str] = None
+
+
 # Credit Limit Request Schemas
 class CreditLimitRequestCreate(BaseModel):
     shop_id: int
@@ -539,6 +545,35 @@ class ActivityLogResponse(BaseModel):
     status: str
     error_message: Optional[str]
     metadata: Optional[Dict[str, Any]]
+
+    class Config:
+        from_attributes = True
+
+
+# Subsidy Schemas
+class SubsidyCreate(BaseModel):
+    name: str
+    percentage: float
+    description: Optional[str] = None
+
+
+class SubsidyUpdate(BaseModel):
+    name: Optional[str] = None
+    percentage: Optional[float] = None
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class SubsidyResponse(BaseModel):
+    id: int
+    distributor_id: int
+    name: str
+    description: Optional[str]
+    percentage: float
+    is_active: bool
+    created_at: Optional[str]
+    updated_at: Optional[str]
+    deleted_at: Optional[str]
 
     class Config:
         from_attributes = True

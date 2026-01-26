@@ -72,18 +72,23 @@ class OrderService:
     @staticmethod
     def create_order(db: Session, shop_id: int, order_booker_id: int,
                     order_items: List[Dict], distributor_id: int = None,
-                    visit_id: int = None, scheduled_date: date = None) -> Dict:
+                    visit_id: int = None, scheduled_date: date = None,
+                    order_resolution_type: str = None, subsidy_id: int = None) -> Dict:
         """
-        Create a new order with credit limit validation.
+        Create a new order with credit limit validation and conditional order support.
         
         FLOW:
         1. Validates shop exists and is approved
         2. Validates order booker exists
         3. Calculates total order amount from items
-        4. Validates credit limit (outstanding + new_order <= credit_limit)
-        5. Creates order with status="pending"
-        6. Creates order items
-        7. Returns order data with items
+        4. Handles conditional orders:
+           - If credit insufficient and order_resolution_type='subsidy': applies subsidy
+           - If credit insufficient and order_resolution_type='payment_before_delivery': allows order with payment requirement
+           - If credit sufficient: normal order
+        5. Validates credit limit (outstanding + new_order <= credit_limit)
+        6. Creates order with status="pending"
+        7. Creates order items
+        8. Returns order data with items
         
         Args:
             db: Database session
@@ -93,6 +98,8 @@ class OrderService:
             distributor_id: Distributor ID (optional)
             visit_id: Visit ID where order was placed (optional)
             scheduled_date: Scheduled delivery date (optional)
+            order_resolution_type: How to resolve if credit insufficient ('normal', 'subsidy', 'payment_before_delivery')
+            subsidy_id: Subsidy ID to apply (required if order_resolution_type='subsidy')
         
         Returns:
             Dict: Order data with items
@@ -100,7 +107,7 @@ class OrderService:
         Raises:
             ValueError: If validation fails or credit limit exceeded
         """
-        from models.order import Order
+        from models.order import Order, OrderStatus
         from models.order_item import OrderItem
         from repositories.payment_repository import PaymentRepository
         
@@ -130,11 +137,23 @@ class OrderService:
         # If there are any active credit limit requests, check approval status
         if active_requests:
             # Check if there's at least one approved request
-            has_approved_request = any(req.status == "approved" for req in active_requests)
+            from models.credit_limit_request import CreditLimitRequestStatus
+            # Convert status to enum if it's a string (for backward compatibility)
+            has_approved_request = any(
+                (req.status == CreditLimitRequestStatus.APPROVED) or 
+                (str(req.status).upper() == 'APPROVED') or 
+                (str(req.status).lower() == 'approved')
+                for req in active_requests
+            )
             
             if not has_approved_request:
                 # Check if there are any pending requests
-                has_pending_request = any(req.status == "pending" for req in active_requests)
+                has_pending_request = any(
+                    (req.status == CreditLimitRequestStatus.PENDING) or 
+                    (str(req.status).upper() == 'PENDING') or 
+                    (str(req.status).lower() == 'pending')
+                    for req in active_requests
+                )
                 
                 if has_pending_request:
                     raise ValueError(
@@ -206,21 +225,79 @@ class OrderService:
         # This ensures we get the most recent value after any updates (e.g., from daily collections)
         db.refresh(shop)
         
+        # Initialize conditional order variables
+        final_amount = total_amount  # Amount to use for credit limit check (will be discounted for subsidy)
+        original_amount = None  # Only set for subsidy orders
+        resolution_type = order_resolution_type or 'normal'
+        
         # Validate credit limit using shop's outstanding_balance field
         credit_limit = Decimal(str(shop.credit_limit or 0))
         if credit_limit > 0:  # Only check if shop has a credit limit
             # Use shop's outstanding_balance field (maintained automatically)
             current_outstanding = Decimal(str(shop.outstanding_balance or 0))
+            available_credit = credit_limit - current_outstanding
             
+            # Check if credit is sufficient
             if current_outstanding + total_amount > credit_limit:
-                available_credit = credit_limit - current_outstanding
-                raise ValueError(
-                    f"Order amount (Rs. {total_amount}) exceeds available credit. "
-                    f"Credit limit: Rs. {credit_limit}, Outstanding: Rs. {current_outstanding}, "
-                    f"Available: Rs. {available_credit}"
-                )
+                # Credit insufficient - need conditional order resolution
+                if not order_resolution_type:
+                    raise ValueError(
+                        f"Order amount (Rs. {total_amount}) exceeds available credit. "
+                        f"Credit limit: Rs. {credit_limit}, Outstanding: Rs. {current_outstanding}, "
+                        f"Available: Rs. {available_credit}. "
+                        f"Please use one of: spot_payment (via daily collection), subsidy, or payment_before_delivery"
+                    )
+                
+                if order_resolution_type == 'subsidy':
+                    # Apply subsidy to reduce order amount
+                    if not subsidy_id:
+                        raise ValueError("subsidy_id is required when using subsidy resolution")
+                    
+                    from repositories.subsidy_repository import SubsidyRepository
+                    subsidy = SubsidyRepository.get_by_id(db, subsidy_id, include_deleted=False)
+                    if not subsidy:
+                        raise ValueError(f"Subsidy with ID {subsidy_id} not found")
+                    
+                    if not subsidy.is_active:
+                        raise ValueError(f"Subsidy with ID {subsidy_id} is not active")
+                    
+                    # Calculate discounted amount
+                    original_amount = total_amount  # Store original before discount
+                    discount_percentage = Decimal(str(subsidy.percentage))
+                    final_amount = total_amount * (1 - discount_percentage / 100)  # Discounted amount
+                    
+                    # Check if discounted amount fits in credit
+                    if current_outstanding + final_amount > credit_limit:
+                        raise ValueError(
+                            f"Even with {subsidy.percentage}% subsidy, order doesn't fit in credit. "
+                            f"Original: Rs. {total_amount}, Discounted: Rs. {final_amount}, "
+                            f"Available credit: Rs. {available_credit}"
+                        )
+                    
+                    resolution_type = 'subsidy'
+                
+                elif order_resolution_type == 'payment_before_delivery':
+                    # Allow order but require payment before delivery
+                    # Credit limit check will use full amount (payment will be collected before delivery)
+                    final_amount = total_amount
+                    resolution_type = 'payment_before_delivery'
+                
+                elif order_resolution_type == 'normal':
+                    # Normal order but credit insufficient - should not happen
+                    raise ValueError(
+                        f"Order amount (Rs. {total_amount}) exceeds available credit. "
+                        f"Available: Rs. {available_credit}. "
+                        f"Please use subsidy or payment_before_delivery resolution"
+                    )
+                else:
+                    raise ValueError(f"Invalid order_resolution_type: {order_resolution_type}. Must be 'normal', 'subsidy', or 'payment_before_delivery'")
+            else:
+                # Credit is sufficient - normal order
+                resolution_type = 'normal'
         
-        # Create order
+        # Create order with conditional order information
+        # For subsidy orders: total_amount = discounted amount, original_amount = original amount
+        # For other orders: total_amount = order amount, original_amount = NULL
         order = OrderRepository.create(
             db=db,
             shop_id=shop_id,
@@ -228,9 +305,12 @@ class OrderService:
             distributor_id=distributor_id,
             delivery_man_id=None,  # Assigned later by distributor
             visit_id=visit_id,
-            total_amount=total_amount,
-            status="pending",
-            scheduled_date=scheduled_date
+            total_amount=final_amount,  # Use final_amount (discounted for subsidy, original for others)
+            status=OrderStatus.PENDING,
+            scheduled_date=scheduled_date,
+            order_resolution_type=resolution_type,
+            subsidy_id=subsidy_id if resolution_type == 'subsidy' else None,
+            original_amount=original_amount  # Only set for subsidy orders
         )
         
         # Create order items using processed items
@@ -258,11 +338,13 @@ class OrderService:
             })
         
         # Update shop's outstanding balance: Increase by order amount
+        # total_amount already contains the final amount (discounted for subsidy, original for others)
+        amount_to_add = final_amount
         # Refresh shop to get latest data
         shop = ShopRepository.get_by_id(db, shop_id)
         if shop:
             current_outstanding = Decimal(str(shop.outstanding_balance or 0))
-            new_outstanding = current_outstanding + total_amount
+            new_outstanding = current_outstanding + amount_to_add
             
             ShopRepository.update(
                 db=db,
@@ -285,7 +367,7 @@ class OrderService:
             "delivery_man_id": order.delivery_man_id,
             "visit_id": order.visit_id,
             "total_amount": float(order.total_amount) if order.total_amount else 0,
-            "status": order.status,
+            "status": order.status.value if hasattr(order.status, 'value') else str(order.status),
             "scheduled_date": order.scheduled_date.isoformat() if order.scheduled_date else None,
             "order_items": created_items,
             "created_at": order.created_at.isoformat() if order.created_at else None
@@ -373,9 +455,10 @@ class OrderService:
             print(f"[get_orders_by_delivery_man] Found {len(delivery_order_ids_list)} orders with deliveries for this delivery man")
         
         # Include all order statuses - frontend will filter them appropriately
-        # Orders tab shows: pending, confirmed
-        # Deliveries tab shows: confirmed, delivered, cancelled
-        status_filter = Order.status.in_(['pending', 'confirmed', 'delivered', 'cancelled'])
+        # Orders tab shows: pending
+        # Deliveries tab shows: delivered, disapproved
+        from models.order import OrderStatus
+        status_filter = Order.status.in_([OrderStatus.PENDING, OrderStatus.DELIVERED, OrderStatus.DISAPPROVED])
         
         # Query orders matching any condition and status filter
         if len(conditions) > 0:
@@ -468,7 +551,7 @@ class OrderService:
                 "delivery_man_name": delivery_man.name if delivery_man else None,
                 "visit_id": order.visit_id,
                 "total_amount": float(order.total_amount) if order.total_amount else 0,
-                "status": order.status,
+                "status": order.status.value if hasattr(order.status, 'value') else str(order.status),
                 "scheduled_date": order.scheduled_date.isoformat() if order.scheduled_date else None,
                 "order_items": order_items,
                 # GPS removed from orders - stored in shop_visits instead

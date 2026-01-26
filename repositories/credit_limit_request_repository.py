@@ -16,7 +16,7 @@ This layer:
 - No business logic (validation, etc.) - that's in Service layer
 """
 from sqlalchemy.orm import Session
-from models.credit_limit_request import CreditLimitRequest
+from models.credit_limit_request import CreditLimitRequest, CreditLimitRequestStatus
 from typing import Optional, List
 
 
@@ -66,7 +66,7 @@ class CreditLimitRequestRepository:
             requested_credit_limit=requested_credit_limit,
             old_credit_limit=old_credit_limit,
             remarks=remarks,
-            status="pending"  # Default status
+            status=CreditLimitRequestStatus.PENDING  # Default status
         )
         # Add to session (staged, not yet saved)
         db.add(request)
@@ -143,7 +143,7 @@ class CreditLimitRequestRepository:
         # Note: Distributors are not assigned to zones, so we return all pending requests
         # If zone filtering is needed, filter by shop.zone_id at the service layer instead
         return db.query(CreditLimitRequest).filter(
-            CreditLimitRequest.status == "pending",
+            CreditLimitRequest.status == CreditLimitRequestStatus.PENDING,
             CreditLimitRequest.deleted_at.is_(None)  # Exclude soft-deleted requests
         ).order_by(CreditLimitRequest.created_at.asc()).all()
     
@@ -208,7 +208,7 @@ class CreditLimitRequestRepository:
         if not request:
             return None
         
-        request.status = "approved"
+        request.status = CreditLimitRequestStatus.APPROVED
         request.approved_by_distributor = distributor_id
         request.approved_at = datetime.utcnow()
         
@@ -229,19 +229,19 @@ class CreditLimitRequestRepository:
         
         FLOW:
         1. Gets request by ID
-        2. Updates status to "rejected"
+        2. Updates status to "disapproved"
         3. Sets approved_by_distributor and approved_at
-        4. Sets remarks (reason for rejection)
+        4. Sets remarks (reason for disapproval)
         5. Commits transaction
         
         Args:
             db: SQLAlchemy database session
-            request_id: Request ID to reject
-            distributor_id: Distributor ID who is rejecting
-            remarks: Reason for rejection
+            request_id: Request ID to disapprove
+            distributor_id: Distributor ID who is disapproving
+            remarks: Reason for disapproval
         
         Returns:
-            Optional[CreditLimitRequest]: Rejected request instance, None if not found
+            Optional[CreditLimitRequest]: Disapproved request instance, None if not found
         """
         from datetime import datetime
         
@@ -249,7 +249,7 @@ class CreditLimitRequestRepository:
         if not request:
             return None
         
-        request.status = "rejected"
+        request.status = CreditLimitRequestStatus.DISAPPROVED
         request.approved_by_distributor = distributor_id
         request.approved_at = datetime.utcnow()
         

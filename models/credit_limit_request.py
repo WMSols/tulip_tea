@@ -10,8 +10,8 @@ Order Bookers can request credit limit changes, and Distributors review and appr
 WORKFLOW:
 1. Order Booker registers new shop with credit limit → Creates request
 2. Order Booker requests credit limit change for existing shop → Creates request
-3. Request status: "pending" → "approved" or "rejected"
-4. Distributor reviews, can edit credit limit value, and approves/rejects
+3. Request status: "pending" → "approved" or "disapproved"
+4. Distributor reviews, can edit credit limit value, and approves/disapproves
 5. On approval, shop's credit_limit is updated
 
 RELATIONSHIPS:
@@ -22,13 +22,22 @@ RELATIONSHIPS:
 STATUS VALUES:
 - "pending" - Awaiting distributor review
 - "approved" - Distributor approved, credit limit updated
-- "rejected" - Distributor rejected the request
+- "disapproved" - Distributor disapproved/rejected the request
 
 DATABASE TABLE: credit_limit_requests
 """
-from sqlalchemy import Column, BigInteger, String, Numeric, DateTime, ForeignKey
+from sqlalchemy import Column, BigInteger, String, Numeric, DateTime, ForeignKey, Enum
+from sqlalchemy.dialects.postgresql import ENUM
 from sqlalchemy.sql import func
+import enum
 from config.database import Base
+
+
+class CreditLimitRequestStatus(str, enum.Enum):
+    """Credit limit request status enumeration."""
+    PENDING = "pending"
+    APPROVED = "approved"
+    DISAPPROVED = "disapproved"
 
 
 class CreditLimitRequest(Base):
@@ -104,14 +113,19 @@ class CreditLimitRequest(Base):
     """
 
     # Status and Review
-    status = Column(String, nullable=True)
+    status = Column(
+        ENUM(CreditLimitRequestStatus, name='credit_limit_request_status_enum', create_type=False),
+        nullable=False,
+        default=CreditLimitRequestStatus.PENDING,
+        server_default='pending'
+    )
     """
     Request status.
-    - Values: "pending", "approved", "rejected"
+    - Values: "pending", "approved", "disapproved"
     - Default: "pending" when created
     - "pending": Awaiting distributor review
     - "approved": Distributor approved, shop credit_limit updated
-    - "rejected": Distributor rejected the request
+    - "disapproved": Distributor disapproved/rejected the request
     """
 
     remarks = Column(String, nullable=True)

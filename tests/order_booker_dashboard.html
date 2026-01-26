@@ -616,6 +616,48 @@
                             <div id="shopCreditLimitInfo" style="margin-top: 10px; padding: 10px; background: #fff3cd; border-radius: 5px; font-size: 12px; color: #856404;">
                                 <strong>Note:</strong> Order will be validated against shop's credit limit before creation.
                             </div>
+                            
+                            <!-- Conditional Order Options -->
+                            <div id="conditionalOrderOptions" style="margin-top: 20px; padding: 15px; background: #f0f8ff; border-radius: 8px; border-left: 4px solid #3498db; display: none;">
+                                <h5 style="color: #3498db; margin-bottom: 10px;">⚡ Conditional Order Options</h5>
+                                <p style="color: #666; font-size: 12px; margin-bottom: 15px;">If shop's available credit is less than order amount, you can use one of these options:</p>
+                                
+                                <div class="form-group">
+                                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                                        <input type="radio" name="orderResolutionType" id="orderResolutionNormal" value="normal" checked style="width: auto;">
+                                        <span>Normal Order (Credit must be sufficient)</span>
+                                    </label>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                                        <input type="radio" name="orderResolutionType" id="orderResolutionSubsidy" value="subsidy" style="width: auto;" onchange="toggleSubsidySelection()">
+                                        <span>Apply Subsidy (Reduce order amount with discount)</span>
+                                    </label>
+                                    <div id="subsidySelection" style="display: none; margin-top: 10px; margin-left: 30px;">
+                                        <select id="orderSubsidyId" style="width: 100%; padding: 8px; border: 2px solid #ddd; border-radius: 5px;">
+                                            <option value="">Select Subsidy...</option>
+                                        </select>
+                                        <small style="color: #666; display: block; margin-top: 5px;">Select an active subsidy to apply discount to this order</small>
+                                        <div id="subsidyPreview" style="margin-top: 10px; padding: 10px; background: white; border-radius: 5px; display: none;">
+                                            <strong style="color: #27ae60;">Discount Preview:</strong>
+                                            <div style="margin-top: 5px; font-size: 12px;">
+                                                Original: Rs. <span id="subsidyOriginalAmount">0.00</span><br>
+                                                Discount: <span id="subsidyDiscountPercent">0</span>%<br>
+                                                Discounted: Rs. <span id="subsidyDiscountedAmount" style="color: #27ae60; font-weight: bold;">0.00</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                                        <input type="radio" name="orderResolutionType" id="orderResolutionPaymentBefore" value="payment_before_delivery" style="width: auto;">
+                                        <span>Payment Before Delivery (Delivery man will collect payment before delivery)</span>
+                                    </label>
+                                    <small style="color: #666; display: block; margin-left: 30px; margin-top: 5px;">Order will be placed, but delivery man must collect payment before delivering</small>
+                                </div>
+                            </div>
                         </div>
                         
                         <!-- Daily Collections Form (shown when daily_collections is selected) -->
@@ -1559,6 +1601,13 @@
                 form.style.display = 'block';
                 // Load products when order form is shown
                 await loadActiveProducts();
+                // Load subsidies when order form is shown
+                await loadActiveSubsidies();
+                // Show conditional order options
+                const conditionalOptions = document.getElementById('conditionalOrderOptions');
+                if (conditionalOptions) {
+                    conditionalOptions.style.display = 'block';
+                }
                 // Ensure at least one order item exists
                 if (orderItemsContainer.children.length === 0) {
                     addOrderItem();
@@ -1762,6 +1811,7 @@
             `;
             container.appendChild(itemDiv);
             updateOrderTotal();
+            updateSubsidyPreview(); // Update subsidy preview when order total changes
         }
 
         // Remove Order Item
@@ -1800,6 +1850,85 @@
         }
 
         // Update Order Total
+        // Load Active Subsidies
+        async function loadActiveSubsidies() {
+            if (!currentUser || !currentUser.distributor_id) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/subsidies/distributor/${currentUser.distributor_id}/active`, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+                
+                if (response.ok) {
+                    const subsidies = await response.json();
+                    const subsidySelect = document.getElementById('orderSubsidyId');
+                    if (subsidySelect) {
+                        subsidySelect.innerHTML = '<option value="">Select Subsidy...</option>' + 
+                            subsidies.map(s => `<option value="${s.id}" data-percentage="${s.percentage}">${s.name} (${s.percentage}% discount)</option>`).join('');
+                        
+                        // Add change listener for subsidy preview
+                        subsidySelect.addEventListener('change', function() {
+                            updateSubsidyPreview();
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading subsidies:', error);
+            }
+        }
+
+        // Toggle Subsidy Selection
+        function toggleSubsidySelection() {
+            const subsidyRadio = document.getElementById('orderResolutionSubsidy');
+            const subsidySelection = document.getElementById('subsidySelection');
+            
+            if (subsidyRadio && subsidyRadio.checked) {
+                subsidySelection.style.display = 'block';
+                loadActiveSubsidies();
+            } else {
+                subsidySelection.style.display = 'none';
+                document.getElementById('orderSubsidyId').value = '';
+                document.getElementById('subsidyPreview').style.display = 'none';
+            }
+        }
+
+        // Update Subsidy Preview
+        function updateSubsidyPreview() {
+            const subsidySelect = document.getElementById('orderSubsidyId');
+            const subsidyPreview = document.getElementById('subsidyPreview');
+            const originalAmountSpan = document.getElementById('subsidyOriginalAmount');
+            const discountPercentSpan = document.getElementById('subsidyDiscountPercent');
+            const discountedAmountSpan = document.getElementById('subsidyDiscountedAmount');
+            
+            if (!subsidySelect || !subsidySelect.value) {
+                subsidyPreview.style.display = 'none';
+                return;
+            }
+            
+            const selectedOption = subsidySelect.options[subsidySelect.selectedIndex];
+            const discountPercent = parseFloat(selectedOption.getAttribute('data-percentage') || 0);
+            
+            // Get current order total
+            const orderTotal = parseFloat(document.getElementById('orderTotalAmount').textContent || 0);
+            
+            if (orderTotal > 0 && discountPercent > 0) {
+                const discountAmount = orderTotal * (discountPercent / 100);
+                const discountedAmount = orderTotal - discountAmount;
+                
+                originalAmountSpan.textContent = orderTotal.toFixed(2);
+                discountPercentSpan.textContent = discountPercent.toFixed(2);
+                discountedAmountSpan.textContent = discountedAmount.toFixed(2);
+                
+                subsidyPreview.style.display = 'block';
+            } else {
+                subsidyPreview.style.display = 'none';
+            }
+        }
+
         function updateOrderTotal() {
             const items = document.querySelectorAll('.order-item-form');
             let total = 0;
@@ -1835,6 +1964,8 @@
             }
             // Update credit warning if shop is selected
             updateOrderTotalWithCreditWarning();
+            // Update subsidy preview
+            updateSubsidyPreview();
         }
 
         // Register Shop Visit
@@ -1961,6 +2092,31 @@
                 }
             }
 
+            // Get conditional order resolution type and subsidy
+            let orderResolutionType = null;
+            let subsidyId = null;
+            if (visitTypes.includes('order_booking')) {
+                const resolutionRadios = document.querySelectorAll('input[name="orderResolutionType"]');
+                for (const radio of resolutionRadios) {
+                    if (radio.checked) {
+                        orderResolutionType = radio.value;
+                        break;
+                    }
+                }
+                
+                // If subsidy is selected, get subsidy ID
+                if (orderResolutionType === 'subsidy') {
+                    const subsidySelect = document.getElementById('orderSubsidyId');
+                    if (subsidySelect && subsidySelect.value) {
+                        subsidyId = parseInt(subsidySelect.value);
+                    } else {
+                        resultDiv.className = 'result error';
+                        resultDiv.textContent = 'Please select a subsidy when using subsidy resolution type';
+                        return;
+                    }
+                }
+            }
+
             const visitData = {
                 shop_id: document.getElementById('visitShopId').value ? parseInt(document.getElementById('visitShopId').value) : null,
                 visit_types: visitTypes,
@@ -1972,7 +2128,9 @@
                 order_items: orderItems,
                 scheduled_date: scheduledDate,
                 collection_amount: collectionAmount,
-                collection_remarks: collectionRemarks
+                collection_remarks: collectionRemarks,
+                order_resolution_type: orderResolutionType,
+                subsidy_id: subsidyId
             };
 
             const endpoint = `${API_BASE}/shop-visits/order-booker/${currentUser.id}`;
@@ -2081,6 +2239,12 @@
                 // Hide forms
                 document.getElementById('orderBookingForm').style.display = 'none';
                 document.getElementById('dailyCollectionsForm').style.display = 'none';
+                document.getElementById('conditionalOrderOptions').style.display = 'none';
+                // Reset conditional order options
+                document.getElementById('orderResolutionNormal').checked = true;
+                document.getElementById('orderSubsidyId').value = '';
+                document.getElementById('subsidySelection').style.display = 'none';
+                document.getElementById('subsidyPreview').style.display = 'none';
                 // Clear order items and remove required attributes
                 const orderItemsContainer = document.getElementById('orderItemsContainer');
                 const orderItemInputs = orderItemsContainer.querySelectorAll('.order-item-product, .order-item-quantity');

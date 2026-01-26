@@ -427,6 +427,7 @@
                     <button class="tab" onclick="switchTab('products')">📦 Products</button>
                     <button class="tab" onclick="switchTab('shops')">Shops <span id="pendingShopsBadge" style="background: #e74c3c; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 5px;">0</span></button>
                     <button class="tab" onclick="switchTab('creditLimits')">Credit Limits <span id="creditRequestsBadge" style="background: #e74c3c; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 5px;">0</span></button>
+                    <button class="tab" onclick="switchTab('subsidies')">💰 Subsidies</button>
                     <button class="tab" onclick="switchTab('visits')">📍 Visits</button>
                 </div>
 
@@ -676,6 +677,44 @@
                     <div id="productsList" style="margin-top: 20px;"></div>
                 </div>
 
+                <!-- Subsidies Tab -->
+                <div id="subsidiesTab" class="tab-content">
+                    <h2>💰 Create Subsidy</h2>
+                    <form id="subsidyForm" onsubmit="createSubsidy(event)">
+                        <div class="form-group">
+                            <label>Subsidy Name *</label>
+                            <input type="text" id="subsidyName" required placeholder="e.g., New Year Discount, Special Offer">
+                        </div>
+                        <div class="form-group">
+                            <label>Percentage (%) *</label>
+                            <input type="number" id="subsidyPercentage" required step="0.01" min="0" max="100" placeholder="e.g., 10.00 for 10%">
+                            <small style="color: #666;">Enter the discount percentage (e.g., 10.00 for 10% discount)</small>
+                        </div>
+                        <div class="form-group">
+                            <label>Description (Optional)</label>
+                            <textarea id="subsidyDescription" rows="3" placeholder="Description of the subsidy"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                                <input type="checkbox" id="subsidyIsActive" checked style="width: auto;">
+                                <span>Active (uncheck to deactivate)</span>
+                            </label>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Create Subsidy</button>
+                    </form>
+                    <div id="subsidyResult" class="result"></div>
+                    
+                    <h2 style="margin-top: 40px;">Existing Subsidies</h2>
+                    <div style="margin-bottom: 20px;">
+                        <button class="btn btn-success" onclick="loadSubsidies()" style="margin-right: 10px;">Refresh List</button>
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="includeInactiveSubsidies" onchange="loadSubsidies()" style="width: auto;">
+                            <span>Include Inactive Subsidies</span>
+                        </label>
+                    </div>
+                    <div id="subsidiesList" style="margin-top: 20px;"></div>
+                </div>
+
                 <!-- Visits Tab -->
                 <div id="visitsTab" class="tab-content">
                     <h2>📍 All Shop Visits</h2>
@@ -920,10 +959,10 @@
             });
 
             // Show selected tab
-            const tabs = ['zones', 'routes', 'orderBookers', 'deliveryMen', 'warehouses', 'products', 'shops', 'creditLimits', 'visits'];
+            const tabs = ['zones', 'routes', 'orderBookers', 'deliveryMen', 'warehouses', 'products', 'shops', 'creditLimits', 'subsidies', 'visits'];
             const tabIndex = tabs.indexOf(tabName);
             if (tabIndex !== -1) {
-                const tabContents = ['zonesTab', 'routesTab', 'orderBookersTab', 'deliveryMenTab', 'warehousesTab', 'productsTab', 'shopsTab', 'creditLimitsTab', 'visitsTab'];
+                const tabContents = ['zonesTab', 'routesTab', 'orderBookersTab', 'deliveryMenTab', 'warehousesTab', 'productsTab', 'shopsTab', 'creditLimitsTab', 'subsidiesTab', 'visitsTab'];
                 const tabContentElement = document.getElementById(tabContents[tabIndex]);
                 if (tabContentElement) {
                     tabContentElement.classList.add('active');
@@ -947,6 +986,8 @@
                 } else if (tabName === 'creditLimits') {
                     loadAllShopsWithCreditLimits();
                     loadPendingCreditLimitRequests();
+                } else if (tabName === 'subsidies') {
+                    loadSubsidies();
                 } else if (tabName === 'visits') {
                     loadAllVisits();
                 }
@@ -3579,10 +3620,39 @@
                                         <span class="info-label">Total Amount:</span>
                                         <span class="info-value"><strong style="color: #3498db;">Rs. ${parseFloat(order.total_amount || 0).toFixed(2)}</strong></span>
                                     </div>
+                                    ${order.original_amount && order.original_amount !== order.total_amount ? `
+                                    <div class="info-row">
+                                        <span class="info-label">Original Amount:</span>
+                                        <span class="info-value"><strong style="color: #95a5a6; text-decoration: line-through;">Rs. ${parseFloat(order.original_amount || 0).toFixed(2)}</strong></span>
+                                    </div>
+                                    <div class="info-row">
+                                        <span class="info-label">Discount Applied:</span>
+                                        <span class="info-value"><strong style="color: #27ae60;">Rs. ${(parseFloat(order.original_amount || 0) - parseFloat(order.total_amount || 0)).toFixed(2)}</strong></span>
+                                    </div>
+                                    ` : ''}
+                                    ${order.order_resolution_type && order.order_resolution_type !== 'normal' ? `
+                                    <div class="info-row">
+                                        <span class="info-label">Order Resolution:</span>
+                                        <span class="info-value">
+                                            <span style="background: ${order.order_resolution_type === 'subsidy' ? '#f39c12' : order.order_resolution_type === 'payment_before_delivery' ? '#3498db' : '#95a5a6'}; color: white; padding: 4px 10px; border-radius: 15px; font-size: 12px;">
+                                                ${order.order_resolution_type === 'subsidy' ? '💰 SUBSIDY APPLIED' : order.order_resolution_type === 'payment_before_delivery' ? '💳 PAYMENT BEFORE DELIVERY' : order.order_resolution_type.toUpperCase()}
+                                            </span>
+                                        </span>
+                                    </div>
+                                    ` : ''}
+                                    ${order.payment_collected_before_delivery ? `
+                                    <div class="info-row">
+                                        <span class="info-label">Payment Collected:</span>
+                                        <span class="info-value">
+                                            <strong style="color: #27ae60;">Yes</strong> - Rs. ${parseFloat(order.payment_collected_amount || 0).toFixed(2)}
+                                            ${order.payment_collected_at ? ` (${new Date(order.payment_collected_at).toLocaleString()})` : ''}
+                                        </span>
+                                    </div>
+                                    ` : ''}
                                     <div class="info-row">
                                         <span class="info-label">Status:</span>
                                         <span class="info-value">
-                                            <span style="background: ${order.status === 'pending' ? '#f39c12' : order.status === 'confirmed' ? '#27ae60' : order.status === 'delivered' ? '#27ae60' : order.status === 'cancelled' ? '#e74c3c' : '#95a5a6'}; color: white; padding: 4px 10px; border-radius: 15px; font-size: 12px;">
+                                            <span style="background: ${order.status === 'pending' ? '#f39c12' : order.status === 'delivered' ? '#27ae60' : order.status === 'disapproved' ? '#e74c3c' : '#95a5a6'}; color: white; padding: 4px 10px; border-radius: 15px; font-size: 12px;">
                                                 ${(order.status || 'pending').toUpperCase()}
                                             </span>
                                         </span>
@@ -4317,6 +4387,10 @@
             if (event.target === inventoryModal) {
                 closeInventoryModal();
             }
+            const editSubsidyModal = document.getElementById('editSubsidyModal');
+            if (event.target === editSubsidyModal) {
+                closeEditSubsidyModal();
+            }
         });
 
         // ==================== WAREHOUSE FUNCTIONS ====================
@@ -4906,6 +4980,222 @@
             }
         }
 
+        // ==================== SUBSIDY FUNCTIONS ====================
+
+        // Create Subsidy
+        async function createSubsidy(event) {
+            event.preventDefault();
+            const resultDiv = document.getElementById('subsidyResult');
+
+            if (!currentToken || !currentDistributorId) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Please login first';
+                return;
+            }
+
+            const subsidyData = {
+                distributor_id: currentDistributorId,
+                name: document.getElementById('subsidyName').value.trim(),
+                percentage: parseFloat(document.getElementById('subsidyPercentage').value),
+                description: document.getElementById('subsidyDescription').value.trim() || null,
+                is_active: document.getElementById('subsidyIsActive').checked
+            };
+
+            const endpoint = `${API_BASE}/subsidies/distributor/${currentDistributorId}`;
+            showApiCall('POST', endpoint, 'Create Subsidy', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify(subsidyData)
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showApiCall('POST', endpoint, 'Create Subsidy', 'error');
+                    throw new Error(data.detail || 'Failed to create subsidy');
+                }
+
+                resultDiv.className = 'result success';
+                resultDiv.textContent = `Subsidy "${data.name}" (${data.percentage}%) created successfully!`;
+                showApiCall('POST', endpoint, 'Create Subsidy', 'success');
+
+                // Reset form
+                document.getElementById('subsidyForm').reset();
+                document.getElementById('subsidyIsActive').checked = true;
+
+                // Reload list
+                loadSubsidies();
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // Load Subsidies
+        async function loadSubsidies() {
+            const listDiv = document.getElementById('subsidiesList');
+
+            if (!currentDistributorId) {
+                listDiv.innerHTML = '<p>Please login first</p>';
+                return;
+            }
+
+            const includeInactive = document.getElementById('includeInactiveSubsidies')?.checked || false;
+            const endpoint = includeInactive 
+                ? `${API_BASE}/subsidies/distributor/${currentDistributorId}?include_inactive=true`
+                : `${API_BASE}/subsidies/distributor/${currentDistributorId}/active`;
+            showApiCall('GET', endpoint, 'Load Subsidies', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showApiCall('GET', endpoint, 'Load Subsidies', 'error');
+                    throw new Error(data.detail || 'Failed to load subsidies');
+                }
+
+                showApiCall('GET', endpoint, 'Load Subsidies', 'success');
+
+                if (data.length === 0) {
+                    listDiv.innerHTML = '<p>No subsidies found. Create one above.</p>';
+                    return;
+                }
+
+                listDiv.innerHTML = data.map(subsidy => {
+                    const statusColor = subsidy.is_active ? 'green' : 'red';
+                    const statusText = subsidy.is_active ? 'Active' : 'Inactive';
+                    return `
+                        <div class="list-item" onclick="openEditSubsidyModal(${subsidy.id}, '${(subsidy.name || '').replace(/'/g, "\\'")}', ${subsidy.percentage}, '${(subsidy.description || '').replace(/'/g, "\\'")}', ${subsidy.is_active})">
+                            <div class="list-item-info" style="flex: 1;">
+                                <strong>${subsidy.name}</strong><br>
+                                Percentage: <strong style="color: #667eea;">${subsidy.percentage}%</strong><br>
+                                ${subsidy.description ? `Description: ${subsidy.description}<br>` : ''}
+                                Status: <span style="color: ${statusColor}">${statusText}</span><br>
+                                <small>ID: ${subsidy.id} | Created: ${new Date(subsidy.created_at).toLocaleDateString()}</small>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <button class="btn btn-primary" onclick="event.stopPropagation(); openEditSubsidyModal(${subsidy.id}, '${(subsidy.name || '').replace(/'/g, "\\'")}', ${subsidy.percentage}, '${(subsidy.description || '').replace(/'/g, "\\'")}', ${subsidy.is_active})" style="padding: 8px 15px; font-size: 14px;">✏️ Edit</button>
+                                <button class="btn btn-danger" onclick="event.stopPropagation(); if(confirm('Delete subsidy ${(subsidy.name || '').replace(/'/g, "\\'")}? This will soft delete the subsidy.')) { deleteSubsidy(${subsidy.id}); }" style="padding: 8px 15px; font-size: 14px;">🗑️ Delete</button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            } catch (error) {
+                listDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+
+        // Open Edit Subsidy Modal
+        function openEditSubsidyModal(subsidyId, name, percentage, description, isActive) {
+            const modal = document.getElementById('editSubsidyModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('active');
+            
+            document.getElementById('editSubsidyId').value = subsidyId;
+            document.getElementById('editSubsidyName').value = name || '';
+            document.getElementById('editSubsidyPercentage').value = percentage || '';
+            document.getElementById('editSubsidyDescription').value = description || '';
+            document.getElementById('editSubsidyIsActive').checked = isActive;
+        }
+
+        // Close Edit Subsidy Modal
+        function closeEditSubsidyModal() {
+            const modal = document.getElementById('editSubsidyModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('active');
+            document.getElementById('editSubsidyForm').reset();
+            document.getElementById('editSubsidyResult').className = 'result';
+            document.getElementById('editSubsidyResult').textContent = '';
+        }
+
+        // Update Subsidy
+        async function updateSubsidy(event) {
+            event.preventDefault();
+            const resultDiv = document.getElementById('editSubsidyResult');
+            const subsidyId = document.getElementById('editSubsidyId').value;
+
+            const subsidyData = {
+                name: document.getElementById('editSubsidyName').value.trim(),
+                percentage: parseFloat(document.getElementById('editSubsidyPercentage').value),
+                description: document.getElementById('editSubsidyDescription').value.trim() || null,
+                is_active: document.getElementById('editSubsidyIsActive').checked
+            };
+
+            const endpoint = `${API_BASE}/subsidies/${subsidyId}`;
+            showApiCall('PUT', endpoint, 'Update Subsidy', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify(subsidyData)
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showApiCall('PUT', endpoint, 'Update Subsidy', 'error');
+                    throw new Error(data.detail || 'Failed to update subsidy');
+                }
+
+                showApiCall('PUT', endpoint, 'Update Subsidy', 'success');
+                resultDiv.className = 'result success';
+                resultDiv.textContent = 'Subsidy updated successfully!';
+                
+                setTimeout(() => {
+                    closeEditSubsidyModal();
+                    loadSubsidies();
+                }, 1500);
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // Delete Subsidy
+        async function deleteSubsidy(subsidyId) {
+            const endpoint = `${API_BASE}/subsidies/${subsidyId}`;
+            showApiCall('DELETE', endpoint, 'Delete Subsidy', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+
+                if (!response.ok) {
+                    const data = await response.json();
+                    showApiCall('DELETE', endpoint, 'Delete Subsidy', 'error');
+                    throw new Error(data.detail || 'Failed to delete subsidy');
+                }
+
+                showApiCall('DELETE', endpoint, 'Delete Subsidy', 'success');
+                alert('Subsidy deleted successfully!');
+                
+                // Reload subsidies
+                loadSubsidies();
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        }
+
         // ==================== PRODUCT FUNCTIONS ====================
 
         // Create Product
@@ -5281,6 +5571,40 @@
                 <button type="submit" class="btn btn-primary">Update Product</button>
             </form>
             <div id="editProductResult" class="result"></div>
+        </div>
+    </div>
+
+    <!-- Edit Subsidy Modal -->
+    <div id="editSubsidyModal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeEditSubsidyModal()">&times;</span>
+            <h2>Edit Subsidy</h2>
+            <form id="editSubsidyForm" onsubmit="updateSubsidy(event)">
+                <input type="hidden" id="editSubsidyId">
+                <div class="form-group">
+                    <label>Subsidy Name *</label>
+                    <input type="text" id="editSubsidyName" required placeholder="e.g., New Year Discount, Special Offer">
+                </div>
+                <div class="form-group">
+                    <label>Percentage (%) *</label>
+                    <input type="number" id="editSubsidyPercentage" required step="0.01" min="0" max="100" placeholder="e.g., 10.00 for 10%">
+                </div>
+                <div class="form-group">
+                    <label>Description (Optional)</label>
+                    <textarea id="editSubsidyDescription" rows="3" placeholder="Description of the subsidy"></textarea>
+                </div>
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                        <input type="checkbox" id="editSubsidyIsActive" style="width: auto;">
+                        <span>Active (uncheck to deactivate)</span>
+                    </label>
+                </div>
+                <div class="modal-actions">
+                    <button type="submit" class="btn btn-primary">Update Subsidy</button>
+                    <button type="button" class="btn" onclick="closeEditSubsidyModal()" style="background: #6c757d; color: white;">Cancel</button>
+                </div>
+            </form>
+            <div id="editSubsidyResult" class="result"></div>
         </div>
     </div>
 </body>

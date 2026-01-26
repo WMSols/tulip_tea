@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 from typing import List
 from config.database import get_db
-from models.schemas import OrderCreate, OrderResponse, OrderDeliveryUpdate
+from models.schemas import OrderCreate, OrderResponse, OrderDeliveryUpdate, OrderPaymentCollection
 from services.order_service import OrderService
 from services.activity_log_service import ActivityLogService
 from utils.auth_helpers import get_current_user_from_request
@@ -211,6 +211,102 @@ async def list_orders_by_visit(
         )
 
 
+@router.post("/{order_id}/collect-payment", response_model=OrderResponse)
+async def collect_payment_before_delivery(
+    order_id: int,
+    payment_data: "OrderPaymentCollection",
+    request: Request = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Collect payment before delivery (by Delivery Man).
+    
+    API: POST /orders/{order_id}/collect-payment
+    
+    FLOW:
+    1. Delivery Man arrives at shop
+    2. If order requires payment before delivery, collects payment first
+    3. Records payment amount and timestamp
+    4. Reduces shop's outstanding balance
+    5. Order can now be delivered
+    
+    Request Body:
+        {
+            "payment_amount": 5000.00,
+            "remarks": "Payment collected in cash" (optional)
+        }
+    
+    Response (200):
+        Updated order data with payment collection info
+    """
+    try:
+        from repositories.order_repository import OrderRepository
+        from repositories.shop_repository import ShopRepository
+        from decimal import Decimal
+        from datetime import datetime
+        
+        order = OrderRepository.get_by_id(db, order_id)
+        if not order:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Order not found"
+            )
+        
+        # Check if order requires payment before delivery
+        if order.order_resolution_type != 'payment_before_delivery':
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This order does not require payment before delivery"
+            )
+        
+        # Check if payment already collected
+        if order.payment_collected_before_delivery:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Payment already collected for this order"
+            )
+        
+        payment_amount = Decimal(str(payment_data.payment_amount))
+        if payment_amount <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Payment amount must be greater than 0"
+            )
+        
+        # Update order with payment collection
+        order.payment_collected_before_delivery = True
+        order.payment_collected_amount = payment_amount
+        order.payment_collected_at = datetime.utcnow()
+        db.commit()
+        db.refresh(order)
+        
+        # Reduce shop's outstanding balance
+        shop = ShopRepository.get_by_id(db, order.shop_id)
+        if shop:
+            current_outstanding = Decimal(str(shop.outstanding_balance or 0))
+            new_outstanding = max(Decimal('0'), current_outstanding - payment_amount)
+            
+            ShopRepository.update(
+                db=db,
+                shop_id=order.shop_id,
+                outstanding_balance=new_outstanding
+            )
+        
+        # Format response
+        from services.order_service import OrderService
+        order_data = OrderService._format_order(db, order)
+        
+        return order_data
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error collecting payment: {str(e)}"
+        )
+
+
 @router.put("/{order_id}/deliver", response_model=OrderResponse)
 async def deliver_order(
     order_id: int,
@@ -219,13 +315,13 @@ async def deliver_order(
     db: Session = Depends(get_db)
 ):
     """
-    Mark order as delivered or cancelled (by Delivery Man) with delivery proof.
+    Mark order as delivered or disapproved (by Delivery Man) with delivery proof.
     
     API: PUT /orders/{order_id}/deliver
     
     Request Body:
         {
-            "status": "delivered" or "cancelled",
+            "status": "delivered" or "disapproved",
             "delivery_gps_lat": 33.684422 (optional),
             "delivery_gps_lng": 73.047905 (optional),
             "delivery_remarks": "Delivered to shop owner" (optional),
@@ -247,7 +343,15 @@ async def deliver_order(
                 detail="Order not found"
             )
         
-        old_status = order.status
+        # Check if payment is required before delivery
+        if order.order_resolution_type == 'payment_before_delivery':
+            if not order.payment_collected_before_delivery:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Payment must be collected before delivery. Please collect payment first using /orders/{order_id}/collect-payment"
+                )
+        
+        old_status = order.status.value if hasattr(order.status, 'value') else str(order.status)
         
         # Convert delivery_images list to JSON string if provided
         delivery_images_json = None
@@ -259,7 +363,7 @@ async def deliver_order(
         from repositories.visit_type_repository import VisitTypeRepository
         from datetime import datetime
         
-        visit_type = "delivery" if delivery_data.status == "delivered" else "cancelled"
+        visit_type = "delivery" if delivery_data.status == "delivered" else "cancelled"  # Visit type can be "cancelled" even if order status is "disapproved"
         
         # Create shop visit with GPS and images
         visit_photos_json = None
@@ -285,10 +389,12 @@ async def deliver_order(
             print(f"Warning: Failed to create visit type '{visit_type}': {e}")
         
         # Update order with delivery proof (without GPS - GPS is in shop_visits now)
+        from models.order import OrderStatus
+        order_status = OrderStatus.DELIVERED if delivery_data.status == "delivered" else OrderStatus.DISAPPROVED
         updated_order = OrderRepository.update_delivery_proof(
             db=db,
             order_id=order_id,
-            status=delivery_data.status,
+            status=order_status,
             delivery_gps_lat=None,  # GPS removed from orders - stored in shop_visits
             delivery_gps_lng=None,  # GPS removed from orders - stored in shop_visits
             delivery_remarks=delivery_data.delivery_remarks,
@@ -379,7 +485,7 @@ async def assign_order_to_delivery_man(
     1. Distributor views pending orders
     2. Selects delivery man for order
     3. Service assigns order
-    4. Order status changes to "confirmed"
+    4. Order status remains "pending" until delivery man marks it as "delivered" or "disapproved"
     """
     try:
         # Get order before assignment for logging
@@ -389,7 +495,7 @@ async def assign_order_to_delivery_man(
             raise ValueError("Order not found")
         
         old_delivery_man_id = order_before.delivery_man_id
-        old_status = order_before.status
+        old_status = order_before.status.value if hasattr(order_before.status, 'value') else str(order_before.status)
         
         result = OrderService.assign_delivery_man(db, order_id, delivery_man_id)
         # Get full order data

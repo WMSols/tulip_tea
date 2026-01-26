@@ -40,6 +40,28 @@ class OrderRepository:
         Returns:
             Created order instance
         """
+        # Ensure status is the enum value (lowercase string) not the enum name
+        # SQLAlchemy's PostgreSQL ENUM sometimes converts to uppercase, so we need to ensure
+        # we're using the enum value correctly. The enum value is lowercase ("pending")
+        if isinstance(status, OrderStatus):
+            # Already an enum, use it directly
+            status_enum = status
+            print(f"[DEBUG OrderRepository.create] Status is enum: {status_enum}, value: {status_enum.value}")
+        else:
+            # Convert string to enum
+            status_str = str(status).lower()
+            if status_str == 'pending':
+                status_enum = OrderStatus.PENDING
+            elif status_str == 'delivered':
+                status_enum = OrderStatus.DELIVERED
+            elif status_str == 'disapproved':
+                status_enum = OrderStatus.DISAPPROVED
+            else:
+                status_enum = OrderStatus.PENDING
+            print(f"[DEBUG OrderRepository.create] Converted string {status} to enum: {status_enum}, value: {status_enum.value}")
+        
+        # Create order - TypeDecorator should handle the conversion
+        print(f"[DEBUG OrderRepository.create] Creating order with status: {status_enum} (value: {status_enum.value})")
         order = Order(
             shop_id=shop_id,
             order_booker_id=order_booker_id,
@@ -47,12 +69,13 @@ class OrderRepository:
             delivery_man_id=delivery_man_id,
             visit_id=visit_id,
             total_amount=total_amount,
-            status=status,
+            status=status_enum,
             scheduled_date=scheduled_date,
             order_resolution_type=order_resolution_type,
             subsidy_id=subsidy_id,
             original_amount=original_amount
         )
+        print(f"[DEBUG OrderRepository.create] Order created, status attribute: {order.status}, type: {type(order.status)}")
         db.add(order)
         db.commit()
         db.refresh(order)

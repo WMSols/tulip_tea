@@ -1596,6 +1596,7 @@
             const checkbox = document.getElementById('visitTypeOrderBooking');
             const form = document.getElementById('orderBookingForm');
             const orderItemsContainer = document.getElementById('orderItemsContainer');
+            const conditionalOptions = document.getElementById('conditionalOrderOptions');
             
             if (checkbox.checked) {
                 form.style.display = 'block';
@@ -1603,8 +1604,7 @@
                 await loadActiveProducts();
                 // Load subsidies when order form is shown
                 await loadActiveSubsidies();
-                // Show conditional order options
-                const conditionalOptions = document.getElementById('conditionalOrderOptions');
+                // Show conditional order options when order booking is selected
                 if (conditionalOptions) {
                     conditionalOptions.style.display = 'block';
                 }
@@ -2462,23 +2462,62 @@
             const orderTotalElement = document.getElementById('orderTotalAmount');
             const creditInfoDisplay = document.getElementById('shopCreditInfoDisplay');
             const shopCreditInfo = document.getElementById('availableCreditValue');
+            const conditionalOptions = document.getElementById('conditionalOrderOptions');
             
-            if (!orderTotalElement || !creditInfoDisplay || creditInfoDisplay.style.display === 'none') {
+            // Conditional options should always be visible when order booking is selected
+            // Only check credit if shop is selected and credit info is displayed
+            if (!orderTotalElement) {
                 return;
             }
             
             const orderTotal = parseFloat(orderTotalElement.textContent) || 0;
-            const availableCreditText = shopCreditInfo.textContent.replace('Rs. ', '').replace(/,/g, '');
-            const availableCredit = parseFloat(availableCreditText) || 0;
+            let availableCredit = 0; // Initialize availableCredit
+            
+            // If shop is selected and credit info is displayed, check credit availability
+            if (creditInfoDisplay && creditInfoDisplay.style.display !== 'none' && shopCreditInfo) {
+                const availableCreditText = shopCreditInfo.textContent.replace('Rs. ', '').replace(/,/g, '');
+                availableCredit = parseFloat(availableCreditText) || 0;
+                
+                // Highlight conditional order options based on credit availability
+                if (conditionalOptions) {
+                    if (orderTotal > availableCredit && availableCredit > 0) {
+                        // Highlight conditional options when order exceeds available credit
+                        conditionalOptions.style.background = '#fff3cd';
+                        conditionalOptions.style.borderLeft = '4px solid #ffc107';
+                        const h5 = conditionalOptions.querySelector('h5');
+                        const p = conditionalOptions.querySelector('p');
+                        if (h5) h5.style.color = '#856404';
+                        if (p) p.innerHTML = '<strong style="color: #856404;">⚠️ Order exceeds available credit!</strong> Use one of these options to proceed:';
+                    } else {
+                        // Normal styling when credit is sufficient
+                        conditionalOptions.style.background = '#f0f8ff';
+                        conditionalOptions.style.borderLeft = '4px solid #3498db';
+                        const h5 = conditionalOptions.querySelector('h5');
+                        const p = conditionalOptions.querySelector('p');
+                        if (h5) h5.style.color = '#3498db';
+                        if (p) p.textContent = 'If shop\'s available credit is less than order amount, you can use one of these options:';
+                    }
+                }
+            } else {
+                // No shop selected - keep default styling
+                if (conditionalOptions) {
+                    conditionalOptions.style.background = '#f0f8ff';
+                    conditionalOptions.style.borderLeft = '4px solid #3498db';
+                    const h5 = conditionalOptions.querySelector('h5');
+                    const p = conditionalOptions.querySelector('p');
+                    if (h5) h5.style.color = '#3498db';
+                    if (p) p.textContent = 'If shop\'s available credit is less than order amount, you can use one of these options:';
+                }
+            }
             
             const orderTotalDisplay = document.getElementById('orderTotalDisplay');
             if (orderTotalDisplay) {
-                if (orderTotal > availableCredit && availableCredit > 0) {
+                if (availableCredit > 0 && orderTotal > availableCredit) {
                     orderTotalDisplay.style.background = '#ffe6e6';
                     orderTotalDisplay.style.border = '2px solid #e74c3c';
                     orderTotalDisplay.innerHTML = `
                         Total Order Amount: Rs. <span id="orderTotalAmount" style="color: #e74c3c;">${orderTotal.toFixed(2)}</span>
-                        <br><small style="color: #e74c3c; font-weight: bold;">⚠️ Order exceeds available credit!</small>
+                        <br><small style="color: #e74c3c; font-weight: bold;">⚠️ Order exceeds available credit! Use conditional order options below.</small>
                     `;
                 } else if (orderTotal > 0) {
                     orderTotalDisplay.style.background = 'white';

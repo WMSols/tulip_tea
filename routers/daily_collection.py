@@ -25,6 +25,88 @@ from utils.auth_helpers import get_current_user_from_request
 router = APIRouter(prefix="/daily-collections", tags=["Daily Collections"])
 
 
+@router.post("/delivery-man/{delivery_man_id}", response_model=DailyCollectionResponse, status_code=status.HTTP_201_CREATED)
+async def submit_daily_collection_by_delivery_man(
+    delivery_man_id: int,
+    collection: DailyCollectionCreate,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Submit a daily collection entry (by Delivery Man).
+    
+    API: POST /daily-collections/delivery-man/{delivery_man_id}
+    
+    FLOW:
+    1. Delivery Man visits shop and collects payment
+    2. Delivery Man submits collection entry with amount
+    3. Collection is created with status="pending"
+    4. **INSTANTLY reduces shop's outstanding_balance** (for immediate credit limit increase)
+    5. Returns collection data with updated credit info
+    
+    Request Body:
+        {
+            "shop_id": 1,
+            "amount": 5000.00,
+            "collected_at": "2026-01-05T10:30:00",  // Optional
+            "remarks": "Cash collection from shop owner",
+            "order_id": 123  // Optional, if collection is for a specific order
+        }
+    
+    Response (201):
+        Created collection data with status="pending" and updated shop credit info
+    """
+    try:
+        from datetime import datetime
+        collected_at = None
+        if collection.collected_at:
+            collected_at = datetime.fromisoformat(collection.collected_at.replace('Z', '+00:00'))
+        
+        result = DailyCollectionService.create_collection_for_delivery_man(
+            db=db,
+            shop_id=collection.shop_id,
+            delivery_man_id=delivery_man_id,
+            amount=collection.amount,
+            collected_at=collected_at,
+            remarks=collection.remarks,
+            order_id=getattr(collection, 'order_id', None)
+        )
+        
+        # Log collection creation
+        ActivityLogService.log_create(
+            db=db,
+            user_id=delivery_man_id,
+            user_role='delivery_man',
+            entity_type='daily_collection',
+            entity_id=result['id'],
+            new_values={
+                'shop_id': result.get('shop_id'),
+                'shop_name': result.get('shop_name'),
+                'amount': str(result.get('amount', 0)),
+                'status': result.get('status')
+            },
+            metadata={
+                'visit_id': result.get('visit_id'),
+                'order_id': result.get('order_id')
+            },
+            changes_summary=f"Collection recorded: {result.get('shop_name')} - Rs. {result.get('amount', 0)}",
+            reason=collection.remarks,
+            request=request
+        )
+        
+        return result
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error creating collection: {str(e)}"
+        )
+
+
 @router.post("/order-booker/{order_booker_id}", response_model=DailyCollectionResponse, status_code=status.HTTP_201_CREATED)
 async def submit_daily_collection(
     order_booker_id: int,
@@ -147,6 +229,32 @@ async def get_collection_by_id(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error fetching collection: {str(e)}"
+        )
+
+
+@router.get("/delivery-man/{delivery_man_id}", response_model=List[DailyCollectionResponse])
+async def list_collections_by_delivery_man(
+    delivery_man_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    List all daily collections submitted by a delivery man.
+    
+    API: GET /daily-collections/delivery-man/{delivery_man_id}
+    
+    Response (200):
+        List of collections with shop information
+    """
+    try:
+        collections = DailyCollectionService.get_collections_by_delivery_man(
+            db=db,
+            delivery_man_id=delivery_man_id
+        )
+        return collections
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching collections: {str(e)}"
         )
 
 

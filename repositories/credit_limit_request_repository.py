@@ -16,6 +16,7 @@ This layer:
 - No business logic (validation, etc.) - that's in Service layer
 """
 from sqlalchemy.orm import Session
+from sqlalchemy import String, or_, cast
 from models.credit_limit_request import CreditLimitRequest, CreditLimitRequestStatus
 from typing import Optional, List
 
@@ -114,10 +115,78 @@ class CreditLimitRequestRepository:
             List[CreditLimitRequest]: List of request instances
         """
         # SQL: SELECT * FROM credit_limit_requests WHERE shop_id = shop_id AND deleted_at IS NULL ORDER BY created_at DESC
-        return db.query(CreditLimitRequest).filter(
-            CreditLimitRequest.shop_id == shop_id,
-            CreditLimitRequest.deleted_at.is_(None)  # Exclude soft-deleted requests
-        ).order_by(CreditLimitRequest.created_at.desc()).all()
+        # Query with explicit column selection to avoid enum conversion issues
+        from sqlalchemy import select, text
+        try:
+            # Try normal query first
+            requests = db.query(CreditLimitRequest).filter(
+                CreditLimitRequest.shop_id == shop_id,
+                CreditLimitRequest.deleted_at.is_(None)  # Exclude soft-deleted requests
+            ).order_by(CreditLimitRequest.created_at.desc()).all()
+            
+            # Manually handle status conversion to avoid enum issues
+            for req in requests:
+                try:
+                    # Access status to trigger any conversion, catch if it fails
+                    _ = req.status
+                except Exception:
+                    # If enum conversion fails, manually set status as string
+                    # Query status directly as string
+                    status_result = db.execute(
+                        text("SELECT status FROM credit_limit_requests WHERE id = :id"),
+                        {"id": req.id}
+                    ).scalar()
+                    # Set status as enum value based on string
+                    if status_result:
+                        status_lower = str(status_result).lower()
+                        if status_lower == 'approved':
+                            req.status = CreditLimitRequestStatus.APPROVED
+                        elif status_lower == 'pending':
+                            req.status = CreditLimitRequestStatus.PENDING
+                        elif status_lower == 'disapproved':
+                            req.status = CreditLimitRequestStatus.DISAPPROVED
+            return requests
+        except Exception as e:
+            # If query fails due to enum issues, use raw SQL
+            print(f"Warning: Enum conversion issue in get_by_shop, using workaround: {e}")
+            # Fallback: query with raw SQL and manually construct objects
+            result = db.execute(
+                text("""
+                    SELECT id, shop_id, requested_by_role, requested_by_id, 
+                           requested_credit_limit, old_credit_limit, status, 
+                           remarks, approved_by_distributor, approved_at, 
+                           created_at, updated_at, deleted_at
+                    FROM credit_limit_requests 
+                    WHERE shop_id = :shop_id AND deleted_at IS NULL 
+                    ORDER BY created_at DESC
+                """),
+                {"shop_id": shop_id}
+            )
+            requests = []
+            for row in result:
+                req = CreditLimitRequest()
+                req.id = row[0]
+                req.shop_id = row[1]
+                req.requested_by_role = row[2]
+                req.requested_by_id = row[3]
+                req.requested_credit_limit = row[4]
+                req.old_credit_limit = row[5]
+                # Convert status string to enum
+                status_str = str(row[6]).lower()
+                if status_str == 'approved':
+                    req.status = CreditLimitRequestStatus.APPROVED
+                elif status_str == 'pending':
+                    req.status = CreditLimitRequestStatus.PENDING
+                elif status_str == 'disapproved':
+                    req.status = CreditLimitRequestStatus.DISAPPROVED
+                req.remarks = row[7]
+                req.approved_by_distributor = row[8]
+                req.approved_at = row[9]
+                req.created_at = row[10]
+                req.updated_at = row[11]
+                req.deleted_at = row[12]
+                requests.append(req)
+            return requests
     
     @staticmethod
     def get_pending(db: Session, distributor_id: int = None) -> List[CreditLimitRequest]:
@@ -142,8 +211,11 @@ class CreditLimitRequestRepository:
         # Return all pending requests (exclude soft-deleted)
         # Note: Distributors are not assigned to zones, so we return all pending requests
         # If zone filtering is needed, filter by shop.zone_id at the service layer instead
+        # Handle both enum and string values for backward compatibility
+        # Use CAST to string for comparison to avoid SQLAlchemy's enum conversion issues
+        # Direct enum comparison causes SQLAlchemy to convert to uppercase "PENDING" which fails
         return db.query(CreditLimitRequest).filter(
-            CreditLimitRequest.status == CreditLimitRequestStatus.PENDING,
+            cast(CreditLimitRequest.status, String) == "pending",
             CreditLimitRequest.deleted_at.is_(None)  # Exclude soft-deleted requests
         ).order_by(CreditLimitRequest.created_at.asc()).all()
     

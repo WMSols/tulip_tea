@@ -25,7 +25,7 @@ RELATIONSHIPS:
 
 DATABASE TABLE: orders
 """
-from sqlalchemy import Column, BigInteger, Numeric, DateTime, ForeignKey, String, Date, Text, Enum, Boolean
+from sqlalchemy import Column, BigInteger, Numeric, DateTime, ForeignKey, String, Date, Text, Enum, Boolean, TypeDecorator
 from sqlalchemy.dialects.postgresql import ENUM
 from sqlalchemy.sql import func
 import enum
@@ -33,10 +33,88 @@ from config.database import Base
 
 
 class OrderStatus(str, enum.Enum):
-    """Order status enumeration."""
-    PENDING = "pending"
-    DELIVERED = "delivered"
-    DISAPPROVED = "disapproved"
+    """Order status enumeration.
+    
+    NOTE: Database enum uses UPPERCASE values ('PENDING', 'DELIVERED', 'DISAPPROVED').
+    Python enum values match the database exactly.
+    """
+    PENDING = "PENDING"  # Match database enum (uppercase)
+    DELIVERED = "DELIVERED"  # Match database enum (uppercase)
+    DISAPPROVED = "DISAPPROVED"  # Match database enum (uppercase)
+    
+    def __str__(self):
+        """Return the enum value when converted to string."""
+        return self.value
+
+
+class OrderStatusEnum(TypeDecorator):
+    """TypeDecorator to ensure enum values (lowercase) are used, not enum names (uppercase)."""
+    impl = ENUM
+    cache_ok = True
+    
+    def __init__(self):
+        # Initialize with explicit lowercase string values to match database
+        super().__init__(
+            OrderStatus, 
+            name='order_status_enum', 
+            create_type=False
+        )
+    
+    def load_dialect_impl(self, dialect):
+        """Load the dialect-specific implementation."""
+        if dialect.name == 'postgresql':
+            # For PostgreSQL, use the ENUM type but ensure values are lowercase
+            # Cast to the existing enum type in the database
+            from sqlalchemy import String, cast
+            # Return ENUM but we'll handle conversion in process_bind_param
+            return dialect.type_descriptor(
+                ENUM(OrderStatus, name='order_status_enum', create_type=False)
+            )
+        return super().load_dialect_impl(dialect)
+    
+    def bind_processor(self, dialect):
+        """Return a processor that converts enum to uppercase string value (matching database)."""
+        def process(value):
+            print(f"[DEBUG OrderStatusEnum.bind_processor] Processing value: {value}, type: {type(value)}")
+            if value is None:
+                return None
+            if isinstance(value, OrderStatus):
+                result = value.value  # Use enum value (UPPERCASE to match database)
+                print(f"[DEBUG OrderStatusEnum.bind_processor] Converting enum {value} to value: '{result}'")
+                return result
+            result = str(value).upper()  # Convert to uppercase to match database enum
+            print(f"[DEBUG OrderStatusEnum.bind_processor] Converting string '{value}' to uppercase: '{result}'")
+            return result
+        return process
+    
+    def process_bind_param(self, value, dialect):
+        """Convert enum to its value (uppercase string) when binding to database."""
+        print(f"[DEBUG OrderStatusEnum.process_bind_param] Received value: {value}, type: {type(value)}")
+        if value is None:
+            return None
+        if isinstance(value, OrderStatus):
+            result = value.value  # Use enum value (UPPERCASE to match database)
+            print(f"[DEBUG OrderStatusEnum.process_bind_param] Converting enum {value} to value: '{result}'")
+            return result
+        result = str(value).upper()  # Convert to uppercase to match database enum
+        print(f"[DEBUG OrderStatusEnum.process_bind_param] Converting string '{value}' to uppercase: '{result}'")
+        return result
+    
+    def process_result_value(self, value, dialect):
+        """Convert database value to enum when loading from database."""
+        if value is None:
+            return None
+        if isinstance(value, OrderStatus):
+            return value
+        # Convert string to enum - database returns uppercase
+        value_upper = str(value).upper()
+        if value_upper == 'PENDING':
+            return OrderStatus.PENDING
+        elif value_upper == 'DELIVERED':
+            return OrderStatus.DELIVERED
+        elif value_upper == 'DISAPPROVED':
+            return OrderStatus.DISAPPROVED
+        return OrderStatus.PENDING
 
 
 class Order(Base):
@@ -166,11 +244,12 @@ class Order(Base):
     """
 
     # Status and Scheduling
+    # Use TypeDecorator to ensure lowercase enum values are used
     status = Column(
-        ENUM(OrderStatus, name='order_status_enum', create_type=False),
+        OrderStatusEnum(),
         nullable=False,
         default=OrderStatus.PENDING,
-        server_default='pending'
+        server_default='PENDING'  # Match database enum (uppercase)
     )
     """
     Order status.

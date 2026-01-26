@@ -242,6 +242,7 @@ class DailyCollectionCreate(BaseModel):
     collected_at: Optional[str] = None  # ISO format datetime string
     remarks: Optional[str] = None
     visit_id: Optional[int] = None  # Link to visit if created during visit
+    order_id: Optional[int] = None  # Link to order if collection is for a specific order
 
 
 class DailyCollectionResponse(BaseModel):
@@ -253,12 +254,16 @@ class DailyCollectionResponse(BaseModel):
     collected_by_order_booker: Optional[int] = None
     order_booker_name: Optional[str] = None
     collected_by_delivery_man: Optional[int] = None
+    delivery_man_name: Optional[str] = None
     verified_by_distributor: Optional[int] = None
     amount: float
     status: Optional[str] = None
     visit_id: Optional[int] = None
     collection_date: Optional[str] = None
     photo_proof: Optional[str] = None
+    shop_outstanding_balance: Optional[float] = None
+    shop_credit_limit: Optional[float] = None
+    shop_available_credit: Optional[float] = None
 
     class Config:
         from_attributes = True
@@ -309,6 +314,9 @@ class ShopVisitCreate(BaseModel):
     # Order data (if visit_types includes "order_booking")
     order_items: Optional[List[OrderItemCreate]] = None  # List of order items
     scheduled_date: Optional[str] = None  # ISO date string (e.g., "2026-01-10")
+    # Conditional order options (if visit_types includes "order_booking")
+    order_resolution_type: Optional[str] = None  # "normal", "subsidy", or "payment_before_delivery"
+    subsidy_id: Optional[int] = None  # Required if order_resolution_type is "subsidy"
     # Daily collection data (if visit_types includes "daily_collections")
     collection_amount: Optional[float] = None
     collection_remarks: Optional[str] = None
@@ -359,6 +367,16 @@ class OrderCreate(BaseModel):
     visit_id: Optional[int] = None
 
 
+class SubsidyInfo(BaseModel):
+    """Subsidy information for orders."""
+    id: int
+    name: str
+    percentage: float
+
+    class Config:
+        from_attributes = True
+
+
 class OrderResponse(BaseModel):
     id: int
     shop_id: Optional[int] = None
@@ -380,6 +398,14 @@ class OrderResponse(BaseModel):
     delivery_images: Optional[List[str]] = None  # Array of image URLs
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    # Conditional order information
+    order_resolution_type: Optional[str] = None  # "normal", "subsidy", or "payment_before_delivery"
+    subsidy_id: Optional[int] = None
+    subsidy_info: Optional[SubsidyInfo] = None
+    original_amount: Optional[float] = None
+    payment_collected_before_delivery: Optional[bool] = False
+    payment_collected_amount: Optional[float] = None
+    payment_collected_at: Optional[str] = None
 
     class Config:
         from_attributes = True

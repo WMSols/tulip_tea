@@ -94,12 +94,25 @@ class ShopVisitService:
         order_id = None
         collection_id = None
         if include_linked_data:
-            orders = OrderRepository.get_by_visit(db, visit.id)
-            order_id = orders[0].id if orders else None
+            try:
+                # Query only the ID to avoid enum serialization issues
+                from models.order import Order
+                order_id = db.query(Order.id).filter(Order.visit_id == visit.id).scalar()
+            except Exception as e:
+                print(f"Error fetching order ID for visit {visit.id}: {e}")
+                import traceback
+                traceback.print_exc()
+                order_id = None
             
-            from models.daily_collection import DailyCollection
-            collections = db.query(DailyCollection).filter(DailyCollection.visit_id == visit.id).all()
-            collection_id = collections[0].id if collections else None
+            try:
+                # Query only the ID to avoid any serialization issues
+                from models.daily_collection import DailyCollection
+                collection_id = db.query(DailyCollection.id).filter(DailyCollection.visit_id == visit.id).scalar()
+            except Exception as e:
+                print(f"Error fetching collection ID for visit {visit.id}: {e}")
+                import traceback
+                traceback.print_exc()
+                collection_id = None
         
         # Parse photos JSON string to list
         photos_list = []
@@ -142,7 +155,8 @@ class ShopVisitService:
                       visit_time: str = None, photo: str = None,
                       reason: str = None, order_items: List[Dict] = None,
                       scheduled_date: str = None, collection_amount: float = None,
-                      collection_remarks: str = None) -> Dict:
+                      collection_remarks: str = None, order_resolution_type: str = None,
+                      subsidy_id: int = None) -> Dict:
         """
         Register a new shop visit.
         
@@ -313,7 +327,9 @@ class ShopVisitService:
                     order_items=order_items,
                     distributor_id=distributor_id,
                     visit_id=visit.id,
-                    scheduled_date=scheduled_date_obj
+                    scheduled_date=scheduled_date_obj,
+                    order_resolution_type=order_resolution_type,
+                    subsidy_id=subsidy_id
                 )
                 order_id = order_data["id"]
             except Exception as e:

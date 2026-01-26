@@ -8,6 +8,7 @@ from repositories.daily_collection_repository import DailyCollectionRepository
 from repositories.payment_repository import PaymentRepository
 from repositories.shop_repository import ShopRepository
 from repositories.order_booker_repository import OrderBookerRepository
+from repositories.delivery_man_repository import DeliveryManRepository
 from repositories.distributor_repository import DistributorRepository
 from decimal import Decimal
 from typing import Dict, List, Optional
@@ -208,6 +209,164 @@ class DailyCollectionService:
                 "collected_by_order_booker": collection.collected_by_order_booker,
                 "order_booker_name": None,  # Could fetch if needed
                 "collected_by_delivery_man": collection.collected_by_delivery_man,
+                "verified_by_distributor": collection.verified_by_distributor,
+                "amount": float(collection.amount) if collection.amount else 0.0,
+                "status": collection.status.value if hasattr(collection.status, 'value') else str(collection.status),
+                "visit_id": collection.visit_id,
+                "collection_date": collection.collection_date.isoformat() if collection.collection_date else None,
+                "photo_proof": collection.photo_proof
+            })
+        
+        return result
+    
+    @staticmethod
+    def create_collection_for_delivery_man(db: Session, shop_id: int, delivery_man_id: int,
+                                          amount: float, collected_at: datetime = None,
+                                          remarks: str = None, order_id: int = None) -> Dict:
+        """
+        Create a daily collection entry by delivery man.
+        
+        FLOW:
+        1. Validates shop exists
+        2. Validates delivery man exists
+        3. Creates collection with status="pending"
+        4. **INSTANTLY reduces shop's outstanding_balance** (for immediate credit limit increase)
+        5. Returns collection data
+        
+        Note: Outstanding balance is reduced immediately so shop can order right away.
+        Payment record is created later when distributor approves.
+        
+        Args:
+            db: Database session
+            shop_id: Shop ID where collection was made
+            delivery_man_id: Delivery man ID who collected
+            amount: Collection amount
+            collected_at: Timestamp when collection was made (will be stored as collection_date)
+            remarks: Optional remarks (not stored in database, kept for API compatibility)
+            order_id: Optional order ID this collection is linked to
+        
+        Returns:
+            Dict: Collection data with updated outstanding balance
+        """
+        # Validate shop exists
+        shop = ShopRepository.get_by_id(db, shop_id)
+        if not shop:
+            raise ValueError("Shop not found")
+        
+        # Validate delivery man exists
+        delivery_man = DeliveryManRepository.get_by_id(db, delivery_man_id)
+        if not delivery_man:
+            raise ValueError("Delivery Man not found")
+        
+        # Create collection (database uses collection_date, not collected_at)
+        collection = DailyCollectionRepository.create(
+            db=db,
+            shop_id=shop_id,
+            collected_by_delivery_man=delivery_man_id,
+            amount=Decimal(str(amount)),
+            collection_date=collected_at,  # Use collection_date to match database
+            order_id=order_id
+        )
+        
+        # **INSTANTLY REDUCE OUTSTANDING BALANCE** (for immediate credit limit increase)
+        # This allows shop to order immediately without waiting for distributor approval
+        current_outstanding = Decimal(str(shop.outstanding_balance or 0))
+        credit_limit = Decimal(str(shop.credit_limit or 0))
+        payment_amount = Decimal(str(amount))
+        
+        # Calculate new outstanding balance (cannot go below 0)
+        # If shop pays more than outstanding, outstanding becomes 0 (they've overpaid)
+        new_outstanding = max(Decimal('0'), current_outstanding - payment_amount)
+        
+        # Calculate new available credit
+        # Available credit = credit_limit - outstanding_balance
+        # This will be between 0 and credit_limit automatically since outstanding >= 0
+        new_available_credit = credit_limit - new_outstanding if credit_limit > 0 else Decimal('0')
+        
+        # Validation: Ensure the calculation is correct
+        # new_available_credit should be between 0 and credit_limit
+        # This is automatically satisfied, but we validate for safety
+        if credit_limit > 0:
+            if new_available_credit < 0:
+                raise ValueError(
+                    f"Calculation error: Available credit cannot be negative. "
+                    f"This should not happen. Please contact support."
+                )
+            if new_available_credit > credit_limit:
+                raise ValueError(
+                    f"Calculation error: Available credit (Rs. {new_available_credit}) "
+                    f"exceeds credit limit (Rs. {credit_limit}). "
+                    f"This should not happen. Please contact support."
+                )
+        
+        # Note: If payment_amount > current_outstanding, outstanding becomes 0 and available credit = credit_limit
+        # This is correct behavior - shop can pay more than owed, and will have full credit limit available
+        
+        # Update shop's outstanding balance (this commits and refreshes automatically)
+        updated_shop = ShopRepository.update(
+            db=db,
+            shop_id=shop_id,
+            outstanding_balance=new_outstanding
+        )
+        
+        if not updated_shop:
+            raise ValueError("Shop not found after update")
+        
+        # Use the updated shop (already refreshed by update method)
+        shop = updated_shop
+        delivery_man = DeliveryManRepository.get_by_id(db, delivery_man_id)
+        
+        return {
+            "id": collection.id,
+            "shop_id": collection.shop_id,
+            "shop_name": shop.name if shop else None,
+            "shop_owner": shop.owner_name if shop else None,
+            "order_id": collection.order_id,
+            "collected_by_order_booker": collection.collected_by_order_booker,
+            "order_booker_name": None,
+            "collected_by_delivery_man": collection.collected_by_delivery_man,
+            "delivery_man_name": delivery_man.name if delivery_man else None,
+            "verified_by_distributor": collection.verified_by_distributor,
+            "amount": float(collection.amount) if collection.amount else 0.0,
+            "status": collection.status.value if hasattr(collection.status, 'value') else str(collection.status),
+            "visit_id": collection.visit_id,
+            "collection_date": collection.collection_date.isoformat() if collection.collection_date else None,
+            "photo_proof": collection.photo_proof,
+            # Include updated credit information in response
+            "shop_outstanding_balance": float(shop.outstanding_balance) if shop.outstanding_balance else 0.0,
+            "shop_credit_limit": float(shop.credit_limit) if shop.credit_limit else 0.0,
+            "shop_available_credit": float(shop.credit_limit - shop.outstanding_balance) if shop.credit_limit and shop.outstanding_balance is not None else (float(shop.credit_limit) if shop.credit_limit else 0.0)
+        }
+    
+    @staticmethod
+    def get_collections_by_delivery_man(db: Session, delivery_man_id: int) -> List[Dict]:
+        """
+        Get all collections by a delivery man.
+        
+        Args:
+            db: Database session
+            delivery_man_id: Delivery man ID
+        
+        Returns:
+            List[Dict]: List of collections with shop info
+        """
+        collections = DailyCollectionRepository.get_by_delivery_man(db, delivery_man_id)
+        
+        result = []
+        for collection in collections:
+            shop = ShopRepository.get_by_id(db, collection.shop_id)
+            delivery_man = DeliveryManRepository.get_by_id(db, collection.collected_by_delivery_man)
+            
+            result.append({
+                "id": collection.id,
+                "shop_id": collection.shop_id,
+                "shop_name": shop.name if shop else "Unknown",
+                "shop_owner": shop.owner_name if shop else None,
+                "order_id": collection.order_id,
+                "collected_by_order_booker": collection.collected_by_order_booker,
+                "order_booker_name": None,
+                "collected_by_delivery_man": collection.collected_by_delivery_man,
+                "delivery_man_name": delivery_man.name if delivery_man else None,
                 "verified_by_distributor": collection.verified_by_distributor,
                 "amount": float(collection.amount) if collection.amount else 0.0,
                 "status": collection.status.value if hasattr(collection.status, 'value') else str(collection.status),

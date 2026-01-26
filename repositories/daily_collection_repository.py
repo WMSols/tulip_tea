@@ -96,6 +96,13 @@ class DailyCollectionRepository:
         ).order_by(DailyCollection.id.desc()).all()
     
     @staticmethod
+    def get_by_delivery_man(db: Session, delivery_man_id: int) -> List[DailyCollection]:
+        """Get all collections by a delivery man."""
+        return db.query(DailyCollection).filter(
+            DailyCollection.collected_by_delivery_man == delivery_man_id
+        ).order_by(DailyCollection.id.desc()).all()
+    
+    @staticmethod
     def approve(db: Session, collection_id: int, distributor_id: int) -> Optional[DailyCollection]:
         """
         Approve/verify a daily collection.

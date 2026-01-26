@@ -187,25 +187,56 @@
         .close-button:hover {
             color: #000;
         }
+        .dashboard-layout {
+            display: flex;
+            gap: 20px;
+            min-height: 600px;
+        }
+        .sidebar {
+            width: 240px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px 0;
+            flex-shrink: 0;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+            max-height: 80vh;
+            overflow-y: auto;
+        }
         .tabs {
             display: flex;
-            border-bottom: 2px solid #ddd;
-            margin-bottom: 20px;
+            flex-direction: column;
+            gap: 3px;
         }
         .tab {
-            padding: 15px 30px;
-            cursor: pointer;
-            background: #f8f9fa;
+            padding: 14px 20px;
+            background: transparent;
             border: none;
-            font-size: 16px;
-            font-weight: 600;
-            color: #666;
+            border-left: 4px solid transparent;
+            border-radius: 0;
+            cursor: pointer;
+            font-size: 15px;
             transition: all 0.3s;
+            text-align: left;
+            color: #555;
+            width: 100%;
+            font-weight: 500;
+        }
+        .tab:hover {
+            background: #e9ecef;
+            color: #667eea;
         }
         .tab.active {
-            background: white;
+            background: #e7ecff;
             color: #667eea;
-            border-bottom: 3px solid #667eea;
+            border-left-color: #667eea;
+            font-weight: 600;
+        }
+        .main-content {
+            flex: 1;
+            min-width: 0;
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
         }
         .tab-content {
             display: none;
@@ -418,18 +449,22 @@
 
             <!-- Dashboard Section (Hidden until login) -->
             <div id="dashboardSection" class="section hidden">
-                <div class="tabs">
-                    <button class="tab active" onclick="switchTab('zones')">Zones</button>
-                    <button class="tab" onclick="switchTab('routes')">Routes</button>
-                    <button class="tab" onclick="switchTab('orderBookers')">Order Bookers</button>
-                    <button class="tab" onclick="switchTab('deliveryMen')">Delivery Men</button>
-                    <button class="tab" onclick="switchTab('warehouses')">🏭 Warehouses</button>
-                    <button class="tab" onclick="switchTab('products')">📦 Products</button>
-                    <button class="tab" onclick="switchTab('shops')">Shops <span id="pendingShopsBadge" style="background: #e74c3c; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 5px;">0</span></button>
-                    <button class="tab" onclick="switchTab('creditLimits')">Credit Limits <span id="creditRequestsBadge" style="background: #e74c3c; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 5px;">0</span></button>
-                    <button class="tab" onclick="switchTab('subsidies')">💰 Subsidies</button>
-                    <button class="tab" onclick="switchTab('visits')">📍 Visits</button>
-                </div>
+                <div class="dashboard-layout">
+                    <div class="sidebar">
+                        <div class="tabs">
+                            <button class="tab active" onclick="switchTab('zones')">📍 Zones</button>
+                            <button class="tab" onclick="switchTab('routes')">🛣️ Routes</button>
+                            <button class="tab" onclick="switchTab('orderBookers')">👤 Order Bookers</button>
+                            <button class="tab" onclick="switchTab('deliveryMen')">🚚 Delivery Men</button>
+                            <button class="tab" onclick="switchTab('warehouses')">🏭 Warehouses</button>
+                            <button class="tab" onclick="switchTab('products')">📦 Products</button>
+                            <button class="tab" onclick="switchTab('shops')">🏪 Shops <span id="pendingShopsBadge" style="background: #e74c3c; color: white; padding: 2px 6px; border-radius: 10px; font-size: 11px; margin-left: 5px;">0</span></button>
+                            <button class="tab" onclick="switchTab('creditLimits')">💳 Credit Limits <span id="creditRequestsBadge" style="background: #e74c3c; color: white; padding: 2px 6px; border-radius: 10px; font-size: 11px; margin-left: 5px;">0</span></button>
+                            <button class="tab" onclick="switchTab('subsidies')">💰 Subsidies</button>
+                            <button class="tab" onclick="switchTab('visits')">📋 Visits</button>
+                        </div>
+                    </div>
+                    <div class="main-content">
 
                 <!-- Zones Tab -->
                 <div id="zonesTab" class="tab-content active">
@@ -734,9 +769,9 @@
                     
                     <div id="visitsList" style="margin-top: 20px;"></div>
                 </div>
+                    </div>
+                </div>
             </div>
-        </div>
-    </div>
 
     <!-- Edit Shop Modal -->
     <div id="editShopModal" class="modal hidden">

@@ -43,9 +43,10 @@ class OrderService:
         """
         try:
             # Get all unpaid orders (status not in 'paid', 'cancelled')
-            from models.order import Order
+            from models.order import Order, OrderStatus
             orders = db.query(Order).filter(Order.shop_id == shop_id).all()
-            unpaid_orders = [o for o in orders if o.status not in ['paid', 'cancelled']]
+            # Note: Status is now an enum, so we need to compare with enum values
+            unpaid_orders = [o for o in orders if o.status not in [OrderStatus.DELIVERED, OrderStatus.DISAPPROVED]]
             total_orders = sum(Decimal(str(o.total_amount or 0)) for o in unpaid_orders)
         except Exception as e:
             print(f"ERROR calculating orders total for shop {shop_id}: {e}")
@@ -129,29 +130,53 @@ class OrderService:
         # 1. Shop with credit_limit = 0 but has pending credit_limit_request
         # 2. Shop with credit_limit > 0 (should have approved request)
         from repositories.credit_limit_request_repository import CreditLimitRequestRepository
+        from sqlalchemy import String, cast
+        # Query credit requests and handle enum conversion safely
         credit_requests = CreditLimitRequestRepository.get_by_shop(db, shop_id)
         
-        # Filter out soft-deleted requests
-        active_requests = [req for req in credit_requests if req.deleted_at is None]
+        # Filter out soft-deleted requests and safely convert status
+        active_requests = []
+        for req in credit_requests:
+            if req.deleted_at is None:
+                # Safely get status value to avoid enum conversion issues
+                try:
+                    if hasattr(req.status, 'value'):
+                        status_value = req.status.value
+                    else:
+                        status_value = str(req.status).lower()
+                    # Create a simple object with status as string to avoid enum issues
+                    class SimpleRequest:
+                        def __init__(self, req, status_str):
+                            self.id = req.id
+                            self.shop_id = req.shop_id
+                            self.status = status_str
+                            self.deleted_at = req.deleted_at
+                    active_requests.append(SimpleRequest(req, status_value))
+                except Exception as e:
+                    # If enum conversion fails, use string representation
+                    status_value = str(req.status).lower()
+                    class SimpleRequest:
+                        def __init__(self, req, status_str):
+                            self.id = req.id
+                            self.shop_id = req.shop_id
+                            self.status = status_str
+                            self.deleted_at = req.deleted_at
+                    active_requests.append(SimpleRequest(req, status_value))
         
         # If there are any active credit limit requests, check approval status
         if active_requests:
             # Check if there's at least one approved request
-            from models.credit_limit_request import CreditLimitRequestStatus
-            # Convert status to enum if it's a string (for backward compatibility)
+            # Status is now a string (from SimpleRequest wrapper)
             has_approved_request = any(
-                (req.status == CreditLimitRequestStatus.APPROVED) or 
-                (str(req.status).upper() == 'APPROVED') or 
-                (str(req.status).lower() == 'approved')
+                str(req.status).lower() == 'approved'
                 for req in active_requests
             )
             
             if not has_approved_request:
                 # Check if there are any pending requests
+                # Status is now a string (from SimpleRequest wrapper)
                 has_pending_request = any(
-                    (req.status == CreditLimitRequestStatus.PENDING) or 
-                    (str(req.status).upper() == 'PENDING') or 
-                    (str(req.status).lower() == 'pending')
+                    str(req.status).lower() == 'pending'
                     for req in active_requests
                 )
                 
@@ -229,6 +254,7 @@ class OrderService:
         final_amount = total_amount  # Amount to use for credit limit check (will be discounted for subsidy)
         original_amount = None  # Only set for subsidy orders
         resolution_type = order_resolution_type or 'normal'
+        print(f"[DEBUG OrderService.create_order] Initial: order_resolution_type={order_resolution_type}, subsidy_id={subsidy_id}, resolution_type={resolution_type}")
         
         # Validate credit limit using shop's outstanding_balance field
         credit_limit = Decimal(str(shop.credit_limit or 0))
@@ -292,12 +318,42 @@ class OrderService:
                 else:
                     raise ValueError(f"Invalid order_resolution_type: {order_resolution_type}. Must be 'normal', 'subsidy', or 'payment_before_delivery'")
             else:
-                # Credit is sufficient - normal order
-                resolution_type = 'normal'
+                # Credit is sufficient - but check if user selected subsidy or payment_before_delivery
+                print(f"[DEBUG OrderService] Credit sufficient. order_resolution_type: {order_resolution_type}, subsidy_id: {subsidy_id}")
+                if order_resolution_type == 'subsidy':
+                    # User selected subsidy even though credit is sufficient - apply it anyway
+                    print(f"[DEBUG OrderService] Applying subsidy even though credit is sufficient")
+                    if not subsidy_id:
+                        raise ValueError("subsidy_id is required when using subsidy resolution")
+                    
+                    from repositories.subsidy_repository import SubsidyRepository
+                    subsidy = SubsidyRepository.get_by_id(db, subsidy_id, include_deleted=False)
+                    if not subsidy:
+                        raise ValueError(f"Subsidy with ID {subsidy_id} not found")
+                    
+                    if not subsidy.is_active:
+                        raise ValueError(f"Subsidy with ID {subsidy_id} is not active")
+                    
+                    # Calculate discounted amount
+                    original_amount = total_amount  # Store original before discount
+                    discount_percentage = Decimal(str(subsidy.percentage))
+                    final_amount = total_amount * (1 - discount_percentage / 100)  # Discounted amount
+                    resolution_type = 'subsidy'
+                    print(f"[DEBUG OrderService] Subsidy applied. Original: {total_amount}, Discounted: {final_amount}, resolution_type: {resolution_type}")
+                elif order_resolution_type == 'payment_before_delivery':
+                    # User selected payment before delivery even though credit is sufficient
+                    final_amount = total_amount
+                    resolution_type = 'payment_before_delivery'
+                    print(f"[DEBUG OrderService] Payment before delivery selected. resolution_type: {resolution_type}")
+                else:
+                    # Credit is sufficient and no special resolution type - normal order
+                    resolution_type = 'normal'
+                    print(f"[DEBUG OrderService] Normal order (credit sufficient). resolution_type: {resolution_type}")
         
         # Create order with conditional order information
         # For subsidy orders: total_amount = discounted amount, original_amount = original amount
         # For other orders: total_amount = order amount, original_amount = NULL
+        print(f"[DEBUG OrderService] Before creating order: resolution_type={resolution_type}, subsidy_id={subsidy_id}, original_amount={original_amount}, final_amount={final_amount}")
         order = OrderRepository.create(
             db=db,
             shop_id=shop_id,
@@ -312,6 +368,7 @@ class OrderService:
             subsidy_id=subsidy_id if resolution_type == 'subsidy' else None,
             original_amount=original_amount  # Only set for subsidy orders
         )
+        print(f"[DEBUG OrderService] After creating order: order.id={order.id}, order.order_resolution_type={order.order_resolution_type}, order.subsidy_id={order.subsidy_id}, order.original_amount={order.original_amount}")
         
         # Create order items using processed items
         created_items = []
@@ -430,7 +487,7 @@ class OrderService:
         else:
             print(f"[get_orders_by_delivery_man] Delivery man {delivery_man_id} has no zone assigned")
         
-        # Build query: orders explicitly assigned OR orders from shops in zone OR orders with deliveries
+        # Build query: orders explicitly assigned OR orders from shops in zone OR orders from order bookers in zone OR orders with deliveries
         # Include all order statuses (pending, confirmed, delivered, cancelled)
         conditions = []
         
@@ -442,7 +499,21 @@ class OrderService:
             conditions.append(Order.shop_id.in_(shop_ids))
             print(f"[get_orders_by_delivery_man] Including orders from {len(shop_ids)} shops in zone {zone_id}")
         
-        # Condition 3: Orders that have deliveries for this delivery man
+        # Condition 3: Orders from order bookers in the same zone (explicit check)
+        # This ensures delivery men see ALL pending orders from order bookers in their zone
+        if zone_id:
+            from models.order_booker import OrderBooker
+            order_bookers_in_zone = db.query(OrderBooker.id).filter(
+                OrderBooker.zone_id == zone_id,
+                OrderBooker.deleted_at.is_(None),
+                OrderBooker.is_active == True
+            ).all()
+            order_booker_ids_in_zone = [row[0] for row in order_bookers_in_zone]
+            if order_booker_ids_in_zone:
+                conditions.append(Order.order_booker_id.in_(order_booker_ids_in_zone))
+                print(f"[get_orders_by_delivery_man] Including orders from {len(order_booker_ids_in_zone)} order bookers in zone {zone_id}")
+        
+        # Condition 4: Orders that have deliveries for this delivery man
         # This ensures delivery men can see orders they've already worked on, even if not explicitly assigned
         from models.delivery import Delivery
         delivery_order_ids = db.query(Delivery.order_id).filter(
@@ -461,6 +532,7 @@ class OrderService:
         status_filter = Order.status.in_([OrderStatus.PENDING, OrderStatus.DELIVERED, OrderStatus.DISAPPROVED])
         
         # Query orders matching any condition and status filter
+        # Note: We use batch loading in _format_orders to avoid N+1 queries
         if len(conditions) > 0:
             # Use or_() to match any condition, and and_() to combine with status filter
             if len(conditions) == 1:
@@ -483,8 +555,8 @@ class OrderService:
                 ).order_by(Order.created_at.desc()).all()
             print(f"[get_orders_by_delivery_man] Found {len(orders)} orders")
             if orders:
-                # Debug: Show order details
-                order_details = [(o.id, o.shop_id, o.status, o.delivery_man_id) for o in orders]
+                # Debug: Show order details (convert status to string for debugging)
+                order_details = [(o.id, o.shop_id, o.status.value if hasattr(o.status, 'value') else str(o.status), o.delivery_man_id, getattr(o, 'order_resolution_type', None)) for o in orders]
                 print(f"[get_orders_by_delivery_man] Order details: {order_details}")
         else:
             # No conditions (shouldn't happen, but handle gracefully)
@@ -501,21 +573,65 @@ class OrderService:
     
     @staticmethod
     def _format_orders(db: Session, orders: List) -> List[Dict]:
-        """Format orders with related data."""
-        from repositories.shop_repository import ShopRepository
-        from repositories.order_booker_repository import OrderBookerRepository
-        from repositories.delivery_man_repository import DeliveryManRepository
-        from repositories.order_item_repository import OrderItemRepository
+        """Format orders with related data. Optimized with batch loading to avoid N+1 queries."""
+        if not orders:
+            return []
+        
+        from models.shop import Shop
+        from models.order_booker import OrderBooker
+        from models.delivery_man import DeliveryMan
+        from models.order_item import OrderItem
+        from models.subsidy import Subsidy
+        
+        # Batch load all related data in single queries
+        order_ids = [order.id for order in orders]
+        shop_ids = list(set([order.shop_id for order in orders if order.shop_id]))
+        order_booker_ids = list(set([order.order_booker_id for order in orders if order.order_booker_id]))
+        delivery_man_ids = list(set([order.delivery_man_id for order in orders if order.delivery_man_id]))
+        subsidy_ids = list(set([order.subsidy_id for order in orders if hasattr(order, 'subsidy_id') and order.subsidy_id]))
+        
+        # Batch load shops
+        shops = {}
+        if shop_ids:
+            shops_query = db.query(Shop).filter(Shop.id.in_(shop_ids)).all()
+            shops = {shop.id: shop for shop in shops_query}
+        
+        # Batch load order bookers
+        order_bookers = {}
+        if order_booker_ids:
+            ob_query = db.query(OrderBooker).filter(OrderBooker.id.in_(order_booker_ids)).all()
+            order_bookers = {ob.id: ob for ob in ob_query}
+        
+        # Batch load delivery men
+        delivery_men = {}
+        if delivery_man_ids:
+            dm_query = db.query(DeliveryMan).filter(DeliveryMan.id.in_(delivery_man_ids)).all()
+            delivery_men = {dm.id: dm for dm in dm_query}
+        
+        # Batch load order items
+        items_by_order = {}
+        if order_ids:
+            items_query = db.query(OrderItem).filter(OrderItem.order_id.in_(order_ids)).all()
+            for item in items_query:
+                if item.order_id not in items_by_order:
+                    items_by_order[item.order_id] = []
+                items_by_order[item.order_id].append(item)
+        
+        # Batch load subsidies
+        subsidies = {}
+        if subsidy_ids:
+            subsidy_query = db.query(Subsidy).filter(Subsidy.id.in_(subsidy_ids), Subsidy.deleted_at.is_(None)).all()
+            subsidies = {sub.id: sub for sub in subsidy_query}
         
         result = []
         for order in orders:
-            # Get related data
-            shop = ShopRepository.get_by_id(db, order.shop_id) if order.shop_id else None
-            order_booker = OrderBookerRepository.get_by_id(db, order.order_booker_id) if order.order_booker_id else None
-            delivery_man = DeliveryManRepository.get_by_id(db, order.delivery_man_id) if order.delivery_man_id else None
+            # Get related data from batch-loaded dictionaries
+            shop = shops.get(order.shop_id) if order.shop_id else None
+            order_booker = order_bookers.get(order.order_booker_id) if order.order_booker_id else None
+            delivery_man = delivery_men.get(order.delivery_man_id) if order.delivery_man_id else None
             
-            # Get order items
-            items = OrderItemRepository.get_by_order(db, order.id)
+            # Get order items from batch-loaded data
+            items = items_by_order.get(order.id, [])
             order_items = [{
                 "id": item.id,
                 "order_id": order.id,  # Required by OrderItemResponse schema
@@ -540,6 +656,25 @@ class OrderService:
                     print(f"Error parsing delivery_images: {e}")
                     delivery_images_list = []
             
+            # Get subsidy information from batch-loaded data
+            subsidy_info = None
+            order_resolution_type = getattr(order, 'order_resolution_type', None)
+            subsidy_id = getattr(order, 'subsidy_id', None)
+            
+            # Debug logging
+            print(f"[DEBUG _format_orders] Order {order.id}: order_resolution_type = {order_resolution_type}, type = {type(order_resolution_type)}")
+            print(f"[DEBUG _format_orders] Order {order.id}: subsidy_id = {subsidy_id}")
+            
+            if order_resolution_type == 'subsidy' and subsidy_id:
+                subsidy = subsidies.get(subsidy_id)
+                if subsidy:
+                    subsidy_info = {
+                        "id": subsidy.id,
+                        "name": subsidy.name,
+                        "percentage": float(subsidy.percentage) if subsidy.percentage else 0
+                    }
+                    print(f"[DEBUG _format_orders] Order {order.id}: Loaded subsidy info: {subsidy_info}")
+            
             result.append({
                 "id": order.id,
                 "shop_id": order.shop_id,
@@ -560,8 +695,19 @@ class OrderService:
                 "delivery_remarks": order.delivery_remarks,
                 "delivery_images": delivery_images_list,
                 "created_at": order.created_at.isoformat() if order.created_at else None,
-                "updated_at": order.updated_at.isoformat() if order.updated_at else None
+                "updated_at": order.updated_at.isoformat() if order.updated_at else None,
+                # Conditional order information
+                "order_resolution_type": order_resolution_type,
+                "subsidy_id": subsidy_id,
+                "subsidy_info": subsidy_info,
+                "original_amount": float(order.original_amount) if hasattr(order, 'original_amount') and order.original_amount else None,
+                "payment_collected_before_delivery": getattr(order, 'payment_collected_before_delivery', False),
+                "payment_collected_amount": float(order.payment_collected_amount) if hasattr(order, 'payment_collected_amount') and order.payment_collected_amount else None,
+                "payment_collected_at": order.payment_collected_at.isoformat() if hasattr(order, 'payment_collected_at') and order.payment_collected_at else None
             })
+            
+            # Debug: Log what we're returning
+            print(f"[DEBUG _format_orders] Order {order.id}: Returning order_resolution_type = {result[-1]['order_resolution_type']}")
         
         return result
     
@@ -583,6 +729,6 @@ class OrderService:
             "id": order.id,
             "delivery_man_id": order.delivery_man_id,
             "delivery_man_name": delivery_man.name,
-            "status": order.status
+            "status": order.status.value if hasattr(order.status, 'value') else str(order.status)
         }
 

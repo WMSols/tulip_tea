@@ -94,7 +94,9 @@ async def register_visit(
             order_items=order_items_dicts,
             scheduled_date=visit.scheduled_date,
             collection_amount=visit.collection_amount,
-            collection_remarks=visit.collection_remarks
+            collection_remarks=visit.collection_remarks,
+            order_resolution_type=visit.order_resolution_type,
+            subsidy_id=visit.subsidy_id
         )
         
         # Log visit registration

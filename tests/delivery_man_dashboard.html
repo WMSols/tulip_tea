@@ -453,6 +453,33 @@
         </div>
     </div>
 
+    <!-- Daily Collection Modal -->
+    <div id="dailyCollectionModal" class="modal hidden">
+        <div class="modal-content" style="max-width: 700px;">
+            <span class="close-button" onclick="closeDailyCollectionModal()">&times;</span>
+            <h2 id="dailyCollectionModalTitle">💰 Daily Collection</h2>
+            <div id="dailyCollectionContent">
+                <!-- Order and shop details will be populated here -->
+            </div>
+            <form id="dailyCollectionForm" onsubmit="submitDailyCollection(event)">
+                <input type="hidden" id="collectionOrderId">
+                <input type="hidden" id="collectionShopId">
+                <div class="form-group">
+                    <label>Collection Amount (Rs.) *</label>
+                    <input type="number" id="collectionAmount" step="0.01" min="0.01" placeholder="0.00" required oninput="calculateCollectionImpact()" onchange="calculateCollectionImpact()">
+                    <div id="collectionValidationMessage" style="margin-top: 5px; font-size: 12px;"></div>
+                </div>
+                <div class="form-group">
+                    <label>Remarks (Optional)</label>
+                    <textarea id="collectionRemarks" rows="3" placeholder="Add any notes about the collection..."></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary">✓ Submit Collection</button>
+                <button type="button" class="btn btn-danger" onclick="closeDailyCollectionModal()" style="margin-left: 10px;">Cancel</button>
+            </form>
+            <div id="dailyCollectionResult" class="result"></div>
+        </div>
+    </div>
+
     <!-- Return Modal -->
     <div id="returnModal" class="modal hidden">
         <div class="modal-content" style="max-width: 800px;">
@@ -716,19 +743,20 @@
                 // Debug: Log all orders received
                 console.log(`[loadMyOrders] Total orders received: ${data.length}`);
                 console.log(`[loadMyOrders] Orders by status:`, {
-                    pending: data.filter(o => o.status === 'pending').length,
-                    confirmed: data.filter(o => o.status === 'confirmed').length,
-                    delivered: data.filter(o => o.status === 'delivered').length,
-                    cancelled: data.filter(o => o.status === 'cancelled').length
+                    pending: data.filter(o => (o.status || '').toUpperCase() === 'PENDING').length,
+                    confirmed: data.filter(o => (o.status || '').toUpperCase() === 'CONFIRMED').length,
+                    delivered: data.filter(o => (o.status || '').toUpperCase() === 'DELIVERED').length,
+                    cancelled: data.filter(o => (o.status || '').toUpperCase() === 'CANCELLED').length
                 });
 
                 // Filter to only show orders that are NOT completed (pending, confirmed, or in delivery process)
                 // Completed orders (delivered, returned, cancelled) will appear in Deliveries tab
+                // Note: Backend returns status as uppercase (PENDING, DELIVERED, DISAPPROVED), so we normalize to uppercase for comparison
                 const activeOrders = data.filter(o => {
-                    const status = o.status || 'pending';
+                    const status = (o.status || 'PENDING').toUpperCase();
                     // Only show pending or confirmed orders
                     // Exclude delivered, returned, and cancelled orders
-                    return status === 'pending' || status === 'confirmed';
+                    return status === 'PENDING' || status === 'CONFIRMED';
                 });
                 
                 console.log(`[loadMyOrders] Active orders (pending/confirmed): ${activeOrders.length}`);
@@ -778,8 +806,8 @@
                     return;
                 }
 
-                let html = '<h4 style="color: #f5576c; margin-bottom: 15px;">📦 Active Orders</h4>';
-                html += '<p style="color: #666; margin-bottom: 20px; font-size: 14px;">These orders are in progress. Track your delivery process from warehouse pickup to shop delivery.</p>';
+                let html = '<h4 style="color: #f5576c; margin-bottom: 15px;">📦 Active Orders (Pending Deliveries from Order Bookers in Your Zone)</h4>';
+                html += '<p style="color: #666; margin-bottom: 20px; font-size: 14px;">These are pending orders from order bookers in your assigned zone. Track your delivery process from warehouse pickup to shop delivery.</p>';
 
                 // Render filtered orders
                 for (const { order, delivery, deliveryStatus } of filteredOrders) {
@@ -805,9 +833,44 @@
                                 <span class="info-label">Order ID:</span>
                                 <span class="info-value">${order.id}</span>
                             </div>
+                            ${order.order_booker_name ? `
+                            <div class="info-row">
+                                <span class="info-label">Order Booker:</span>
+                                <span class="info-value">${order.order_booker_name}</span>
+                            </div>
+                            ` : ''}
                             <div class="info-row">
                                 <span class="info-label">Total Amount:</span>
                                 <span class="info-value"><strong style="color: #f5576c;">Rs. ${parseFloat(order.total_amount || 0).toFixed(2)}</strong></span>
+                            </div>
+                            ${order.original_amount && parseFloat(order.original_amount) > parseFloat(order.total_amount || 0) ? `
+                            <div class="info-row">
+                                <span class="info-label">Original Amount:</span>
+                                <span class="info-value" style="text-decoration: line-through; color: #999;">Rs. ${parseFloat(order.original_amount).toFixed(2)}</span>
+                                <span class="info-value" style="color: #27ae60; margin-left: 10px;">(Discounted: Rs. ${parseFloat(order.total_amount || 0).toFixed(2)})</span>
+                            </div>
+                            ` : ''}
+                            <div class="info-row">
+                                <span class="info-label">Order Type:</span>
+                                <span class="info-value">
+                                    ${(() => {
+                                        // Debug: Log order_resolution_type
+                                        console.log(`[Order Type Tag] Order ${order.id}: order_resolution_type =`, order.order_resolution_type, typeof order.order_resolution_type);
+                                        
+                                        const resolutionType = (order.order_resolution_type || 'normal').toLowerCase();
+                                        console.log(`[Order Type Tag] Order ${order.id}: resolutionType =`, resolutionType);
+                                        
+                                        if (resolutionType === 'subsidy') {
+                                            const subsidyName = order.subsidy_info ? order.subsidy_info.name : 'Subsidy';
+                                            const subsidyPercent = order.subsidy_info ? order.subsidy_info.percentage : '';
+                                            return `<span style="background: #27ae60; color: white; padding: 4px 10px; border-radius: 15px; font-size: 12px; font-weight: bold;">💰 Discount: ${subsidyName}${subsidyPercent ? ' (' + subsidyPercent + '%)' : ''}</span>`;
+                                        } else if (resolutionType === 'payment_before_delivery') {
+                                            return `<span style="background: #f39c12; color: white; padding: 4px 10px; border-radius: 15px; font-size: 12px; font-weight: bold;">💳 Payment Before Delivery</span>`;
+                                        } else {
+                                            return `<span style="background: #3498db; color: white; padding: 4px 10px; border-radius: 15px; font-size: 12px; font-weight: bold;">📦 Normal Delivery</span>`;
+                                        }
+                                    })()}
+                                </span>
                             </div>
                             <div class="info-row">
                                 <span class="info-label">Delivery Status:</span>
@@ -859,13 +922,16 @@
                             <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
                                 ${deliveryStatus === 'not_started' || deliveryStatus === 'pending_pickup' ? `
                                 <button class="btn btn-primary" onclick="event.stopPropagation(); openPickupModal(${order.id})">📦 Onboard Stock</button>
+                                <button class="btn" style="background: #27ae60; color: white;" onclick="event.stopPropagation(); openDailyCollectionModal(${order.id}, ${order.shop_id})">💰 Daily Collection</button>
                                 ` : ''}
                                 ${deliveryStatus === 'picked_up' || deliveryStatus === 'in_transit' ? `
                                 <button class="btn btn-primary" onclick="event.stopPropagation(); openDeliverModal(${order.id}, ${delivery ? delivery.id : 'null'})">🚚 Deliver to Shop</button>
+                                <button class="btn" style="background: #27ae60; color: white;" onclick="event.stopPropagation(); openDailyCollectionModal(${order.id}, ${order.shop_id})">💰 Daily Collection</button>
                                 ` : ''}
                                 ${deliveryStatus === 'partially_delivered' ? `
                                 <button class="btn btn-primary" onclick="event.stopPropagation(); openDeliverModal(${order.id}, ${delivery ? delivery.id : 'null'})">🚚 Update Delivery</button>
                                 <button class="btn btn-danger" onclick="event.stopPropagation(); openReturnModal(${order.id}, ${delivery ? delivery.id : 'null'})">↩️ Return Remaining Stock</button>
+                                <button class="btn" style="background: #27ae60; color: white;" onclick="event.stopPropagation(); openDailyCollectionModal(${order.id}, ${order.shop_id})">💰 Daily Collection</button>
                                 ` : ''}
                                 ${deliveryStatus === 'delivered' ? `
                                 <span style="color: #27ae60; font-weight: bold;">✓ Fully Delivered - No Returns Needed</span>
@@ -1020,8 +1086,8 @@
                         <div class="info-row">
                             <span class="info-label">Current Status:</span>
                             <span class="info-value">
-                                <span style="background: ${order.status === 'pending' ? '#f39c12' : order.status === 'confirmed' ? '#3498db' : '#27ae60'}; color: white; padding: 6px 15px; border-radius: 15px; font-size: 14px; font-weight: bold;">
-                                    ${(order.status || 'pending').toUpperCase()}
+                                <span style="background: ${(order.status || 'PENDING').toUpperCase() === 'PENDING' ? '#f39c12' : (order.status || 'PENDING').toUpperCase() === 'CONFIRMED' ? '#3498db' : '#27ae60'}; color: white; padding: 6px 15px; border-radius: 15px; font-size: 14px; font-weight: bold;">
+                                    ${(order.status || 'PENDING').toUpperCase()}
                                 </span>
                             </span>
                         </div>
@@ -1310,13 +1376,43 @@
                         </div>
                         <div class="info-row">
                             <span class="info-label">Total Amount:</span>
-                            <span class="info-value"><strong style="color: #f5576c; font-size: 1.2em;">Rs. ${parseFloat(order.total_amount || 0).toFixed(2)}</strong></span>
+                            <span class="info-value">
+                                <strong style="color: #f5576c; font-size: 1.2em;">Rs. ${parseFloat(order.total_amount || 0).toFixed(2)}</strong>
+                                ${order.original_amount && parseFloat(order.original_amount) > parseFloat(order.total_amount || 0) ? `
+                                <div style="margin-top: 5px; font-size: 0.9em;">
+                                    <span style="text-decoration: line-through; color: #999;">Original: Rs. ${parseFloat(order.original_amount).toFixed(2)}</span>
+                                    <span style="color: #27ae60; margin-left: 10px;">(Discounted: Rs. ${parseFloat(order.total_amount || 0).toFixed(2)})</span>
+                                </div>
+                                ` : ''}
+                            </span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Order Type:</span>
+                            <span class="info-value">
+                                ${(() => {
+                                    // Debug: Log order_resolution_type
+                                    console.log(`[Order Details Modal] Order ${order.id}: order_resolution_type =`, order.order_resolution_type, typeof order.order_resolution_type);
+                                    
+                                    const resolutionType = (order.order_resolution_type || 'normal').toLowerCase();
+                                    console.log(`[Order Details Modal] Order ${order.id}: resolutionType =`, resolutionType);
+                                    
+                                    if (resolutionType === 'subsidy') {
+                                        const subsidyName = order.subsidy_info ? order.subsidy_info.name : 'Subsidy';
+                                        const subsidyPercent = order.subsidy_info ? order.subsidy_info.percentage : '';
+                                        return `<span style="background: #27ae60; color: white; padding: 6px 15px; border-radius: 15px; font-size: 14px; font-weight: bold;">💰 Discount: ${subsidyName}${subsidyPercent ? ' (' + subsidyPercent + '%)' : ''}</span>`;
+                                    } else if (resolutionType === 'payment_before_delivery') {
+                                        return `<span style="background: #f39c12; color: white; padding: 6px 15px; border-radius: 15px; font-size: 14px; font-weight: bold;">💳 Payment Before Delivery</span>`;
+                                    } else {
+                                        return `<span style="background: #3498db; color: white; padding: 6px 15px; border-radius: 15px; font-size: 14px; font-weight: bold;">📦 Normal Delivery</span>`;
+                                    }
+                                })()}
+                            </span>
                         </div>
                         <div class="info-row">
                             <span class="info-label">Status:</span>
                             <span class="info-value">
-                                <span style="background: ${order.status === 'pending' ? '#f39c12' : order.status === 'confirmed' ? '#3498db' : order.status === 'delivered' ? '#27ae60' : order.status === 'cancelled' ? '#e74c3c' : '#95a5a6'}; color: white; padding: 6px 15px; border-radius: 15px; font-size: 14px; font-weight: bold;">
-                                    ${(order.status || 'pending').toUpperCase()}
+                                <span style="background: ${(order.status || 'PENDING').toUpperCase() === 'PENDING' ? '#f39c12' : (order.status || 'PENDING').toUpperCase() === 'CONFIRMED' ? '#3498db' : (order.status || 'PENDING').toUpperCase() === 'DELIVERED' ? '#27ae60' : (order.status || 'PENDING').toUpperCase() === 'CANCELLED' || (order.status || 'PENDING').toUpperCase() === 'DISAPPROVED' ? '#e74c3c' : '#95a5a6'}; color: white; padding: 6px 15px; border-radius: 15px; font-size: 14px; font-weight: bold;">
+                                    ${(order.status || 'PENDING').toUpperCase()}
                                 </span>
                             </span>
                         </div>
@@ -1330,6 +1426,34 @@
                             <span class="info-label">Order Date:</span>
                             <span class="info-value">${new Date(order.created_at).toLocaleString()}</span>
                         </div>
+                        ${order.order_resolution_type === 'payment_before_delivery' ? `
+                        <div class="info-row" style="background: #fff3cd; padding: 10px; border-radius: 5px; margin-top: 10px;">
+                            <span class="info-label" style="color: #856404; font-weight: bold;">⚠️ Payment Required:</span>
+                            <span class="info-value" style="color: #856404;">
+                                This order requires payment collection before delivery. 
+                                ${order.payment_collected_before_delivery ? `
+                                <div style="margin-top: 5px;">
+                                    <strong>✓ Payment Collected:</strong> Rs. ${parseFloat(order.payment_collected_amount || 0).toFixed(2)} 
+                                    on ${order.payment_collected_at ? new Date(order.payment_collected_at).toLocaleString() : 'N/A'}
+                                </div>
+                                ` : '<strong>Payment not yet collected.</strong>'}
+                            </span>
+                        </div>
+                        ` : ''}
+                        ${order.order_resolution_type === 'subsidy' && order.subsidy_info ? `
+                        <div class="info-row" style="background: #d4edda; padding: 10px; border-radius: 5px; margin-top: 10px;">
+                            <span class="info-label" style="color: #155724; font-weight: bold;">💰 Subsidy Applied:</span>
+                            <span class="info-value" style="color: #155724;">
+                                <strong>${order.subsidy_info.name}</strong> (${order.subsidy_info.percentage}% discount)
+                                ${order.original_amount ? `
+                                <div style="margin-top: 5px;">
+                                    Original: Rs. ${parseFloat(order.original_amount).toFixed(2)} → 
+                                    Discounted: Rs. ${parseFloat(order.total_amount || 0).toFixed(2)}
+                                </div>
+                                ` : ''}
+                            </span>
+                        </div>
+                        ` : ''}
                     </div>
                     
                     ${order.order_items && order.order_items.length > 0 ? `
@@ -1423,10 +1547,10 @@
                 // Debug: Log all orders received
                 console.log(`[loadMyDeliveries] Total orders received: ${data.length}`);
                 console.log(`[loadMyDeliveries] Orders by status:`, {
-                    pending: data.filter(o => o.status === 'pending').length,
-                    confirmed: data.filter(o => o.status === 'confirmed').length,
-                    delivered: data.filter(o => o.status === 'delivered').length,
-                    cancelled: data.filter(o => o.status === 'cancelled').length
+                    pending: data.filter(o => (o.status || '').toUpperCase() === 'PENDING').length,
+                    confirmed: data.filter(o => (o.status || '').toUpperCase() === 'CONFIRMED').length,
+                    delivered: data.filter(o => (o.status || '').toUpperCase() === 'DELIVERED').length,
+                    cancelled: data.filter(o => (o.status || '').toUpperCase() === 'CANCELLED').length
                 });
 
                 // Fetch delivery details for all orders first
@@ -1456,12 +1580,13 @@
                 // Filter to show orders that should appear in Deliveries tab:
                 // 1. Orders with status: confirmed, delivered, cancelled
                 // 2. OR orders with delivery status: delivered, returned, failed
+                // Note: Backend returns status as uppercase (PENDING, DELIVERED, DISAPPROVED)
                 const deliveriesToShow = ordersWithDeliveries.filter(({order, delivery}) => {
-                    const orderStatus = order.status || 'pending';
+                    const orderStatus = (order.status || 'PENDING').toUpperCase();
                     const deliveryStatus = delivery ? delivery.status : null;
                     
                     // Show if order status is completed
-                    if (orderStatus === 'confirmed' || orderStatus === 'delivered' || orderStatus === 'cancelled') {
+                    if (orderStatus === 'CONFIRMED' || orderStatus === 'DELIVERED' || orderStatus === 'CANCELLED' || orderStatus === 'DISAPPROVED') {
                         return true;
                     }
                     
@@ -1497,23 +1622,25 @@
             
             // Filter by status if specified (confirmed, delivered, or cancelled)
             // data is now an array of {order, delivery} objects
+            // Note: Backend returns status as uppercase (PENDING, DELIVERED, DISAPPROVED)
             let filteredData = data;
             if (filterStatus) {
+                const filterStatusUpper = filterStatus.toUpperCase();
                 filteredData = data.filter(({order, delivery}) => {
                     // Check both order status and delivery status
-                    const orderStatus = order.status || 'pending';
+                    const orderStatus = (order.status || 'PENDING').toUpperCase();
                     const deliveryStatus = delivery ? delivery.status : null;
                     
-                    // Match by order status
-                    if (orderStatus === filterStatus) {
+                    // Match by order status (normalize to uppercase)
+                    if (orderStatus === filterStatusUpper) {
                         return true;
                     }
                     
                     // Also match by delivery status for certain filters
-                    if (filterStatus === 'delivered' && deliveryStatus === 'delivered') {
+                    if (filterStatusUpper === 'DELIVERED' && deliveryStatus === 'delivered') {
                         return true;
                     }
-                    if (filterStatus === 'delivered' && deliveryStatus === 'returned') {
+                    if (filterStatusUpper === 'DELIVERED' && deliveryStatus === 'returned') {
                         return true; // Show returned deliveries in delivered section
                     }
                     
@@ -1528,23 +1655,24 @@
 
             // Group deliveries by status (confirmed, delivered, cancelled, returned)
             // Check both order status and delivery status
+            // Note: Backend returns status as uppercase (PENDING, DELIVERED, DISAPPROVED)
             const confirmedDeliveries = filteredData.filter(({order, delivery}) => {
-                const orderStatus = order.status || 'pending';
+                const orderStatus = (order.status || 'PENDING').toUpperCase();
                 const deliveryStatus = delivery ? delivery.status : null;
-                return orderStatus === 'confirmed' && deliveryStatus !== 'delivered' && deliveryStatus !== 'returned' && deliveryStatus !== 'failed';
+                return orderStatus === 'CONFIRMED' && deliveryStatus !== 'delivered' && deliveryStatus !== 'returned' && deliveryStatus !== 'failed';
             });
             
             const deliveredDeliveries = filteredData.filter(({order, delivery}) => {
-                const orderStatus = order.status || 'pending';
+                const orderStatus = (order.status || 'PENDING').toUpperCase();
                 const deliveryStatus = delivery ? delivery.status : null;
-                // Include orders with status 'delivered' OR deliveries with status 'delivered' or 'returned'
-                return orderStatus === 'delivered' || deliveryStatus === 'delivered' || deliveryStatus === 'returned';
+                // Include orders with status 'DELIVERED' OR deliveries with status 'delivered' or 'returned'
+                return orderStatus === 'DELIVERED' || deliveryStatus === 'delivered' || deliveryStatus === 'returned';
             });
             
             const cancelledDeliveries = filteredData.filter(({order, delivery}) => {
-                const orderStatus = order.status || 'pending';
+                const orderStatus = (order.status || 'PENDING').toUpperCase();
                 const deliveryStatus = delivery ? delivery.status : null;
-                return orderStatus === 'cancelled' || deliveryStatus === 'failed';
+                return orderStatus === 'CANCELLED' || orderStatus === 'DISAPPROVED' || deliveryStatus === 'failed';
             });
 
             let html = '';
@@ -2787,6 +2915,215 @@
                     closeReturnModal();
                     loadMyOrders();
                     loadMyDeliveries();
+                }, 2000);
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+        
+        // Daily Collection Modal Functions
+        let currentShopCreditInfo = null;
+        
+        async function openDailyCollectionModal(orderId, shopId) {
+            const modal = document.getElementById('dailyCollectionModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('active');
+            
+            document.getElementById('collectionOrderId').value = orderId;
+            document.getElementById('collectionShopId').value = shopId;
+            
+            try {
+                // Load order details
+                const orderResponse = await fetch(`${API_BASE}/orders/${orderId}`, {
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+                const order = await orderResponse.json();
+                
+                // Load shop credit info
+                const shopResponse = await fetch(`${API_BASE}/shops/${shopId}/credit-info`, {
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+                const shopCreditInfo = await shopResponse.json();
+                
+                currentShopCreditInfo = shopCreditInfo;
+                
+                document.getElementById('dailyCollectionModalTitle').textContent = `💰 Daily Collection - Order #${order.id} - ${order.shop_name || 'Shop'}`;
+                
+                const contentDiv = document.getElementById('dailyCollectionContent');
+                contentDiv.innerHTML = `
+                    <div class="info-card" style="margin-bottom: 20px;">
+                        <h3 style="color: #f5576c; margin-bottom: 15px;">Shop Credit Information</h3>
+                        <div class="info-row">
+                            <span class="info-label">Credit Limit:</span>
+                            <span class="info-value"><strong>Rs. ${parseFloat(shopCreditInfo.credit_limit || 0).toFixed(2)}</strong></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Outstanding Balance:</span>
+                            <span class="info-value"><strong>Rs. ${parseFloat(shopCreditInfo.outstanding_balance || 0).toFixed(2)}</strong></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Available Credit:</span>
+                            <span class="info-value" id="availableCreditValue"><strong style="color: #27ae60;">Rs. ${parseFloat(shopCreditInfo.available_credit || 0).toFixed(2)}</strong></span>
+                        </div>
+                    </div>
+                    <div id="collectionImpactPreview" style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 5px; display: none;">
+                        <h4 style="color: #3498db; margin-bottom: 10px;">📊 Collection Impact Preview</h4>
+                        <div id="collectionImpactDetails"></div>
+                    </div>
+                `;
+                
+                // Reset form
+                document.getElementById('collectionAmount').value = '';
+                document.getElementById('collectionRemarks').value = '';
+                document.getElementById('collectionValidationMessage').textContent = '';
+                document.getElementById('collectionImpactPreview').style.display = 'none';
+            } catch (error) {
+                document.getElementById('dailyCollectionContent').innerHTML = `<p style="color: red;">Error loading order/shop info: ${error.message}</p>`;
+            }
+        }
+        
+        function closeDailyCollectionModal() {
+            const modal = document.getElementById('dailyCollectionModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('active');
+            document.getElementById('dailyCollectionForm').reset();
+            document.getElementById('dailyCollectionResult').className = 'result';
+            document.getElementById('dailyCollectionResult').textContent = '';
+            currentShopCreditInfo = null;
+        }
+        
+        function calculateCollectionImpact() {
+            const amountInput = document.getElementById('collectionAmount');
+            const amount = parseFloat(amountInput.value) || 0;
+            const validationDiv = document.getElementById('collectionValidationMessage');
+            const impactPreview = document.getElementById('collectionImpactPreview');
+            const impactDetails = document.getElementById('collectionImpactDetails');
+            
+            if (!currentShopCreditInfo) {
+                return;
+            }
+            
+            const creditLimit = parseFloat(currentShopCreditInfo.credit_limit || 0);
+            const currentOutstanding = parseFloat(currentShopCreditInfo.outstanding_balance || 0);
+            const currentAvailable = parseFloat(currentShopCreditInfo.available_credit || 0);
+            
+            if (amount <= 0) {
+                validationDiv.textContent = '';
+                validationDiv.style.color = '';
+                impactPreview.style.display = 'none';
+                return;
+            }
+            
+            // Calculate new outstanding balance (cannot go below 0)
+            const newOutstanding = Math.max(0, currentOutstanding - amount);
+            const newAvailable = creditLimit > 0 ? creditLimit - newOutstanding : 0;
+            
+            // Validation: Ensure available credit doesn't exceed credit limit
+            if (creditLimit > 0) {
+                if (newAvailable > creditLimit) {
+                    validationDiv.textContent = '⚠️ Error: Available credit would exceed credit limit. Please enter a valid amount.';
+                    validationDiv.style.color = '#e74c3c';
+                    impactPreview.style.display = 'none';
+                    return;
+                }
+                if (newAvailable < 0) {
+                    validationDiv.textContent = '⚠️ Error: Invalid calculation. Please contact support.';
+                    validationDiv.style.color = '#e74c3c';
+                    impactPreview.style.display = 'none';
+                    return;
+                }
+            }
+            
+            // Show validation message
+            if (creditLimit > 0) {
+                if (newAvailable >= 0 && newAvailable <= creditLimit) {
+                    validationDiv.textContent = '✓ Valid amount. Available credit will be updated instantly.';
+                    validationDiv.style.color = '#27ae60';
+                }
+            } else {
+                validationDiv.textContent = '⚠️ Shop has no credit limit set.';
+                validationDiv.style.color = '#f39c12';
+            }
+            
+            // Show impact preview
+            impactPreview.style.display = 'block';
+            impactDetails.innerHTML = `
+                <div class="info-row">
+                    <span class="info-label">Current Outstanding:</span>
+                    <span class="info-value">Rs. ${currentOutstanding.toFixed(2)}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Collection Amount:</span>
+                    <span class="info-value"><strong style="color: #27ae60;">- Rs. ${amount.toFixed(2)}</strong></span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">New Outstanding Balance:</span>
+                    <span class="info-value"><strong>Rs. ${newOutstanding.toFixed(2)}</strong></span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">New Available Credit:</span>
+                    <span class="info-value"><strong style="color: #27ae60;">Rs. ${newAvailable.toFixed(2)}</strong></span>
+                </div>
+            `;
+        }
+        
+        async function submitDailyCollection(event) {
+            event.preventDefault();
+            const resultDiv = document.getElementById('dailyCollectionResult');
+            const orderId = document.getElementById('collectionOrderId').value;
+            const shopId = document.getElementById('collectionShopId').value;
+            const amount = parseFloat(document.getElementById('collectionAmount').value);
+            const remarks = document.getElementById('collectionRemarks').value;
+            
+            resultDiv.className = 'result';
+            resultDiv.textContent = 'Submitting collection...';
+            resultDiv.style.display = 'block';
+            
+            try {
+                const response = await fetch(`${API_BASE}/daily-collections/delivery-man/${currentDeliveryManId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify({
+                        shop_id: parseInt(shopId),
+                        amount: amount,
+                        remarks: remarks || null,
+                        order_id: parseInt(orderId)
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Failed to submit collection');
+                }
+                
+                resultDiv.className = 'result success';
+                resultDiv.innerHTML = `
+                    <strong>✓ Collection submitted successfully!</strong><br>
+                    <div style="margin-top: 10px;">
+                        <strong>Updated Shop Credit:</strong><br>
+                        Outstanding Balance: Rs. ${data.shop_outstanding_balance ? parseFloat(data.shop_outstanding_balance).toFixed(2) : '0.00'}<br>
+                        Available Credit: Rs. ${data.shop_available_credit ? parseFloat(data.shop_available_credit).toFixed(2) : '0.00'}
+                    </div>
+                `;
+                
+                // Update current shop credit info
+                if (data.shop_outstanding_balance !== undefined && data.shop_available_credit !== undefined) {
+                    currentShopCreditInfo = {
+                        ...currentShopCreditInfo,
+                        outstanding_balance: data.shop_outstanding_balance,
+                        available_credit: data.shop_available_credit
+                    };
+                }
+                
+                // Refresh orders list after a delay
+                setTimeout(() => {
+                    closeDailyCollectionModal();
+                    loadMyOrders();
                 }, 2000);
             } catch (error) {
                 resultDiv.className = 'result error';

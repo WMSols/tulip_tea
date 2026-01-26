@@ -52,9 +52,18 @@ async def startup_event():
 # CORS middleware - configured for production with environment variable
 # Must be added before other middleware
 frontend_url = os.environ.get("FRONTEND_URL", "")
-# If FRONTEND_URL is set, use it; otherwise allow all (for development)
+# Allow multiple origins for development and production
 if frontend_url:
-    allowed_origins = [frontend_url]
+    # Allow both production frontend and localhost for development
+    allowed_origins = [
+        frontend_url,
+        "http://localhost:8080",
+        "http://localhost:3000",
+        "http://localhost:5173",  # Vite default port
+        "http://127.0.0.1:8080",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173"
+    ]
     allow_credentials = True
 else:
     # Development mode - allow all origins
@@ -84,14 +93,35 @@ async def global_exception_handler(request: Request, exc: Exception):
     else:
         error_detail = {"error": "Internal server error"}
     
-    # Get CORS origin from environment or use wildcard
-    cors_origin = os.environ.get("FRONTEND_URL", "*")
+    # Get CORS origin from request or environment
+    origin = request.headers.get("origin")
+    frontend_url = os.environ.get("FRONTEND_URL", "")
+    
+    # Allow localhost origins for development
+    allowed_origins = [frontend_url] if frontend_url else []
+    allowed_origins.extend([
+        "http://localhost:8080",
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:8080",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173"
+    ])
+    
+    # Check if origin is allowed
+    if origin and origin in allowed_origins:
+        cors_origin = origin
+    elif frontend_url:
+        cors_origin = frontend_url
+    else:
+        cors_origin = "*"
     
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content=error_detail,
         headers={
             "Access-Control-Allow-Origin": cors_origin,
+            "Access-Control-Allow-Credentials": "true",
             "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
             "Access-Control-Allow-Headers": "*",
         }

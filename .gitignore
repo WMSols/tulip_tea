@@ -97,3 +97,8 @@ DISTRIBUTOR_API_DOCUMENTATION.md
 tests/distributor_dashboard.html
 tests/order_booker_dashboard.html
 tests/distributor_dashboard.html
+CONDITIONAL_ORDERS_IMPLEMENTATION.md
+sql/add_conditional_order_columns.sql
+sql/conditional_orders_setup.sql
+sql/create_subsidies_table.sql
+sql/remove_discounted_amount_column.sql

@@ -20,7 +20,7 @@ class ShopService:
     def register_shop(db: Session, name: str, owner_name: str, owner_phone: str,
                       gps_lat: Decimal, gps_lng: Decimal, order_booker_id: int,
                       zone_id: int = None, route_id: int = None, credit_limit: Decimal = None,
-                      legacy_balance: Decimal = None, owner_cnic_front_photo: str = None,
+                      outstanding_balance: Decimal = None, owner_cnic_front_photo: str = None,
                       owner_cnic_back_photo: str = None) -> Dict:
         """
         Register a new shop.
@@ -43,7 +43,7 @@ class ShopService:
             order_booker_id: Order booker ID who is registering
             zone_id: Optional zone ID
             credit_limit: Requested credit limit (creates request if > 0)
-            legacy_balance: Legacy balance
+            outstanding_balance: Initial outstanding balance (includes any legacy balance)
         
         Returns:
             Dict: Shop data with credit_limit_request_id if request was created
@@ -74,7 +74,7 @@ class ShopService:
             gps_lat=gps_lat,
             gps_lng=gps_lng,
             credit_limit=Decimal('0'),  # Start with 0, will be set after approval
-            legacy_balance=legacy_balance or Decimal('0'),
+            outstanding_balance=outstanding_balance or Decimal('0'),
             created_by_order_booker=order_booker_id,
             zone_id=zone_id,
             registration_status="pending"  # New shop starts as pending
@@ -208,7 +208,6 @@ class ShopService:
             "gps_lat": float(shop.gps_lat) if shop.gps_lat else None,
             "gps_lng": float(shop.gps_lng) if shop.gps_lng else None,
             "credit_limit": float(shop.credit_limit) if shop.credit_limit else 0,
-            "legacy_balance": float(shop.legacy_balance) if shop.legacy_balance else 0,
             "outstanding_balance": float(shop.outstanding_balance) if shop.outstanding_balance else 0,
             "is_registered": shop.is_registered,
             "registration_status": shop.registration_status,
@@ -260,7 +259,6 @@ class ShopService:
                 "gps_lat": float(shop.gps_lat) if shop.gps_lat else None,
                 "gps_lng": float(shop.gps_lng) if shop.gps_lng else None,
                 "credit_limit": float(shop.credit_limit) if shop.credit_limit else 0,
-                "legacy_balance": float(shop.legacy_balance) if shop.legacy_balance else 0,
                 "outstanding_balance": float(shop.outstanding_balance) if shop.outstanding_balance else 0,
                 "is_registered": shop.is_registered,
                 "registration_status": shop.registration_status,
@@ -309,7 +307,6 @@ class ShopService:
                 "gps_lat": float(shop.gps_lat) if shop.gps_lat else None,
                 "gps_lng": float(shop.gps_lng) if shop.gps_lng else None,
                 "credit_limit": float(shop.credit_limit) if shop.credit_limit else 0,
-                "legacy_balance": float(shop.legacy_balance) if shop.legacy_balance else 0,
                 "outstanding_balance": float(shop.outstanding_balance) if shop.outstanding_balance else 0,
                 "is_registered": shop.is_registered,
                 "registration_status": shop.registration_status,
@@ -469,13 +466,6 @@ class ShopService:
                     except (TypeError, ValueError):
                         credit_limit_val = 0.0
                 
-                legacy_balance_val = 0.0
-                if shop.legacy_balance is not None:
-                    try:
-                        legacy_balance_val = float(shop.legacy_balance)
-                    except (TypeError, ValueError):
-                        legacy_balance_val = 0.0
-                
                 outstanding_balance_val = 0.0
                 if shop.outstanding_balance is not None:
                     try:
@@ -491,7 +481,6 @@ class ShopService:
                     "gps_lat": gps_lat_val,
                     "gps_lng": gps_lng_val,
                     "credit_limit": credit_limit_val,
-                    "legacy_balance": legacy_balance_val,
                     "outstanding_balance": outstanding_balance_val,
                     "is_registered": shop.is_registered if shop.is_registered is not None else False,
                     "registration_status": shop.registration_status if shop.registration_status else "pending",
@@ -721,11 +710,6 @@ class ShopService:
                 except (TypeError, ValueError):
                     credit_limit_val = 0.0
                 
-                try:
-                    legacy_balance_val = float(shop.legacy_balance) if shop.legacy_balance is not None else 0.0
-                except (TypeError, ValueError):
-                    legacy_balance_val = 0.0
-                
                 result.append({
                     "id": shop.id,
                     "name": shop.name,
@@ -734,7 +718,6 @@ class ShopService:
                     "gps_lat": gps_lat_val,
                     "gps_lng": gps_lng_val,
                     "credit_limit": credit_limit_val,
-                    "legacy_balance": legacy_balance_val,
                     "is_registered": shop.is_registered if shop.is_registered is not None else False,
                     "registration_status": shop.registration_status if shop.registration_status else "pending",
                     "verified_by_distributor": shop.verified_by_distributor,

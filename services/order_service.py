@@ -61,12 +61,9 @@ class OrderService:
             print(f"Payment model columns: {[c.name for c in Payment.__table__.columns]}")
             raise ValueError(f"Error querying payments: {str(e)}")
         
-        # Get legacy balance from shop
-        shop = ShopRepository.get_by_id(db, shop_id)
-        legacy_balance = Decimal(str(shop.legacy_balance or 0)) if shop else Decimal('0')
-        
-        # Outstanding = Orders - Payments + Legacy Balance
-        outstanding = total_orders - total_payments + legacy_balance
+        # Outstanding = Orders - Payments
+        # Note: outstanding_balance column already includes any initial legacy balance
+        outstanding = total_orders - total_payments
         return outstanding
     
     @staticmethod

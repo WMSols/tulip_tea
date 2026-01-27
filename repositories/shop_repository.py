@@ -14,7 +14,7 @@ class ShopRepository:
     @staticmethod
     def create(db: Session, name: str, owner_name: str = None, owner_phone: str = None,
               gps_lat: Decimal = None, gps_lng: Decimal = None, credit_limit: Decimal = None,
-              legacy_balance: Decimal = None, created_by_order_booker: int = None,
+              outstanding_balance: Decimal = None, created_by_order_booker: int = None,
               zone_id: int = None, registration_status: str = "pending") -> Shop:
         """
         Create a new shop.
@@ -27,8 +27,9 @@ class ShopRepository:
         Args:
             registration_status: Status of registration ("pending", "approved", "rejected")
             created_by_order_booker: Order booker who is registering the shop
+            outstanding_balance: Initial outstanding balance (includes any legacy balance)
         """
-        legacy_balance_val = legacy_balance or Decimal('0')
+        outstanding_balance_val = outstanding_balance or Decimal('0')
         shop = Shop(
             name=name,
             owner_name=owner_name,
@@ -36,8 +37,7 @@ class ShopRepository:
             gps_lat=gps_lat,
             gps_lng=gps_lng,
             credit_limit=credit_limit or Decimal('0'),
-            legacy_balance=legacy_balance_val,
-            outstanding_balance=legacy_balance_val,  # Initially equals legacy_balance (no orders, no payments yet)
+            outstanding_balance=outstanding_balance_val,  # Initially set to provided value (no orders, no payments yet)
             is_registered=False,  # Start as not registered
             registration_status=registration_status,  # New field
             created_by_order_booker=created_by_order_booker,

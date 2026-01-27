@@ -179,7 +179,6 @@ class ShopRegister(BaseModel):
     zone_id: Optional[int] = None
     route_id: Optional[int] = None
     credit_limit: Optional[float] = 0
-    legacy_balance: Optional[float] = 0
     owner_cnic_front_photo: Optional[str] = None  # Base64 encoded image
     owner_cnic_back_photo: Optional[str] = None  # Base64 encoded image
 
@@ -192,7 +191,6 @@ class ShopResponse(BaseModel):
     gps_lat: Optional[float] = None
     gps_lng: Optional[float] = None
     credit_limit: float
-    legacy_balance: float
     outstanding_balance: Optional[float] = 0
     is_registered: bool
     registration_status: str
@@ -222,7 +220,6 @@ class ShopUpdate(BaseModel):
     gps_lat: Optional[float] = None
     gps_lng: Optional[float] = None
     credit_limit: Optional[float] = None
-    legacy_balance: Optional[float] = None
     zone_id: Optional[int] = None
     route_id: Optional[int] = None
     owner_cnic_front_photo: Optional[str] = None  # Base64 encoded image

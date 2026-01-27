@@ -137,10 +137,13 @@ class ZoneResponse(BaseModel):
 class RouteCreate(BaseModel):
     name: str
     zone_id: int
+    order_booker_id: Optional[int] = None
 
 
 class RouteUpdate(BaseModel):
-    name: str
+    name: Optional[str] = None
+    zone_id: Optional[int] = None
+    order_booker_id: Optional[int] = None
 
 
 class RouteResponse(BaseModel):

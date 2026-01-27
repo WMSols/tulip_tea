@@ -32,7 +32,8 @@ async def create_route(
             db=db,
             name=route.name,
             distributor_id=distributor_id,
-            zone_id=route.zone_id
+            zone_id=route.zone_id,
+            order_booker_id=route.order_booker_id
         )
         return result
     except ValueError as e:
@@ -82,7 +83,12 @@ async def assign_route_to_order_booker(
     distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
-    """Assign a route to an order booker. Only distributors can assign routes."""
+    """
+    Assign a route to an order booker. Only distributors can assign routes.
+    
+    DEPRECATED: This endpoint is kept for backward compatibility.
+    Use PUT /routes/{route_id} with order_booker_id in the request body instead.
+    """
     try:
         result = RouteService.assign_route_to_order_booker(
             db=db,
@@ -104,7 +110,20 @@ async def update_route(
     distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
-    """Update route name. Only distributors can update routes."""
+    """
+    Update route name, zone, and/or order booker assignment.
+    Only distributors can update routes.
+    
+    You can update:
+    - Route name only (provide name, omit other fields)
+    - Zone only (provide zone_id, omit other fields)
+    - Order booker assignment only (provide order_booker_id, omit other fields)
+    - Any combination of the above
+    - Unassign order booker (explicitly set order_booker_id to null in JSON)
+    
+    Note: If a field is provided (even if null), it will be updated.
+    To unassign order booker, explicitly set order_booker_id to null in the request body.
+    """
     try:
         # Verify route exists and belongs to the distributor
         from repositories.route_repository import RouteRepository
@@ -121,7 +140,36 @@ async def update_route(
                 detail="You can only update routes that you created"
             )
         
-        result = RouteService.update_route(db=db, route_id=route_id, name=route.name)
+        # Check which fields were explicitly provided in the request
+        # Pydantic v1 uses __fields_set__, v2 uses model_fields_set
+        # We'll check both for compatibility
+        update_order_booker = False
+        update_zone = False
+        
+        if hasattr(route, '__fields_set__'):
+            # Pydantic v1
+            update_order_booker = 'order_booker_id' in route.__fields_set__
+            update_zone = 'zone_id' in route.__fields_set__
+        elif hasattr(route, 'model_fields_set'):
+            # Pydantic v2
+            update_order_booker = 'order_booker_id' in route.model_fields_set
+            update_zone = 'zone_id' in route.model_fields_set
+        else:
+            # Fallback: Check if fields were provided
+            # If name is None and other fields are None, then nothing was provided
+            # Otherwise, assume fields were provided if they're not None
+            update_order_booker = route.order_booker_id is not None or (route.name is None and route.zone_id is None and route.order_booker_id is not None)
+            update_zone = route.zone_id is not None or (route.name is None and route.order_booker_id is None and route.zone_id is not None)
+        
+        result = RouteService.update_route(
+            db=db, 
+            route_id=route_id, 
+            name=route.name,
+            zone_id=route.zone_id,
+            order_booker_id=route.order_booker_id,
+            update_order_booker=update_order_booker,
+            update_zone=update_zone
+        )
         return result
     except ValueError as e:
         raise HTTPException(

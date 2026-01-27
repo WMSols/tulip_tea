@@ -53,12 +53,18 @@ class ZoneRepository:
     
     @staticmethod
     def delete(db: Session, zone_id: int) -> bool:
-        """Delete a zone."""
-        zone = db.query(Zone).filter(Zone.id == zone_id).first()
+        """Soft delete a zone (sets deleted_at timestamp and is_active=False)."""
+        from datetime import datetime
+        zone = db.query(Zone).filter(
+            Zone.id == zone_id,
+            Zone.deleted_at.is_(None)
+        ).first()
         if not zone:
             return False
-        db.delete(zone)
+        zone.deleted_at = datetime.utcnow()
+        zone.is_active = False
         db.commit()
+        db.refresh(zone)
         return True
 
 

@@ -931,8 +931,23 @@
             <form id="editRouteForm" onsubmit="updateRoute(event)">
                 <input type="hidden" id="editRouteId">
                 <div class="form-group">
-                    <label>Route Name *</label>
-                    <input type="text" id="editRouteName" required placeholder="e.g., Route 1, Route 2">
+                    <label>Route Name</label>
+                    <input type="text" id="editRouteName" placeholder="e.g., Route 1, Route 2">
+                    <small style="color: #666;">Leave empty to keep current name</small>
+                </div>
+                <div class="form-group">
+                    <label>Zone</label>
+                    <select id="editRouteZoneId" onchange="updateOrderBookersForRouteEditOnZoneChange()">
+                        <option value="">Select Zone</option>
+                    </select>
+                    <small style="color: #666;">Select a zone for this route. If changed, assigned order booker must be in the new zone.</small>
+                </div>
+                <div class="form-group">
+                    <label>Order Booker</label>
+                    <select id="editRouteOrderBookerId">
+                        <option value="">Select Order Booker</option>
+                    </select>
+                    <small style="color: #666;">Select an order booker to assign, or leave empty to unassign. Order booker must be in the same zone as the route.</small>
                 </div>
                 <div class="modal-actions">
                     <button type="submit" class="btn btn-primary">Update Route</button>
@@ -1371,7 +1386,10 @@
                             <strong>${zone.name}</strong><br>
                             <small>ID: ${zone.id} | Created: ${new Date(zone.created_at).toLocaleDateString()}</small>
                         </div>
-                        <button class="btn btn-primary" onclick="openEditZoneModal(${zone.id}, '${zone.name.replace(/'/g, "\\'")}')" style="padding: 8px 15px; font-size: 14px;">✏️ Edit</button>
+                        <div style="display: flex; gap: 10px;">
+                            <button class="btn btn-primary" onclick="openEditZoneModal(${zone.id}, '${zone.name.replace(/'/g, "\\'")}')" style="padding: 8px 15px; font-size: 14px;">✏️ Edit</button>
+                            <button class="btn btn-danger" onclick="if(confirm('Delete zone ${zone.name.replace(/'/g, "\\'")}? This will soft delete the zone.')) { deleteZone(${zone.id}); }" style="padding: 8px 15px; font-size: 14px;">🗑️ Delete</button>
+                        </div>
                     </div>
                 `).join('');
                 
@@ -1470,7 +1488,10 @@
                             ${route.order_booker_id ? `Assigned to Order Booker ID: ${route.order_booker_id}` : 'Not assigned'}<br>
                             <small>ID: ${route.id} | Created: ${new Date(route.created_at).toLocaleDateString()}</small>
                         </div>
-                        <button class="btn btn-primary" onclick="openEditRouteModal(${route.id}, '${route.name.replace(/'/g, "\\'")}')" style="padding: 8px 15px; font-size: 14px;">✏️ Edit</button>
+                        <div style="display: flex; gap: 10px;">
+                            <button class="btn btn-primary" onclick="openEditRouteModal(${route.id}, '${route.name.replace(/'/g, "\\'")}', ${route.zone_id || 'null'}, ${route.order_booker_id || 'null'})" style="padding: 8px 15px; font-size: 14px;">✏️ Edit</button>
+                            <button class="btn btn-danger" onclick="if(confirm('Delete route ${route.name.replace(/'/g, "\\'")}? This will soft delete the route.')) { deleteRoute(${route.id}); }" style="padding: 8px 15px; font-size: 14px;">🗑️ Delete</button>
+                        </div>
                     </div>
                 `;
                 }).join('');
@@ -1695,12 +1716,176 @@
                 resultDiv.textContent = `Error: ${error.message}`;
             }
         }
+        
+        // Delete Zone
+        async function deleteZone(zoneId) {
+            if (!confirm('Are you sure you want to soft delete this zone? This will also affect all associated routes, order bookers, delivery men, and shops.')) {
+                return;
+            }
+            
+            const endpoint = `${API_BASE}/zones/${zoneId}`;
+            showApiCall('DELETE', endpoint, 'Delete Zone', 'loading');
+            
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+                
+                if (!response.ok) {
+                    const data = await response.json();
+                    showApiCall('DELETE', endpoint, 'Delete Zone', 'error');
+                    throw new Error(data.detail || 'Failed to delete zone');
+                }
+                
+                showApiCall('DELETE', endpoint, 'Delete Zone', 'success');
+                alert('Zone soft deleted successfully!');
+                loadZones();
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        }
 
+        // Store original order booker ID and zone ID when opening edit modal
+        let originalOrderBookerId = null;
+        let originalZoneId = null;
+        
+        // Update order bookers when zone changes in edit modal
+        async function updateOrderBookersForRouteEditOnZoneChange() {
+            const zoneId = document.getElementById('editRouteZoneId').value;
+            const orderBookerSelect = document.getElementById('editRouteOrderBookerId');
+            
+            // If no zone selected, clear order booker dropdown
+            if (!zoneId) {
+                orderBookerSelect.innerHTML = '<option value="">Select Zone First</option>';
+                return;
+            }
+            
+            // Load order bookers for the selected zone
+            // Preserve current selection if it's still valid
+            const currentOrderBookerId = originalOrderBookerId;
+            await loadOrderBookersForRouteEdit(zoneId, currentOrderBookerId);
+            
+            // If the current order booker is not in the new zone, show a warning
+            const newZoneIdInt = zoneId ? parseInt(zoneId) : null;
+            if (currentOrderBookerId && newZoneIdInt !== null && newZoneIdInt !== originalZoneId) {
+                const resultDiv = document.getElementById('editRouteResult');
+                resultDiv.className = 'result info';
+                resultDiv.textContent = '⚠️ Zone changed. Please verify the assigned order booker is in the new zone, or unassign if needed.';
+            }
+        }
+        
+        // Load order bookers for route edit modal
+        async function loadOrderBookersForRouteEdit(zoneId, currentOrderBookerId) {
+            const orderBookerSelect = document.getElementById('editRouteOrderBookerId');
+            if (!orderBookerSelect) return;
+            
+            if (!zoneId || zoneId === 'null') {
+                orderBookerSelect.innerHTML = '<option value="">Select Zone First</option>';
+                orderBookerSelect.disabled = true;
+                return;
+            }
+            
+            orderBookerSelect.disabled = false;
+            orderBookerSelect.innerHTML = '<option value="">Loading Order Bookers...</option>';
+            
+            try {
+                const endpoint = `${API_BASE}/order-bookers/zone/${zoneId}?distributor_id=${currentDistributorId}`;
+                const response = await fetch(endpoint, {
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to load order bookers for zone');
+                }
+                
+                const orderBookers = await response.json();
+                
+                orderBookerSelect.innerHTML = '<option value="">Unassign Order Booker</option>' + 
+                    orderBookers.map(ob => {
+                        const zoneName = ob.zone_id && allZones.find(z => z.id == ob.zone_id) ? 
+                            allZones.find(z => z.id == ob.zone_id).name : '';
+                        const selected = (currentOrderBookerId && ob.id == currentOrderBookerId) ? 'selected' : '';
+                        return `<option value="${ob.id}" ${selected}>${ob.name} (${ob.phone})${zoneName ? ' - ' + zoneName : ''}</option>`;
+                    }).join('');
+                
+                if (orderBookers.length === 0) {
+                    orderBookerSelect.innerHTML = '<option value="">No order bookers in this zone</option>';
+                }
+            } catch (error) {
+                console.error('Error loading order bookers for zone:', error);
+                orderBookerSelect.innerHTML = '<option value="">Error loading order bookers</option>';
+            }
+        }
+        
+        // Load zones for route edit modal
+        async function loadZonesForRouteEdit() {
+            const zoneSelect = document.getElementById('editRouteZoneId');
+            if (!zoneSelect) return;
+            
+            // Use allZones if already loaded, otherwise fetch
+            let zones = [];
+            if (allZones && allZones.length > 0) {
+                zones = allZones;
+            } else {
+                try {
+                    const response = await fetch(`${API_BASE}/zones/`, {
+                        headers: {
+                            'Authorization': `Bearer ${currentToken}`
+                        }
+                    });
+                    const data = await response.json();
+                    if (response.ok && data.length > 0) {
+                        zones = data;
+                        allZones = data; // Cache for future use
+                    } else {
+                        console.error('Failed to load zones:', data);
+                        zoneSelect.innerHTML = '<option value="">Error loading zones</option>';
+                        return;
+                    }
+                } catch (error) {
+                    console.error('Error loading zones:', error);
+                    zoneSelect.innerHTML = '<option value="">Error loading zones</option>';
+                    return;
+                }
+            }
+            
+            // Preserve current value
+            const currentValue = zoneSelect.value;
+            
+            // Populate dropdown
+            if (zones.length > 0) {
+                zoneSelect.innerHTML = '<option value="">Select Zone</option>' + 
+                    zones.map(z => `<option value="${z.id}" ${z.id == currentValue ? 'selected' : ''}>${z.name}</option>`).join('');
+            } else {
+                zoneSelect.innerHTML = '<option value="">No zones available</option>';
+            }
+        }
+        
         // Open Edit Route Modal
-        function openEditRouteModal(routeId, routeName) {
+        async function openEditRouteModal(routeId, routeName, routeZoneId, routeOrderBookerId) {
             const modal = document.getElementById('editRouteModal');
             document.getElementById('editRouteId').value = routeId;
-            document.getElementById('editRouteName').value = routeName;
+            document.getElementById('editRouteName').value = routeName || '';
+            
+            // Store original values for comparison
+            originalZoneId = routeZoneId && routeZoneId !== 'null' ? parseInt(routeZoneId) : null;
+            originalOrderBookerId = routeOrderBookerId && routeOrderBookerId !== 'null' ? parseInt(routeOrderBookerId) : null;
+            
+            // Load zones for dropdown
+            await loadZonesForRouteEdit();
+            
+            // Set zone value after zones are loaded
+            const zoneSelect = document.getElementById('editRouteZoneId');
+            if (zoneSelect && originalZoneId) {
+                zoneSelect.value = originalZoneId;
+            }
+            
+            // Load order bookers for the route's zone
+            await loadOrderBookersForRouteEdit(originalZoneId, originalOrderBookerId);
+            
             modal.classList.remove('hidden');
             modal.classList.add('active');
         }
@@ -1713,6 +1898,8 @@
             document.getElementById('editRouteForm').reset();
             document.getElementById('editRouteResult').className = 'result';
             document.getElementById('editRouteResult').textContent = '';
+            originalOrderBookerId = null; // Reset stored value
+            originalZoneId = null; // Reset stored value
         }
 
         // Update Route
@@ -1720,11 +1907,49 @@
             event.preventDefault();
             const resultDiv = document.getElementById('editRouteResult');
             const routeId = document.getElementById('editRouteId').value;
-            const name = document.getElementById('editRouteName').value;
+            const name = document.getElementById('editRouteName').value.trim();
+            const zoneId = document.getElementById('editRouteZoneId').value;
+            const orderBookerId = document.getElementById('editRouteOrderBookerId').value;
             
-            if (!routeId || !name) {
+            if (!routeId) {
                 resultDiv.className = 'result error';
-                resultDiv.textContent = 'Please fill in all required fields';
+                resultDiv.textContent = 'Route ID is required';
+                return;
+            }
+            
+            // Build update data - only include fields that are provided or changed
+            const updateData = {};
+            if (name) {
+                updateData.name = name;
+            }
+            
+            // Handle zone_id:
+            // - If a value is selected and different from original: update zone
+            // - If empty string: don't update (keep current zone)
+            const newZoneId = zoneId ? parseInt(zoneId) : null;
+            if (newZoneId !== null && newZoneId !== originalZoneId) {
+                updateData.zone_id = newZoneId;
+            }
+            // If newZoneId is null (empty selection) or matches originalZoneId, don't include it (no change)
+            
+            // Handle order_booker_id:
+            // - If empty string and original was assigned: user wants to unassign (set to null)
+            // - If a value is selected and different from original: assign/change (set to that value)
+            // - Otherwise: don't include it (no change)
+            const newOrderBookerId = orderBookerId ? parseInt(orderBookerId) : null;
+            if (orderBookerId === '' && originalOrderBookerId !== null) {
+                // User selected "Unassign Order Booker" option - explicitly set to null
+                updateData.order_booker_id = null;
+            } else if (newOrderBookerId !== null && newOrderBookerId !== originalOrderBookerId) {
+                // User selected a different order booker
+                updateData.order_booker_id = newOrderBookerId;
+            }
+            // If newOrderBookerId matches originalOrderBookerId, don't include it (no change)
+            
+            // At least one field must be provided
+            if (Object.keys(updateData).length === 0) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Please provide at least one field to update (name, zone, or order booker assignment)';
                 return;
             }
             
@@ -1738,7 +1963,7 @@
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${currentToken}`
                     },
-                    body: JSON.stringify({ name })
+                    body: JSON.stringify(updateData)
                 });
                 const data = await response.json();
                 if (!response.ok) {
@@ -1748,7 +1973,19 @@
                 
                 showApiCall('PUT', endpoint, 'Update Route', 'success');
                 resultDiv.className = 'result success';
-                resultDiv.textContent = `Route updated successfully!`;
+                let successMsg = 'Route updated successfully!';
+                if (updateData.zone_id !== undefined) {
+                    const zoneName = allZones.find(z => z.id == updateData.zone_id)?.name || `Zone ${updateData.zone_id}`;
+                    successMsg += ` Zone changed to ${zoneName}.`;
+                }
+                if (updateData.order_booker_id !== undefined) {
+                    if (updateData.order_booker_id === null) {
+                        successMsg += ' Order booker unassigned.';
+                    } else {
+                        successMsg += ` Assigned to Order Booker ID: ${updateData.order_booker_id}`;
+                    }
+                }
+                resultDiv.textContent = successMsg;
                 
                 setTimeout(() => {
                     closeEditRouteModal();
@@ -1757,6 +1994,37 @@
             } catch (error) {
                 resultDiv.className = 'result error';
                 resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+        
+        // Delete Route
+        async function deleteRoute(routeId) {
+            if (!confirm('Are you sure you want to soft delete this route? This will unassign it from any order bookers and shops.')) {
+                return;
+            }
+            
+            const endpoint = `${API_BASE}/routes/${routeId}`;
+            showApiCall('DELETE', endpoint, 'Delete Route', 'loading');
+            
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+                
+                if (!response.ok) {
+                    const data = await response.json();
+                    showApiCall('DELETE', endpoint, 'Delete Route', 'error');
+                    throw new Error(data.detail || 'Failed to delete route');
+                }
+                
+                showApiCall('DELETE', endpoint, 'Delete Route', 'success');
+                alert('Route soft deleted successfully!');
+                loadRoutes();
+            } catch (error) {
+                alert(`Error: ${error.message}`);
             }
         }
 

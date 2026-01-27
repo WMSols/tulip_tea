@@ -67,8 +67,18 @@ class RouteRepository:
         return query.all()
     
     @staticmethod
-    def assign_to_order_booker(db: Session, route_id: int, order_booker_id: int) -> bool:
-        """Assign a route to an order booker."""
+    def assign_to_order_booker(db: Session, route_id: int, order_booker_id: Optional[int] = None) -> bool:
+        """
+        Assign or unassign a route to/from an order booker.
+        
+        Args:
+            db: Database session
+            route_id: Route ID
+            order_booker_id: Order booker ID to assign, or None to unassign
+        
+        Returns:
+            True if successful, False if route not found
+        """
         route = db.query(Route).filter(Route.id == route_id).first()
         if not route:
             return False
@@ -78,23 +88,45 @@ class RouteRepository:
         return True
     
     @staticmethod
-    def update(db: Session, route_id: int, name: str) -> Optional[Route]:
-        """Update route name."""
+    def update(db: Session, route_id: int, name: Optional[str] = None, zone_id: Optional[int] = None) -> Optional[Route]:
+        """
+        Update route name and/or zone.
+        
+        Args:
+            db: Database session
+            route_id: Route ID
+            name: Optional new name for the route
+            zone_id: Optional new zone ID for the route
+        
+        Returns:
+            Updated Route object, or None if route not found
+        """
         route = db.query(Route).filter(Route.id == route_id).first()
         if not route:
             return None
-        route.name = name
+        
+        if name is not None:
+            route.name = name
+        if zone_id is not None:
+            route.zone_id = zone_id
+        
         db.commit()
         db.refresh(route)
         return route
     
     @staticmethod
     def delete(db: Session, route_id: int) -> bool:
-        """Delete a route."""
-        route = db.query(Route).filter(Route.id == route_id).first()
+        """Soft delete a route (sets deleted_at timestamp and is_active=False)."""
+        from datetime import datetime
+        route = db.query(Route).filter(
+            Route.id == route_id,
+            Route.deleted_at.is_(None)
+        ).first()
         if not route:
             return False
-        db.delete(route)
+        route.deleted_at = datetime.utcnow()
+        route.is_active = False
         db.commit()
+        db.refresh(route)
         return True
 

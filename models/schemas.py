@@ -192,7 +192,7 @@ class ShopResponse(BaseModel):
     gps_lat: Optional[float] = None
     gps_lng: Optional[float] = None
     credit_limit: float
-    legacy_balance: float
+    # legacy_balance removed from response - it's now part of outstanding_balance
     outstanding_balance: Optional[float] = 0
     is_registered: bool
     registration_status: str

@@ -26,7 +26,7 @@ STATUS VALUES:
 
 DATABASE TABLE: credit_limit_requests
 """
-from sqlalchemy import Column, BigInteger, String, Numeric, DateTime, ForeignKey, Enum
+from sqlalchemy import Column, BigInteger, String, Numeric, DateTime, ForeignKey, Enum, TypeDecorator
 from sqlalchemy.dialects.postgresql import ENUM
 from sqlalchemy.sql import func
 import enum
@@ -38,6 +38,63 @@ class CreditLimitRequestStatus(str, enum.Enum):
     PENDING = "pending"
     APPROVED = "approved"
     DISAPPROVED = "disapproved"
+    
+    def __str__(self):
+        """Return the enum value when converted to string."""
+        return self.value
+
+
+class CreditLimitRequestStatusEnum(TypeDecorator):
+    """TypeDecorator to ensure enum values (lowercase) are used, not enum names (uppercase)."""
+    # Use String as base since database stores lowercase but enum type expects uppercase
+    impl = String(50)
+    cache_ok = True
+    
+    def load_dialect_impl(self, dialect):
+        """Load the dialect-specific implementation."""
+        if dialect.name == 'postgresql':
+            # Use String type instead of ENUM to avoid mismatch between enum definition (uppercase)
+            # and actual database values (lowercase). We handle conversion in process_bind_param/process_result_value.
+            from sqlalchemy import String
+            return dialect.type_descriptor(String(50))
+        return super().load_dialect_impl(dialect)
+    
+    def bind_processor(self, dialect):
+        """Return a processor that converts enum to lowercase string value (matching database)."""
+        def process(value):
+            if value is None:
+                return None
+            if isinstance(value, CreditLimitRequestStatus):
+                # Use enum value (lowercase to match database)
+                return value.value
+            # Convert to lowercase to match database enum
+            return str(value).lower()
+        return process
+    
+    def process_bind_param(self, value, dialect):
+        """Convert enum to lowercase string value when binding to database."""
+        if value is None:
+            return None
+        if isinstance(value, CreditLimitRequestStatus):
+            # Use the enum value (lowercase string), not the enum name
+            return value.value
+        if isinstance(value, str):
+            # Already a string, ensure it's lowercase
+            return value.lower()
+        return str(value).lower()
+    
+    def process_result_value(self, value, dialect):
+        """Convert database value back to enum."""
+        if value is None:
+            return None
+        if isinstance(value, str):
+            # Convert lowercase string from DB to enum
+            try:
+                return CreditLimitRequestStatus(value.lower())
+            except ValueError:
+                # If value doesn't match enum, return as-is (shouldn't happen)
+                return value
+        return value
 
 
 class CreditLimitRequest(Base):
@@ -114,7 +171,7 @@ class CreditLimitRequest(Base):
 
     # Status and Review
     status = Column(
-        ENUM(CreditLimitRequestStatus, name='credit_limit_request_status_enum', create_type=False),
+        CreditLimitRequestStatusEnum(),
         nullable=False,
         default=CreditLimitRequestStatus.PENDING,
         server_default='pending'

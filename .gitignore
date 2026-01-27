@@ -104,3 +104,11 @@ sql/add_order_performance_indexes.sql
 sql/check_order_status_enum.sql
 sql/fix_order_status_enum.sql
 sql/convert_order_status_enum_to_uppercase.sql
+SHOP_VISITS_OPTIMIZATION_SUMMARY.md
+DELIVERY_MAN_ORDERS_OPTIMIZATION_SUMMARY.md
+LEGACY_BALANCE_REMOVAL_SUMMARY.md
+scripts/HARD_DELETE_SCRIPT_ANALYSIS.md
+scripts/SHOP_VISIT_DELETION_UPDATE.md
+sql/add_shop_visits_performance_indexes.sql
+sql/fix_and_optimize_delivery_man_orders_indexes.sql
+sql/remove_legacy_balance_column.sql

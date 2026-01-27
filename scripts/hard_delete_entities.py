@@ -4,14 +4,17 @@ Hard Delete Entities Script
 Interactive script to permanently delete entities and all related data from the database.
 
 This script handles cascading deletes for:
-- Shops (and related: credit_limit_requests, orders, payments, daily_collections, shop_visits, route_shops)
+- Shops (and related: credit_limit_requests, orders, payments, daily_collections, shop_visits)
 - Order Bookers (and related: routes, orders, shop_visits, shop assignments)
 - Delivery Men (and related: orders, daily_collections, shop_visits, delivery_man_routes)
-- Routes (and related: route_shops, delivery_man_routes)
+- Routes (and related: shops.route_id set to NULL, delivery_man_routes)
 - Products (and related: order_items.product_id set to NULL, inventory.product_id set to NULL)
 - Inventory (individual inventory items)
 - Delivery Man-Warehouse Assignments (junction table records)
 - Warehouses (and related: inventory items, delivery_man_warehouse assignments)
+- Shop Visits (Order Booker visits from shop_visits table)
+- Deliveries (Delivery Man visits from deliveries table - shown in distributor's visits tab)
+- Orders (and related: order_items deleted, deliveries.order_id set to NULL, payments.order_id set to NULL, daily_collections.order_id set to NULL)
 
 Additional Features:
 - Image Bucket Cleanup: Delete all images from Supabase storage buckets
@@ -41,12 +44,20 @@ from models.order_item import OrderItem
 from models.payment import Payment
 from models.daily_collection import DailyCollection
 from models.shop_visit import ShopVisit
-from models.route_shop import RouteShop
+# RouteShop model not imported - route_shops table doesn't exist (shops have route_id directly)
 from models.delivery_man_route import DeliveryManRoute
 from models.product import Product
 from models.inventory import Inventory
 from models.delivery_man_warehouse import DeliveryManWarehouse
 from models.warehouse import Warehouse
+from models.zone import Zone
+from models.distributor import Distributor
+from models.delivery import Delivery
+from models.delivery_item import DeliveryItem
+from models.subsidy import Subsidy
+from models.activity_log import ActivityLog
+from models.super_admin import SuperAdmin
+from models.visit_type import VisitType
 
 
 class EntityDeleter:
@@ -72,13 +83,18 @@ class EntityDeleter:
         print("6. Inventory")
         print("7. Delivery Man-Warehouse Assignment")
         print("8. Warehouse")
+        print("9. Shop Visit (Order Booker Visits from shop_visits table)")
+        print("10. Delivery (Delivery Man Visits from deliveries table)")
+        print("11. Order")
         print("\n--- Image Bucket Cleanup ---")
-        print("9. Clean Shop Registrations Bucket")
-        print("10. Clean Daily Collections Bucket")
-        print("11. Clean Deliveries Bucket")
-        print("12. Clean Shop Visits Bucket")
+        print("12. Clean Shop Registrations Bucket")
+        print("13. Clean Daily Collections Bucket")
+        print("14. Clean Deliveries Bucket")
+        print("15. Clean Shop Visits Bucket")
         print("\n--- Sequence Reset ---")
-        print("13. Reset Primary Key Sequences")
+        print("16. Reset Primary Key Sequences")
+        print("\n--- DANGER ZONE ---")
+        print("17. ⚠️  DELETE ALL DATA FROM ALL TABLES ⚠️")
         print("\n0. Exit")
         print("-"*60)
     
@@ -115,15 +131,70 @@ class EntityDeleter:
         """List all warehouses."""
         return self.db.query(Warehouse).order_by(Warehouse.id).all()
     
+    def list_shop_visits(self) -> List[ShopVisit]:
+        """List all shop visits (Order Booker visits from shop_visits table)."""
+        return self.db.query(ShopVisit).order_by(ShopVisit.id).all()
+    
+    def list_deliveries(self) -> List[Delivery]:
+        """List all deliveries (Delivery Man visits from deliveries table)."""
+        return self.db.query(Delivery).order_by(Delivery.id).all()
+    
+    def list_orders(self) -> List[Order]:
+        """List all orders."""
+        return self.db.query(Order).order_by(Order.id).all()
+    
+    def get_order_related_data(self, order_id: int) -> Dict:
+        """Get all data related to an order."""
+        # Query payments using raw SQL to avoid column mismatch issues
+        # Only select id and order_id columns that we actually need
+        payments_result = self.db.execute(
+            text("SELECT id, order_id FROM payments WHERE order_id = :order_id"),
+            {"order_id": order_id}
+        ).fetchall()
+        
+        # Convert to Payment objects (minimal - just for compatibility)
+        payments = []
+        for row in payments_result:
+            # Create a minimal Payment object with just id and order_id
+            payment = Payment()
+            payment.id = row[0]
+            payment.order_id = row[1]
+            payments.append(payment)
+        
+        return {
+            'order_items': self.db.query(OrderItem).filter(OrderItem.order_id == order_id).all(),
+            'deliveries': self.db.query(Delivery).filter(Delivery.order_id == order_id).all(),
+            'payments': payments,
+            'daily_collections': self.db.query(DailyCollection).filter(DailyCollection.order_id == order_id).all(),
+        }
+    
     def get_shop_related_data(self, shop_id: int) -> Dict:
         """Get all data related to a shop."""
+        # Query payments using raw SQL to avoid column mismatch issues
+        # Only select columns that actually exist in the database
+        payments_result = self.db.execute(
+            text("SELECT id, shop_id, order_id, amount, payment_date FROM payments WHERE shop_id = :shop_id"),
+            {"shop_id": shop_id}
+        )
+        payments_data = payments_result.fetchall()
+        # Create minimal Payment objects for compatibility
+        payments = []
+        for row in payments_data:
+            payment = Payment()
+            payment.id = row[0]
+            payment.shop_id = row[1]
+            payment.order_id = row[2]
+            payment.amount = row[3]
+            payment.payment_date = row[4]
+            payments.append(payment)
+        
         return {
             'credit_limit_requests': self.db.query(CreditLimitRequest).filter(CreditLimitRequest.shop_id == shop_id).all(),
             'orders': self.db.query(Order).filter(Order.shop_id == shop_id).all(),
-            'payments': self.db.query(Payment).filter(Payment.shop_id == shop_id).all(),
+            'payments': payments,  # Use raw SQL query result
             'daily_collections': self.db.query(DailyCollection).filter(DailyCollection.shop_id == shop_id).all(),
             'shop_visits': self.db.query(ShopVisit).filter(ShopVisit.shop_id == shop_id).all(),
-            'route_shops': self.db.query(RouteShop).filter(RouteShop.shop_id == shop_id).all(),
+            # route_shops table doesn't exist - shops have route_id directly on shops table
         }
     
     def get_order_booker_related_data(self, order_booker_id: int) -> Dict:
@@ -147,8 +218,10 @@ class EntityDeleter:
     
     def get_route_related_data(self, route_id: int) -> Dict:
         """Get all data related to a route."""
+        # Get shops that have this route_id (route_shops table doesn't exist - shops have route_id directly)
+        shops_with_route = self.db.query(Shop).filter(Shop.route_id == route_id).all()
         return {
-            'route_shops': self.db.query(RouteShop).filter(RouteShop.route_id == route_id).all(),
+            'shops_with_route': shops_with_route,  # Shops that have this route_id
             'delivery_man_routes': self.db.query(DeliveryManRoute).filter(DeliveryManRoute.route_id == route_id).all(),
         }
     
@@ -183,7 +256,7 @@ class EntityDeleter:
         print(f"   - Payments: {len(related['payments'])}")
         print(f"   - Daily Collections: {len(related['daily_collections'])}")
         print(f"   - Shop Visits: {len(related['shop_visits'])}")
-        print(f"   - Route-Shop Links: {len(related['route_shops'])}")
+        # Route info is stored directly on shop (route_id, route_sequence) - no junction table
         
         # Confirm deletion
         confirm = input(f"\n⚠️  Are you SURE you want to delete shop '{shop.name}' and ALL related data? (type 'del' to confirm): ")
@@ -224,11 +297,7 @@ class EntityDeleter:
             if related['shop_visits']:  # Only flush if there are visits to delete
                 self.db.flush()  # Ensure shop_visits are deleted before shop
             
-            for route_shop in related['route_shops']:
-                self.db.delete(route_shop)
-                self.deleted_summary['route_shops'] = self.deleted_summary.get('route_shops', 0) + 1
-            if related['route_shops']:  # Only flush if there are route_shops to delete
-                self.db.flush()  # Ensure route_shops are deleted before shop
+            # route_shops table doesn't exist - shops have route_id directly (no junction table to delete)
             
             # Delete the shop (after all related data is deleted and flushed)
             self.db.delete(shop)
@@ -360,8 +429,8 @@ class EntityDeleter:
         
         # Show what will be deleted
         print(f"\n📋 Route to delete: {route.name} (ID: {route_id})")
-        print(f"\n📊 Related data that will be deleted:")
-        print(f"   - Route-Shop Links: {len(related['route_shops'])}")
+        print(f"\n📊 Related data that will be affected:")
+        print(f"   - Shops with this route: {len(related['shops_with_route'])} (route_id will be set to NULL)")
         print(f"   - Delivery Man-Route Links: {len(related['delivery_man_routes'])}")
         
         confirm = input(f"\n⚠️  Are you SURE you want to delete route '{route.name}'? (type 'del' to confirm): ")
@@ -370,10 +439,12 @@ class EntityDeleter:
             return False
         
         try:
-            # Delete related data
-            for route_shop in related['route_shops']:
-                self.db.delete(route_shop)
-                self.deleted_summary['route_shops'] = self.deleted_summary.get('route_shops', 0) + 1
+            # Set route_id to NULL on shops (route_shops table doesn't exist - shops have route_id directly)
+            for shop in related['shops_with_route']:
+                shop.route_id = None
+                shop.route_sequence = None
+            if related['shops_with_route']:
+                self.db.flush()  # Ensure route_id is cleared before route deletion
             
             for dm_route in related['delivery_man_routes']:
                 self.db.delete(dm_route)
@@ -558,6 +629,286 @@ class EntityDeleter:
         except Exception as e:
             self.db.rollback()
             print(f"❌ Error deleting warehouse: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def delete_shop_visit(self, visit_id: int) -> bool:
+        """
+        Delete a shop visit from shop_visits table (Order Booker visits only).
+        
+        Note: This deletes from shop_visits table only.
+        For Delivery Man visits (deliveries), use delete_delivery() instead.
+        """
+        visit = self.db.query(ShopVisit).filter(ShopVisit.id == visit_id).first()
+        if not visit:
+            print(f"❌ Shop Visit with ID {visit_id} not found!")
+            return False
+        
+        # Get related data that references this visit
+        related_orders = self.db.query(Order).filter(Order.visit_id == visit_id).all()
+        related_collections = self.db.query(DailyCollection).filter(DailyCollection.visit_id == visit_id).all()
+        related_visit_types = self.db.query(VisitType).filter(VisitType.visit_id == visit_id).all()
+        
+        # Determine visit type for display
+        visit_type_label = "Unknown"
+        if visit.order_booker_id and visit.delivery_man_id:
+            visit_type_label = "Order Booker & Delivery Man Visit"
+        elif visit.order_booker_id:
+            visit_type_label = "Order Booker Visit"
+        elif visit.delivery_man_id:
+            visit_type_label = "Delivery Man Visit"
+        
+        # Show what will be affected
+        print(f"\n📋 Shop Visit to delete ({visit_type_label}):")
+        print(f"   - Visit ID: {visit_id}")
+        print(f"   - Shop ID: {visit.shop_id or 'N/A'}")
+        if visit.order_booker_id:
+            order_booker = self.db.query(OrderBooker).filter(OrderBooker.id == visit.order_booker_id).first()
+            ob_name = order_booker.name if order_booker else f"ID {visit.order_booker_id}"
+            print(f"   - Order Booker: {ob_name} (ID: {visit.order_booker_id})")
+        if visit.delivery_man_id:
+            delivery_man = self.db.query(DeliveryMan).filter(DeliveryMan.id == visit.delivery_man_id).first()
+            dm_name = delivery_man.name if delivery_man else f"ID {visit.delivery_man_id}"
+            print(f"   - Delivery Man: {dm_name} (ID: {visit.delivery_man_id})")
+        print(f"   - Visit Date: {visit.visit_date or 'N/A'}")
+        
+        print(f"\n📊 Related data that will be affected:")
+        print(f"   - Orders: {len(related_orders)} (visit_id will be set to NULL)")
+        print(f"   - Daily Collections: {len(related_collections)} (visit_id will be set to NULL)")
+        print(f"   - Visit Types: {len(related_visit_types)} (will be deleted)")
+        
+        confirm = input(f"\n⚠️  Are you SURE you want to delete Shop Visit (ID: {visit_id})? (type 'del' to confirm): ")
+        if confirm != 'del':
+            print("❌ Deletion cancelled.")
+            return False
+        
+        try:
+            # Delete visit types first (they reference visit_id with CASCADE, but we'll delete explicitly)
+            for vt in related_visit_types:
+                self.db.delete(vt)
+            self.deleted_summary['visit_types'] = self.deleted_summary.get('visit_types', 0) + len(related_visit_types)
+            
+            # Set foreign keys to NULL in orders (don't delete orders, just unlink them)
+            for order in related_orders:
+                order.visit_id = None
+            self.deleted_summary['orders_updated'] = self.deleted_summary.get('orders_updated', 0) + len(related_orders)
+            
+            # Set foreign keys to NULL in daily collections (don't delete collections, just unlink them)
+            for collection in related_collections:
+                collection.visit_id = None
+            self.deleted_summary['collections_updated'] = self.deleted_summary.get('collections_updated', 0) + len(related_collections)
+            
+            # Flush to ensure foreign keys are updated before deleting visit
+            if related_orders or related_collections or related_visit_types:
+                self.db.flush()
+            
+            # Delete the shop visit
+            self.db.delete(visit)
+            self.deleted_summary['shop_visits'] = self.deleted_summary.get('shop_visits', 0) + 1
+            
+            self.db.commit()
+            print(f"✅ Shop Visit (ID: {visit_id}) deleted successfully!")
+            if related_orders:
+                print(f"   - {len(related_orders)} order(s) unlinked (visit_id set to NULL)")
+            if related_collections:
+                print(f"   - {len(related_collections)} collection(s) unlinked (visit_id set to NULL)")
+            if related_visit_types:
+                print(f"   - {len(related_visit_types)} visit type(s) deleted")
+            return True
+            
+        except Exception as e:
+            self.db.rollback()
+            print(f"❌ Error deleting shop visit: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def delete_delivery(self, delivery_id: int) -> bool:
+        """
+        Delete a delivery (Delivery Man visit) from deliveries table and handle related data (foreign keys).
+        
+        Note: Deliveries are Delivery Man visits shown in distributor's visits tab.
+        This is separate from shop_visits table (which has Order Booker visits).
+        """
+        delivery = self.db.query(Delivery).filter(Delivery.id == delivery_id).first()
+        if not delivery:
+            print(f"❌ Delivery with ID {delivery_id} not found!")
+            return False
+        
+        # Get related data that references this delivery
+        related_delivery_items = self.db.query(DeliveryItem).filter(DeliveryItem.delivery_id == delivery_id).all()
+        
+        # Get delivery man and order info for display
+        delivery_man = None
+        if delivery.delivery_man_id:
+            delivery_man = self.db.query(DeliveryMan).filter(DeliveryMan.id == delivery.delivery_man_id).first()
+        
+        order = None
+        if delivery.order_id:
+            order = self.db.query(Order).filter(Order.id == delivery.order_id).first()
+        
+        shop = None
+        if order and order.shop_id:
+            shop = self.db.query(Shop).filter(Shop.id == order.shop_id).first()
+        
+        # Show what will be affected
+        print(f"\n📋 Delivery to delete (Delivery Man Visit):")
+        print(f"   - Delivery ID: {delivery_id}")
+        if delivery_man:
+            print(f"   - Delivery Man: {delivery_man.name} (ID: {delivery.delivery_man_id})")
+        if shop:
+            print(f"   - Shop: {shop.name} (ID: {order.shop_id})")
+        if order:
+            print(f"   - Order ID: {delivery.order_id}")
+        print(f"   - Status: {delivery.status}")
+        if delivery.picked_up_at:
+            print(f"   - Picked Up At: {delivery.picked_up_at}")
+        if delivery.delivered_at:
+            print(f"   - Delivered At: {delivery.delivered_at}")
+        
+        print(f"\n📊 Related data that will be deleted:")
+        print(f"   - Delivery Items: {len(related_delivery_items)} (will be deleted)")
+        
+        confirm = input(f"\n⚠️  Are you SURE you want to delete Delivery (ID: {delivery_id})? (type 'del' to confirm): ")
+        if confirm != 'del':
+            print("❌ Deletion cancelled.")
+            return False
+        
+        try:
+            # Delete delivery items first (they reference delivery_id)
+            for item in related_delivery_items:
+                self.db.delete(item)
+            self.deleted_summary['delivery_items'] = self.deleted_summary.get('delivery_items', 0) + len(related_delivery_items)
+            
+            # Flush to ensure delivery items are deleted before deleting delivery
+            if related_delivery_items:
+                self.db.flush()
+            
+            # Delete the delivery
+            # Note: order_id has ondelete="SET NULL", so order will remain but order_id will be set to NULL
+            self.db.delete(delivery)
+            self.deleted_summary['deliveries'] = self.deleted_summary.get('deliveries', 0) + 1
+            
+            self.db.commit()
+            print(f"✅ Delivery (ID: {delivery_id}) deleted successfully!")
+            if related_delivery_items:
+                print(f"   - {len(related_delivery_items)} delivery item(s) deleted")
+            if delivery.order_id:
+                print(f"   - Order (ID: {delivery.order_id}) unlinked (order_id set to NULL)")
+            return True
+            
+        except Exception as e:
+            self.db.rollback()
+            print(f"❌ Error deleting delivery: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def delete_order(self, order_id: int) -> bool:
+        """
+        Delete an order and handle related data (foreign keys).
+        
+        Handles:
+        - Order Items (deleted - CASCADE)
+        - Deliveries (order_id set to NULL - SET NULL)
+        - Payments (order_id set to NULL manually)
+        - Daily Collections (order_id set to NULL manually)
+        """
+        order = self.db.query(Order).filter(Order.id == order_id).first()
+        if not order:
+            print(f"❌ Order with ID {order_id} not found!")
+            return False
+        
+        related = self.get_order_related_data(order_id)
+        
+        # Get shop and order booker info for display
+        shop = None
+        if order.shop_id:
+            shop = self.db.query(Shop).filter(Shop.id == order.shop_id).first()
+        
+        order_booker = None
+        if order.order_booker_id:
+            order_booker = self.db.query(OrderBooker).filter(OrderBooker.id == order.order_booker_id).first()
+        
+        delivery_man = None
+        if order.delivery_man_id:
+            delivery_man = self.db.query(DeliveryMan).filter(DeliveryMan.id == order.delivery_man_id).first()
+        
+        # Show what will be affected
+        print(f"\n📋 Order to delete:")
+        print(f"   - Order ID: {order_id}")
+        if shop:
+            print(f"   - Shop: {shop.name} (ID: {order.shop_id})")
+        if order_booker:
+            print(f"   - Order Booker: {order_booker.name} (ID: {order.order_booker_id})")
+        if delivery_man:
+            print(f"   - Delivery Man: {delivery_man.name} (ID: {order.delivery_man_id})")
+        print(f"   - Status: {order.status}")
+        print(f"   - Total Amount: {order.total_amount}")
+        if order.scheduled_date:
+            print(f"   - Scheduled Date: {order.scheduled_date}")
+        
+        print(f"\n📊 Related data that will be affected:")
+        print(f"   - Order Items: {len(related['order_items'])} (will be deleted - CASCADE)")
+        print(f"   - Deliveries: {len(related['deliveries'])} (order_id will be set to NULL - SET NULL)")
+        print(f"   - Payments: {len(related['payments'])} (order_id will be set to NULL)")
+        print(f"   - Daily Collections: {len(related['daily_collections'])} (order_id will be set to NULL)")
+        
+        confirm = input(f"\n⚠️  Are you SURE you want to delete Order (ID: {order_id})? (type 'del' to confirm): ")
+        if confirm != 'del':
+            print("❌ Deletion cancelled.")
+            return False
+        
+        try:
+            # Delete order items first (they have CASCADE, but we'll delete explicitly for clarity)
+            for item in related['order_items']:
+                self.db.delete(item)
+            self.deleted_summary['order_items'] = self.deleted_summary.get('order_items', 0) + len(related['order_items'])
+            
+            # Set foreign keys to NULL in payments (no CASCADE, must do manually)
+            # Use raw SQL to avoid column mismatch issues
+            if related['payments']:
+                self.db.execute(
+                    text("UPDATE payments SET order_id = NULL WHERE order_id = :order_id"),
+                    {"order_id": order_id}
+                )
+                self.deleted_summary['payments_updated'] = self.deleted_summary.get('payments_updated', 0) + len(related['payments'])
+            
+            # Set foreign keys to NULL in daily collections (no CASCADE, must do manually)
+            for collection in related['daily_collections']:
+                collection.order_id = None
+            self.deleted_summary['collections_updated'] = self.deleted_summary.get('collections_updated', 0) + len(related['daily_collections'])
+            
+            # Note: Deliveries have ondelete="SET NULL", so order_id will be set to NULL automatically
+            # But we'll update them explicitly for clarity and to show what's happening
+            for delivery in related['deliveries']:
+                delivery.order_id = None
+            self.deleted_summary['deliveries_updated'] = self.deleted_summary.get('deliveries_updated', 0) + len(related['deliveries'])
+            
+            # Flush to ensure foreign keys are updated before deleting order
+            if related['order_items'] or related['payments'] or related['daily_collections'] or related['deliveries']:
+                self.db.flush()
+            
+            # Delete the order
+            self.db.delete(order)
+            self.deleted_summary['orders'] = self.deleted_summary.get('orders', 0) + 1
+            
+            self.db.commit()
+            print(f"✅ Order (ID: {order_id}) deleted successfully!")
+            if related['order_items']:
+                print(f"   - {len(related['order_items'])} order item(s) deleted")
+            if related['deliveries']:
+                print(f"   - {len(related['deliveries'])} delivery/deliveries unlinked (order_id set to NULL)")
+            if related['payments']:
+                print(f"   - {len(related['payments'])} payment(s) unlinked (order_id set to NULL)")
+            if related['daily_collections']:
+                print(f"   - {len(related['daily_collections'])} collection(s) unlinked (order_id set to NULL)")
+            return True
+            
+        except Exception as e:
+            self.db.rollback()
+            print(f"❌ Error deleting order: {e}")
             import traceback
             traceback.print_exc()
             return False
@@ -763,7 +1114,7 @@ class EntityDeleter:
             'shops', 'order_bookers', 'delivery_men', 'routes', 'products',
             'inventory', 'delivery_man_warehouses', 'warehouses', 'zones',
             'distributors', 'orders', 'order_items', 'payments', 'daily_collections',
-            'shop_visits', 'credit_limit_requests', 'route_shops', 'delivery_man_routes',
+            'shop_visits', 'credit_limit_requests', 'delivery_man_routes',
             'activity_logs', 'super_admins', 'visit_types'
         ]
         
@@ -799,6 +1150,276 @@ class EntityDeleter:
             import traceback
             traceback.print_exc()
             return False
+    
+    def delete_all_data(self) -> bool:
+        """
+        Delete ALL data from ALL tables in the correct order to respect foreign key constraints.
+        
+        Deletion order (child tables first, then parents):
+        1. Junction/child tables: order_items, delivery_items, visit_types, delivery_man_routes, delivery_man_warehouses
+        1a. Clear route_id on shops (route_shops table doesn't exist - shops have route_id directly)
+        2. Dependent tables: orders, deliveries, shop_visits, daily_collections, payments, credit_limit_requests, activity_logs
+        3. Main entities: shops, products, inventory, warehouses
+        4. User entities: order_bookers, delivery_men
+        5. Organizational: routes, zones, distributors
+        6. System: subsidies, super_admins
+        """
+        print("\n" + "="*60)
+        print("⚠️  ⚠️  ⚠️  DANGER ZONE ⚠️  ⚠️  ⚠️")
+        print("="*60)
+        print("\n⚠️  WARNING: This will DELETE ALL DATA from ALL TABLES!")
+        print("⚠️  This includes:")
+        print("   - All shops, orders, payments, collections")
+        print("   - All order bookers, delivery men, distributors")
+        print("   - All routes, zones, warehouses, products")
+        print("   - All activity logs, visits, deliveries")
+        print("   - EVERYTHING in the database!")
+        print("\n⚠️  This action CANNOT be undone!")
+        print("⚠️  Make sure you have a backup if needed!")
+        
+        confirm1 = input("\nType 'DELETE ALL' (exactly) to proceed: ").strip()
+        if confirm1 != 'DELETE ALL':
+            print("❌ Deletion cancelled.")
+            return False
+        
+        confirm2 = input("\n⚠️  Are you ABSOLUTELY SURE? Type 'YES DELETE EVERYTHING' (exactly): ").strip()
+        if confirm2 != 'YES DELETE EVERYTHING':
+            print("❌ Deletion cancelled.")
+            return False
+        
+        try:
+            print("\n🗑️  Starting deletion of all data...")
+            
+            # Step 1: Delete junction/child tables first
+            print("\n📋 Step 1: Deleting junction/child tables...")
+            
+            # Order Items
+            order_items = self.db.query(OrderItem).all()
+            for item in order_items:
+                self.db.delete(item)
+            self.deleted_summary['order_items'] = len(order_items)
+            print(f"   ✅ Deleted {len(order_items)} order items")
+            
+            # Delivery Items
+            delivery_items = self.db.query(DeliveryItem).all()
+            for item in delivery_items:
+                self.db.delete(item)
+            self.deleted_summary['delivery_items'] = len(delivery_items)
+            print(f"   ✅ Deleted {len(delivery_items)} delivery items")
+            
+            # Visit Types
+            visit_types = self.db.query(VisitType).all()
+            for vt in visit_types:
+                self.db.delete(vt)
+            self.deleted_summary['visit_types'] = len(visit_types)
+            print(f"   ✅ Deleted {len(visit_types)} visit types")
+            
+            # Route Shops
+            # route_shops table doesn't exist - shops have route_id directly
+            # Set route_id to NULL on all shops instead
+            shops_with_routes = self.db.query(Shop).filter(Shop.route_id.isnot(None)).all()
+            for shop in shops_with_routes:
+                shop.route_id = None
+                shop.route_sequence = None
+            self.deleted_summary['shops_route_cleared'] = len(shops_with_routes)
+            print(f"   ✅ Cleared route_id from {len(shops_with_routes)} shops (route_shops table doesn't exist)")
+            
+            # Delivery Man Routes
+            delivery_man_routes = self.db.query(DeliveryManRoute).all()
+            for dmr in delivery_man_routes:
+                self.db.delete(dmr)
+            self.deleted_summary['delivery_man_routes'] = len(delivery_man_routes)
+            print(f"   ✅ Deleted {len(delivery_man_routes)} delivery man-route links")
+            
+            # Delivery Man Warehouses
+            delivery_man_warehouses = self.db.query(DeliveryManWarehouse).all()
+            for dmw in delivery_man_warehouses:
+                self.db.delete(dmw)
+            self.deleted_summary['delivery_man_warehouses'] = len(delivery_man_warehouses)
+            print(f"   ✅ Deleted {len(delivery_man_warehouses)} delivery man-warehouse links")
+            
+            self.db.flush()
+            
+            # Step 2: Delete dependent tables
+            print("\n📋 Step 2: Deleting dependent tables...")
+            
+            # First, unlink shop visits from orders and daily collections (set visit_id to NULL)
+            # This prevents foreign key errors when deleting shop visits
+            orders_with_visits = self.db.query(Order).filter(Order.visit_id.isnot(None)).all()
+            for order in orders_with_visits:
+                order.visit_id = None
+            if orders_with_visits:
+                print(f"   ✅ Unlinked {len(orders_with_visits)} orders from shop visits")
+            
+            collections_with_visits = self.db.query(DailyCollection).filter(DailyCollection.visit_id.isnot(None)).all()
+            for collection in collections_with_visits:
+                collection.visit_id = None
+            if collections_with_visits:
+                print(f"   ✅ Unlinked {len(collections_with_visits)} collections from shop visits")
+            
+            self.db.flush()  # Ensure foreign keys are updated before deleting shop visits
+            
+            # Now delete orders (visit_id already set to NULL)
+            orders = self.db.query(Order).all()
+            for order in orders:
+                self.db.delete(order)
+            self.deleted_summary['orders'] = len(orders)
+            print(f"   ✅ Deleted {len(orders)} orders")
+            
+            # Deliveries
+            deliveries = self.db.query(Delivery).all()
+            for delivery in deliveries:
+                self.db.delete(delivery)
+            self.deleted_summary['deliveries'] = len(deliveries)
+            print(f"   ✅ Deleted {len(deliveries)} deliveries")
+            
+            # Daily Collections (visit_id already set to NULL)
+            daily_collections = self.db.query(DailyCollection).all()
+            for collection in daily_collections:
+                self.db.delete(collection)
+            self.deleted_summary['daily_collections'] = len(daily_collections)
+            print(f"   ✅ Deleted {len(daily_collections)} daily collections")
+            
+            # Shop Visits (now safe to delete - no foreign key references)
+            shop_visits = self.db.query(ShopVisit).all()
+            for visit in shop_visits:
+                self.db.delete(visit)
+            self.deleted_summary['shop_visits'] = len(shop_visits)
+            print(f"   ✅ Deleted {len(shop_visits)} shop visits")
+            
+            # Payments (use raw SQL to avoid column mismatch)
+            payments_result = self.db.execute(text("SELECT COUNT(*) FROM payments"))
+            payment_count = payments_result.scalar() or 0
+            if payment_count > 0:
+                self.db.execute(text("DELETE FROM payments"))
+            self.deleted_summary['payments'] = payment_count
+            print(f"   ✅ Deleted {payment_count} payments")
+            
+            # Credit Limit Requests
+            credit_requests = self.db.query(CreditLimitRequest).all()
+            for req in credit_requests:
+                self.db.delete(req)
+            self.deleted_summary['credit_limit_requests'] = len(credit_requests)
+            print(f"   ✅ Deleted {len(credit_requests)} credit limit requests")
+            
+            # Activity Logs
+            activity_logs = self.db.query(ActivityLog).all()
+            for log in activity_logs:
+                self.db.delete(log)
+            self.deleted_summary['activity_logs'] = len(activity_logs)
+            print(f"   ✅ Deleted {len(activity_logs)} activity logs")
+            
+            self.db.flush()
+            
+            # Step 3: Delete main entities
+            print("\n📋 Step 3: Deleting main entities...")
+            
+            # Shops
+            shops = self.db.query(Shop).all()
+            for shop in shops:
+                self.db.delete(shop)
+            self.deleted_summary['shops'] = len(shops)
+            print(f"   ✅ Deleted {len(shops)} shops")
+            
+            # Inventory
+            inventory_items = self.db.query(Inventory).all()
+            for inv in inventory_items:
+                self.db.delete(inv)
+            self.deleted_summary['inventory'] = len(inventory_items)
+            print(f"   ✅ Deleted {len(inventory_items)} inventory items")
+            
+            # Products
+            products = self.db.query(Product).all()
+            for product in products:
+                self.db.delete(product)
+            self.deleted_summary['products'] = len(products)
+            print(f"   ✅ Deleted {len(products)} products")
+            
+            # Warehouses
+            warehouses = self.db.query(Warehouse).all()
+            for warehouse in warehouses:
+                self.db.delete(warehouse)
+            self.deleted_summary['warehouses'] = len(warehouses)
+            print(f"   ✅ Deleted {len(warehouses)} warehouses")
+            
+            self.db.flush()
+            
+            # Step 4: Delete user entities
+            print("\n📋 Step 4: Deleting user entities...")
+            
+            # Order Bookers
+            order_bookers = self.db.query(OrderBooker).all()
+            for ob in order_bookers:
+                self.db.delete(ob)
+            self.deleted_summary['order_bookers'] = len(order_bookers)
+            print(f"   ✅ Deleted {len(order_bookers)} order bookers")
+            
+            # Delivery Men
+            delivery_men = self.db.query(DeliveryMan).all()
+            for dm in delivery_men:
+                self.db.delete(dm)
+            self.deleted_summary['delivery_men'] = len(delivery_men)
+            print(f"   ✅ Deleted {len(delivery_men)} delivery men")
+            
+            self.db.flush()
+            
+            # Step 5: Delete organizational entities
+            print("\n📋 Step 5: Deleting organizational entities...")
+            
+            # Routes
+            routes = self.db.query(Route).all()
+            for route in routes:
+                self.db.delete(route)
+            self.deleted_summary['routes'] = len(routes)
+            print(f"   ✅ Deleted {len(routes)} routes")
+            
+            # Zones
+            zones = self.db.query(Zone).all()
+            for zone in zones:
+                self.db.delete(zone)
+            self.deleted_summary['zones'] = len(zones)
+            print(f"   ✅ Deleted {len(zones)} zones")
+            
+            # Distributors
+            distributors = self.db.query(Distributor).all()
+            for distributor in distributors:
+                self.db.delete(distributor)
+            self.deleted_summary['distributors'] = len(distributors)
+            print(f"   ✅ Deleted {len(distributors)} distributors")
+            
+            self.db.flush()
+            
+            # Step 6: Delete system entities
+            print("\n📋 Step 6: Deleting system entities...")
+            
+            # Subsidies
+            subsidies = self.db.query(Subsidy).all()
+            for subsidy in subsidies:
+                self.db.delete(subsidy)
+            self.deleted_summary['subsidies'] = len(subsidies)
+            print(f"   ✅ Deleted {len(subsidies)} subsidies")
+            
+            # Super Admins
+            super_admins = self.db.query(SuperAdmin).all()
+            for admin in super_admins:
+                self.db.delete(admin)
+            self.deleted_summary['super_admins'] = len(super_admins)
+            print(f"   ✅ Deleted {len(super_admins)} super admins")
+            
+            # Commit all deletions
+            self.db.commit()
+            
+            print("\n" + "="*60)
+            print("✅ ALL DATA DELETED SUCCESSFULLY!")
+            print("="*60)
+            return True
+            
+        except Exception as e:
+            self.db.rollback()
+            print(f"\n❌ Error deleting all data: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
 
 
 def main():
@@ -809,7 +1430,7 @@ def main():
     try:
         while True:
             deleter.show_menu()
-            choice = input("\nEnter your choice (0-13): ").strip()
+            choice = input("\nEnter your choice (0-17): ").strip()
             
             if choice == '0':
                 print("\n👋 Exiting...")
@@ -824,6 +1445,7 @@ def main():
                 print(f"\n📋 Available Shops ({len(shops)} total):")
                 for shop in shops:
                     print(f"   {shop.id}. {shop.name} (Phone: {shop.owner_phone or 'N/A'})")
+                print(f"\n📌 Available Shop IDs: {', '.join(str(s.id) for s in shops)}")
                 
                 try:
                     ids_input = input("\nEnter Shop ID(s) to delete (comma or space separated for multiple): ").strip()
@@ -859,6 +1481,7 @@ def main():
                 print(f"\n📋 Available Order Bookers ({len(order_bookers)} total):")
                 for ob in order_bookers:
                     print(f"   {ob.id}. {ob.name} (Phone: {ob.phone})")
+                print(f"\n📌 Available Order Booker IDs: {', '.join(str(ob.id) for ob in order_bookers)}")
                 
                 try:
                     ids_input = input("\nEnter Order Booker ID(s) to delete (comma or space separated for multiple): ").strip()
@@ -894,6 +1517,7 @@ def main():
                 print(f"\n📋 Available Delivery Men ({len(delivery_men)} total):")
                 for dm in delivery_men:
                     print(f"   {dm.id}. {dm.name} (Phone: {dm.phone})")
+                print(f"\n📌 Available Delivery Man IDs: {', '.join(str(dm.id) for dm in delivery_men)}")
                 
                 try:
                     ids_input = input("\nEnter Delivery Man ID(s) to delete (comma or space separated for multiple): ").strip()
@@ -929,6 +1553,7 @@ def main():
                 print(f"\n📋 Available Routes ({len(routes)} total):")
                 for route in routes:
                     print(f"   {route.id}. {route.name} (Zone ID: {route.zone_id or 'N/A'})")
+                print(f"\n📌 Available Route IDs: {', '.join(str(r.id) for r in routes)}")
                 
                 try:
                     ids_input = input("\nEnter Route ID(s) to delete (comma or space separated for multiple): ").strip()
@@ -965,6 +1590,7 @@ def main():
                 for product in products:
                     status = "Active" if product.is_active and not product.deleted_at else "Inactive/Deleted"
                     print(f"   {product.id}. {product.name} (Code: {product.code}, Status: {status})")
+                print(f"\n📌 Available Product IDs: {', '.join(str(p.id) for p in products)}")
                 
                 try:
                     ids_input = input("\nEnter Product ID(s) to delete (comma or space separated for multiple): ").strip()
@@ -1000,6 +1626,7 @@ def main():
                 print(f"\n📋 Available Inventory Items ({len(inventory_items)} total):")
                 for inv in inventory_items:
                     print(f"   {inv.id}. {inv.item_name} (Code: {inv.item_code or 'N/A'}, Qty: {inv.quantity}, Warehouse ID: {inv.warehouse_id})")
+                print(f"\n📌 Available Inventory IDs: {', '.join(str(inv.id) for inv in inventory_items)}")
                 
                 try:
                     ids_input = input("\nEnter Inventory ID(s) to delete (comma or space separated for multiple): ").strip()
@@ -1039,6 +1666,7 @@ def main():
                     dm_name = delivery_man.name if delivery_man else f"ID {assignment.delivery_man_id}"
                     wh_name = warehouse.name if warehouse else f"ID {assignment.warehouse_id}"
                     print(f"   {assignment.id}. Delivery Man: {dm_name} → Warehouse: {wh_name}")
+                print(f"\n📌 Available Assignment IDs: {', '.join(str(a.id) for a in assignments)}")
                 
                 try:
                     ids_input = input("\nEnter Assignment ID(s) to delete (comma or space separated for multiple): ").strip()
@@ -1077,6 +1705,7 @@ def main():
                     print(f"   {warehouse.id}. {warehouse.name} (Zone ID: {warehouse.zone_id}, Status: {status})")
                     if warehouse.address:
                         print(f"      Address: {warehouse.address}")
+                print(f"\n📌 Available Warehouse IDs: {', '.join(str(w.id) for w in warehouses)}")
                 
                 try:
                     ids_input = input("\nEnter Warehouse ID(s) to delete (comma or space separated for multiple): ").strip()
@@ -1103,29 +1732,209 @@ def main():
                 except KeyboardInterrupt:
                     print("\n\n❌ Operation cancelled by user.")
             
-            elif choice == '9':  # Clean Shop Registrations Bucket
+            elif choice == '9':  # Shop Visit (Order Booker Visits)
+                shop_visits = deleter.list_shop_visits()
+                if not shop_visits:
+                    print("\n❌ No shop visits found in database.")
+                    continue
+                
+                print(f"\n📋 Available Shop Visits ({len(shop_visits)} total):")
+                print("   (Order Booker visits from shop_visits table)")
+                print("   Note: For Delivery Man visits, use option 10 (Delivery)")
+                for visit in shop_visits:
+                    # Determine visit type
+                    visit_type = []
+                    if visit.order_booker_id:
+                        order_booker = deleter.db.query(OrderBooker).filter(OrderBooker.id == visit.order_booker_id).first()
+                        ob_name = order_booker.name if order_booker else f"OB#{visit.order_booker_id}"
+                        visit_type.append(f"OB: {ob_name}")
+                    if visit.delivery_man_id:
+                        delivery_man = deleter.db.query(DeliveryMan).filter(DeliveryMan.id == visit.delivery_man_id).first()
+                        dm_name = delivery_man.name if delivery_man else f"DM#{visit.delivery_man_id}"
+                        visit_type.append(f"DM: {dm_name}")
+                    
+                    visit_type_str = " | ".join(visit_type) if visit_type else "Unknown"
+                    
+                    visit_info = f"   {visit.id}. {visit_type_str}"
+                    if visit.shop_id:
+                        shop = deleter.db.query(Shop).filter(Shop.id == visit.shop_id).first()
+                        shop_name = shop.name if shop else f"Shop#{visit.shop_id}"
+                        visit_info += f" → {shop_name}"
+                    if visit.visit_date:
+                        visit_info += f" ({visit.visit_date.strftime('%Y-%m-%d %H:%M') if visit.visit_date else 'N/A'})"
+                    print(visit_info)
+                print(f"\n📌 Available Shop Visit IDs: {', '.join(str(v.id) for v in shop_visits)}")
+                
+                try:
+                    ids_input = input("\nEnter Shop Visit ID(s) to delete (comma or space separated for multiple): ").strip()
+                    visit_ids = deleter.parse_ids(ids_input)
+                    if not visit_ids:
+                        print("❌ No valid IDs provided!")
+                        continue
+                    
+                    if len(visit_ids) == 1:
+                        deleter.delete_shop_visit(visit_ids[0])
+                    else:
+                        print(f"\n⚠️  You are about to delete {len(visit_ids)} shop visits!")
+                        confirm = input("Type 'del' to confirm bulk deletion: ")
+                        if confirm == 'del':
+                            success_count = 0
+                            for visit_id in visit_ids:
+                                if deleter.delete_shop_visit(visit_id):
+                                    success_count += 1
+                            print(f"\n✅ Successfully deleted {success_count} out of {len(visit_ids)} shop visits.")
+                        else:
+                            print("❌ Bulk deletion cancelled.")
+                except ValueError:
+                    print("❌ Invalid Shop Visit ID(s)!")
+                except KeyboardInterrupt:
+                    print("\n\n❌ Operation cancelled by user.")
+            
+            elif choice == '10':  # Delivery (Delivery Man Visits)
+                deliveries = deleter.list_deliveries()
+                if not deliveries:
+                    print("\n❌ No deliveries found in database.")
+                    continue
+                
+                print(f"\n📋 Available Deliveries ({len(deliveries)} total):")
+                print("   (Delivery Man Visits from deliveries table)")
+                for delivery in deliveries:
+                    # Get delivery man name
+                    delivery_man_name = "N/A"
+                    if delivery.delivery_man_id:
+                        delivery_man = deleter.db.query(DeliveryMan).filter(DeliveryMan.id == delivery.delivery_man_id).first()
+                        delivery_man_name = delivery_man.name if delivery_man else f"DM#{delivery.delivery_man_id}"
+                    
+                    # Get shop name via order
+                    shop_name = "N/A"
+                    if delivery.order_id:
+                        order = deleter.db.query(Order).filter(Order.id == delivery.order_id).first()
+                        if order and order.shop_id:
+                            shop = deleter.db.query(Shop).filter(Shop.id == order.shop_id).first()
+                            shop_name = shop.name if shop else f"Shop#{order.shop_id}"
+                    
+                    delivery_info = f"   {delivery.id}. DM: {delivery_man_name}"
+                    if shop_name != "N/A":
+                        delivery_info += f" → {shop_name}"
+                    delivery_info += f" | Status: {delivery.status}"
+                    if delivery.order_id:
+                        delivery_info += f" | Order ID: {delivery.order_id}"
+                    if delivery.picked_up_at:
+                        delivery_info += f" | Picked: {delivery.picked_up_at.strftime('%Y-%m-%d %H:%M') if delivery.picked_up_at else 'N/A'}"
+                    print(delivery_info)
+                print(f"\n📌 Available Delivery IDs: {', '.join(str(d.id) for d in deliveries)}")
+                
+                try:
+                    ids_input = input("\nEnter Delivery ID(s) to delete (comma or space separated for multiple): ").strip()
+                    delivery_ids = deleter.parse_ids(ids_input)
+                    if not delivery_ids:
+                        print("❌ No valid IDs provided!")
+                        continue
+                    
+                    if len(delivery_ids) == 1:
+                        deleter.delete_delivery(delivery_ids[0])
+                    else:
+                        print(f"\n⚠️  You are about to delete {len(delivery_ids)} deliveries!")
+                        confirm = input("Type 'del' to confirm bulk deletion: ")
+                        if confirm == 'del':
+                            success_count = 0
+                            for delivery_id in delivery_ids:
+                                if deleter.delete_delivery(delivery_id):
+                                    success_count += 1
+                            print(f"\n✅ Successfully deleted {success_count} out of {len(delivery_ids)} deliveries.")
+                        else:
+                            print("❌ Bulk deletion cancelled.")
+                except ValueError:
+                    print("❌ Invalid Delivery ID(s)!")
+                except KeyboardInterrupt:
+                    print("\n\n❌ Operation cancelled by user.")
+            
+            elif choice == '11':  # Order
+                orders = deleter.list_orders()
+                if not orders:
+                    print("\n❌ No orders found in database.")
+                    continue
+                
+                print(f"\n📋 Available Orders ({len(orders)} total):")
+                for order in orders:
+                    # Get shop name
+                    shop_name = "N/A"
+                    if order.shop_id:
+                        shop = deleter.db.query(Shop).filter(Shop.id == order.shop_id).first()
+                        shop_name = shop.name if shop else f"Shop#{order.shop_id}"
+                    
+                    # Get order booker name
+                    order_booker_name = "N/A"
+                    if order.order_booker_id:
+                        order_booker = deleter.db.query(OrderBooker).filter(OrderBooker.id == order.order_booker_id).first()
+                        order_booker_name = order_booker.name if order_booker else f"OB#{order.order_booker_id}"
+                    
+                    # Get delivery man name
+                    delivery_man_name = "N/A"
+                    if order.delivery_man_id:
+                        delivery_man = deleter.db.query(DeliveryMan).filter(DeliveryMan.id == order.delivery_man_id).first()
+                        delivery_man_name = delivery_man.name if delivery_man else f"DM#{order.delivery_man_id}"
+                    
+                    order_info = f"   {order.id}. Shop: {shop_name} | OB: {order_booker_name}"
+                    if delivery_man_name != "N/A":
+                        order_info += f" | DM: {delivery_man_name}"
+                    order_info += f" | Status: {order.status} | Amount: {order.total_amount}"
+                    if order.scheduled_date:
+                        order_info += f" | Scheduled: {order.scheduled_date}"
+                    print(order_info)
+                print(f"\n📌 Available Order IDs: {', '.join(str(o.id) for o in orders)}")
+                
+                try:
+                    ids_input = input("\nEnter Order ID(s) to delete (comma or space separated for multiple): ").strip()
+                    order_ids = deleter.parse_ids(ids_input)
+                    if not order_ids:
+                        print("❌ No valid IDs provided!")
+                        continue
+                    
+                    if len(order_ids) == 1:
+                        deleter.delete_order(order_ids[0])
+                    else:
+                        print(f"\n⚠️  You are about to delete {len(order_ids)} orders!")
+                        confirm = input("Type 'del' to confirm bulk deletion: ")
+                        if confirm == 'del':
+                            success_count = 0
+                            for order_id in order_ids:
+                                if deleter.delete_order(order_id):
+                                    success_count += 1
+                            print(f"\n✅ Successfully deleted {success_count} out of {len(order_ids)} orders.")
+                        else:
+                            print("❌ Bulk deletion cancelled.")
+                except ValueError:
+                    print("❌ Invalid Order ID(s)!")
+                except KeyboardInterrupt:
+                    print("\n\n❌ Operation cancelled by user.")
+            
+            elif choice == '12':  # Clean Shop Registrations Bucket
                 deleter.clean_bucket('shop-registrations')
             
-            elif choice == '10':  # Clean Daily Collections Bucket
+            elif choice == '13':  # Clean Daily Collections Bucket
                 deleter.clean_bucket('daily-collections')
             
-            elif choice == '11':  # Clean Deliveries Bucket
+            elif choice == '14':  # Clean Deliveries Bucket
                 deleter.clean_bucket('deliveries')
             
-            elif choice == '12':  # Clean Shop Visits Bucket
+            elif choice == '15':  # Clean Shop Visits Bucket
                 deleter.clean_bucket('shop-visits')
             
-            elif choice == '13':  # Reset Sequences
+            elif choice == '16':  # Reset Sequences
                 deleter.reset_all_sequences()
             
+            elif choice == '17':  # Delete All Data
+                deleter.delete_all_data()
+            
             else:
-                print("❌ Invalid choice! Please enter 0-13.")
+                print("❌ Invalid choice! Please enter 0-17.")
             
             # Show summary
             deleter.show_summary()
             
             # Ask if user wants to continue
-            if choice in ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13']:
+            if choice in ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17']:
                 continue_choice = input("\nContinue? (y/n): ").strip().lower()
                 if continue_choice != 'y':
                     break

@@ -2841,6 +2841,12 @@
                             Owner: ${shop.owner_name || 'N/A'}<br>
                             Phone: ${shop.owner_phone || 'N/A'}<br>
                             Credit Limit: Rs. ${(shop.credit_limit || 0).toLocaleString()}<br>
+                            ${(() => {
+                                const creditLimit = parseFloat(shop.credit_limit || 0);
+                                const outstandingBalance = parseFloat(shop.outstanding_balance || 0);
+                                const availableCredit = creditLimit > 0 ? Math.max(0, creditLimit - outstandingBalance) : 0;
+                                return `Available Credit: <strong style="color: ${availableCredit > 0 ? '#27ae60' : '#e74c3c'}">Rs. ${availableCredit.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong><br>`;
+                            })()}
                             Status: <span style="color: ${statusColor}">${statusText}</span>${routeInfo}<br>
                             ${hasCnicPhotos ? '<span style="color: #667eea; font-weight: bold;">📷 CNIC Photos Available</span><br>' : ''}
                             Created By: ${shop.created_by_order_booker_name || 'N/A'}<br>
@@ -3015,7 +3021,7 @@
                                 <strong style="color: ${creditLimitColor}; font-size: 1.1em;">
                                     Credit Limit: Rs. ${creditLimit.toLocaleString()}
                                 </strong><br>
-                                Legacy Balance: Rs. ${(shop.legacy_balance || 0).toLocaleString()}<br>
+                                <!-- Legacy Balance removed - it's now part of outstanding_balance -->
                                 Status: <span style="color: ${shop.registration_status === 'approved' ? 'green' : 'orange'}">${shop.registration_status || 'pending'}</span><br>
                                 Created By: ${shop.created_by_order_booker_name || 'N/A'}<br>
                                 <small>ID: ${shop.id} | Created: ${new Date(shop.created_at).toLocaleString()}</small>

@@ -208,7 +208,7 @@ class ShopService:
             "gps_lat": float(shop.gps_lat) if shop.gps_lat else None,
             "gps_lng": float(shop.gps_lng) if shop.gps_lng else None,
             "credit_limit": float(shop.credit_limit) if shop.credit_limit else 0,
-            "legacy_balance": float(shop.legacy_balance) if shop.legacy_balance else 0,
+            # legacy_balance removed (column no longer exists - was merged into outstanding_balance)
             "outstanding_balance": float(shop.outstanding_balance) if shop.outstanding_balance else 0,
             "is_registered": shop.is_registered,
             "registration_status": shop.registration_status,
@@ -260,7 +260,7 @@ class ShopService:
                 "gps_lat": float(shop.gps_lat) if shop.gps_lat else None,
                 "gps_lng": float(shop.gps_lng) if shop.gps_lng else None,
                 "credit_limit": float(shop.credit_limit) if shop.credit_limit else 0,
-                "legacy_balance": float(shop.legacy_balance) if shop.legacy_balance else 0,
+                # legacy_balance removed (column no longer exists - was merged into outstanding_balance)
                 "outstanding_balance": float(shop.outstanding_balance) if shop.outstanding_balance else 0,
                 "is_registered": shop.is_registered,
                 "registration_status": shop.registration_status,
@@ -309,7 +309,7 @@ class ShopService:
                 "gps_lat": float(shop.gps_lat) if shop.gps_lat else None,
                 "gps_lng": float(shop.gps_lng) if shop.gps_lng else None,
                 "credit_limit": float(shop.credit_limit) if shop.credit_limit else 0,
-                "legacy_balance": float(shop.legacy_balance) if shop.legacy_balance else 0,
+                # legacy_balance removed (column no longer exists - was merged into outstanding_balance)
                 "outstanding_balance": float(shop.outstanding_balance) if shop.outstanding_balance else 0,
                 "is_registered": shop.is_registered,
                 "registration_status": shop.registration_status,
@@ -469,12 +469,7 @@ class ShopService:
                     except (TypeError, ValueError):
                         credit_limit_val = 0.0
                 
-                legacy_balance_val = 0.0
-                if shop.legacy_balance is not None:
-                    try:
-                        legacy_balance_val = float(shop.legacy_balance)
-                    except (TypeError, ValueError):
-                        legacy_balance_val = 0.0
+                # legacy_balance removed (column no longer exists - was merged into outstanding_balance)
                 
                 outstanding_balance_val = 0.0
                 if shop.outstanding_balance is not None:
@@ -491,7 +486,7 @@ class ShopService:
                     "gps_lat": gps_lat_val,
                     "gps_lng": gps_lng_val,
                     "credit_limit": credit_limit_val,
-                    "legacy_balance": legacy_balance_val,
+                    # legacy_balance removed (column no longer exists - was merged into outstanding_balance)
                     "outstanding_balance": outstanding_balance_val,
                     "is_registered": shop.is_registered if shop.is_registered is not None else False,
                     "registration_status": shop.registration_status if shop.registration_status else "pending",
@@ -721,10 +716,7 @@ class ShopService:
                 except (TypeError, ValueError):
                     credit_limit_val = 0.0
                 
-                try:
-                    legacy_balance_val = float(shop.legacy_balance) if shop.legacy_balance is not None else 0.0
-                except (TypeError, ValueError):
-                    legacy_balance_val = 0.0
+                # legacy_balance removed (column no longer exists - was merged into outstanding_balance)
                 
                 result.append({
                     "id": shop.id,
@@ -734,7 +726,7 @@ class ShopService:
                     "gps_lat": gps_lat_val,
                     "gps_lng": gps_lng_val,
                     "credit_limit": credit_limit_val,
-                    "legacy_balance": legacy_balance_val,
+                    # legacy_balance removed (column no longer exists - was merged into outstanding_balance)
                     "is_registered": shop.is_registered if shop.is_registered is not None else False,
                     "registration_status": shop.registration_status if shop.registration_status else "pending",
                     "verified_by_distributor": shop.verified_by_distributor,

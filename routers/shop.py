@@ -171,14 +171,12 @@ async def get_shop_credit_info(shop_id: int, db: Session = Depends(get_db)):
     db.refresh(shop)
     
     credit_limit = float(shop.credit_limit or 0)
-    legacy_balance = float(shop.legacy_balance or 0)
     
     # Use shop's outstanding_balance field (maintained automatically)
+    # Note: outstanding_balance already includes any legacy balance that was added during shop creation
     outstanding_balance = float(shop.outstanding_balance or 0)
     
-    # Total outstanding includes legacy balance
-    # Note: outstanding_balance already includes legacy_balance in its calculation
-    # So total_outstanding = outstanding_balance (which is orders - payments + legacy)
+    # Total outstanding = outstanding_balance (which includes orders - payments + any initial legacy balance)
     total_outstanding = outstanding_balance
     available_credit = credit_limit - total_outstanding if credit_limit > 0 else 0.0
     
@@ -186,7 +184,6 @@ async def get_shop_credit_info(shop_id: int, db: Session = Depends(get_db)):
         "shop_id": shop_id,
         "shop_name": shop.name,
         "credit_limit": credit_limit,
-        "legacy_balance": legacy_balance,
         "outstanding_balance": outstanding_balance,
         "total_outstanding": total_outstanding,
         "available_credit": available_credit
@@ -232,7 +229,7 @@ async def list_pending_shops(db: Session = Depends(get_db)):
                 "gps_lat": float(shop.gps_lat) if shop.gps_lat else None,
                 "gps_lng": float(shop.gps_lng) if shop.gps_lng else None,
                 "credit_limit": float(shop.credit_limit) if shop.credit_limit else 0,
-                "legacy_balance": float(shop.legacy_balance) if shop.legacy_balance else 0,
+                # legacy_balance removed (column no longer exists - was merged into outstanding_balance)
                 "outstanding_balance": float(shop.outstanding_balance) if shop.outstanding_balance else 0,
                 "is_registered": shop.is_registered,
                 "registration_status": shop.registration_status,
@@ -383,8 +380,8 @@ async def update_shop(
             update_data["gps_lng"] = Decimal(str(shop_update.gps_lng))
         if shop_update.credit_limit is not None:
             update_data["credit_limit"] = Decimal(str(shop_update.credit_limit))
-        if shop_update.legacy_balance is not None:
-            update_data["legacy_balance"] = Decimal(str(shop_update.legacy_balance))
+        # legacy_balance removed from updates - column no longer exists
+        # (legacy_balance input is only used during shop creation, where it's added to outstanding_balance)
         if shop_update.zone_id:
             update_data["zone_id"] = shop_update.zone_id
         
@@ -412,7 +409,7 @@ async def update_shop(
             "gps_lat": float(updated_shop.gps_lat) if updated_shop.gps_lat else None,
             "gps_lng": float(updated_shop.gps_lng) if updated_shop.gps_lng else None,
             "credit_limit": float(updated_shop.credit_limit) if updated_shop.credit_limit else 0,
-            "legacy_balance": float(updated_shop.legacy_balance) if updated_shop.legacy_balance else 0,
+            # legacy_balance removed (column no longer exists - was merged into outstanding_balance)
             "is_registered": updated_shop.is_registered,
             "registration_status": updated_shop.registration_status,
             "verified_by_distributor": updated_shop.verified_by_distributor,
@@ -557,7 +554,7 @@ async def resubmit_rejected_shop(
             "gps_lat": float(updated_shop.gps_lat) if updated_shop.gps_lat else None,
             "gps_lng": float(updated_shop.gps_lng) if updated_shop.gps_lng else None,
             "credit_limit": float(updated_shop.credit_limit) if updated_shop.credit_limit else 0,
-            "legacy_balance": float(updated_shop.legacy_balance) if updated_shop.legacy_balance else 0,
+            # legacy_balance removed (column no longer exists - was merged into outstanding_balance)
             "is_registered": updated_shop.is_registered,
             "registration_status": updated_shop.registration_status,
             "verified_by_distributor": updated_shop.verified_by_distributor,
@@ -658,7 +655,7 @@ async def verify_shop(
             "gps_lat": float(verified_shop.gps_lat) if verified_shop.gps_lat else None,
             "gps_lng": float(verified_shop.gps_lng) if verified_shop.gps_lng else None,
             "credit_limit": float(verified_shop.credit_limit) if verified_shop.credit_limit else 0,
-            "legacy_balance": float(verified_shop.legacy_balance) if verified_shop.legacy_balance else 0,
+            # legacy_balance removed (column no longer exists - was merged into outstanding_balance)
             "outstanding_balance": float(verified_shop.outstanding_balance) if verified_shop.outstanding_balance else 0,
             "is_registered": verified_shop.is_registered,
             "registration_status": verified_shop.registration_status,

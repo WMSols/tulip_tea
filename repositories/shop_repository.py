@@ -28,6 +28,8 @@ class ShopRepository:
             registration_status: Status of registration ("pending", "approved", "rejected")
             created_by_order_booker: Order booker who is registering the shop
         """
+        # Legacy balance input is now added directly to outstanding_balance
+        # (legacy_balance column has been removed from database)
         legacy_balance_val = legacy_balance or Decimal('0')
         shop = Shop(
             name=name,
@@ -36,8 +38,7 @@ class ShopRepository:
             gps_lat=gps_lat,
             gps_lng=gps_lng,
             credit_limit=credit_limit or Decimal('0'),
-            legacy_balance=legacy_balance_val,
-            outstanding_balance=legacy_balance_val,  # Initially equals legacy_balance (no orders, no payments yet)
+            outstanding_balance=legacy_balance_val,  # Legacy balance input goes directly to outstanding_balance
             is_registered=False,  # Start as not registered
             registration_status=registration_status,  # New field
             created_by_order_booker=created_by_order_booker,

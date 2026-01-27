@@ -62,12 +62,10 @@ class OrderService:
             print(f"Payment model columns: {[c.name for c in Payment.__table__.columns]}")
             raise ValueError(f"Error querying payments: {str(e)}")
         
-        # Get legacy balance from shop
-        shop = ShopRepository.get_by_id(db, shop_id)
-        legacy_balance = Decimal(str(shop.legacy_balance or 0)) if shop else Decimal('0')
-        
-        # Outstanding = Orders - Payments + Legacy Balance
-        outstanding = total_orders - total_payments + legacy_balance
+        # Outstanding = Orders - Payments
+        # Note: Legacy balance is no longer a separate column - it's already included
+        # in outstanding_balance when the shop was created/updated
+        outstanding = total_orders - total_payments
         return outstanding
     
     @staticmethod
@@ -447,16 +445,20 @@ class OrderService:
         """
         Get all orders for a delivery man.
         
+        OPTIMIZED: Uses UNION approach to allow efficient index usage.
+        Each subquery can use its specific index, avoiding sequential scans.
+        
         NEW LOGIC: Delivery men see ALL orders in their assigned zone, regardless of routes or shops.
         
         Includes:
         1. Orders explicitly assigned to the delivery man (delivery_man_id = delivery_man_id)
         2. Orders from all active shops in the delivery man's assigned zone
-        3. Orders that have deliveries for this delivery man (to allow completion of existing work)
-        4. Includes orders with status: pending, confirmed, delivered, cancelled
+        3. Orders from order bookers in the same zone
+        4. Orders that have deliveries for this delivery man (to allow completion of existing work)
+        5. Includes orders with status: pending, delivered, disapproved
         """
         from models.order import Order
-        from sqlalchemy import or_, and_
+        from sqlalchemy import select
         from repositories.delivery_man_repository import DeliveryManRepository
         
         # Get delivery man to retrieve their zone_id
@@ -468,100 +470,86 @@ class OrderService:
         zone_id = delivery_man.zone_id
         print(f"[get_orders_by_delivery_man] Delivery man {delivery_man_id} is assigned to zone {zone_id}")
         
-        # Get all active shops in the delivery man's zone
-        shop_ids = set()
-        if zone_id:
-            from models.shop import Shop
-            # Query all active shops in the delivery man's zone
-            shops_in_zone = db.query(Shop).filter(
-                Shop.zone_id == zone_id,
-                Shop.deleted_at.is_(None),  # Exclude soft-deleted shops
-                Shop.is_active == True  # Only include active shops
-            ).all()
-            shop_ids = {shop.id for shop in shops_in_zone}
-            print(f"[get_orders_by_delivery_man] Found {len(shop_ids)} active shops in zone {zone_id}: {list(shop_ids)}")
-            if shop_ids:
-                # Debug: Show which shops were found
-                shop_details = [(s.id, s.name, s.is_active) for s in shops_in_zone]
-                print(f"[get_orders_by_delivery_man] Shop details: {shop_details}")
-        else:
-            print(f"[get_orders_by_delivery_man] Delivery man {delivery_man_id} has no zone assigned")
-        
-        # Build query: orders explicitly assigned OR orders from shops in zone OR orders from order bookers in zone OR orders with deliveries
-        # Include all order statuses (pending, confirmed, delivered, cancelled)
-        conditions = []
-        
-        # Condition 1: Orders explicitly assigned to this delivery man
-        conditions.append(Order.delivery_man_id == delivery_man_id)
-        
-        # Condition 2: Orders from all active shops in the delivery man's zone
-        if shop_ids:
-            conditions.append(Order.shop_id.in_(shop_ids))
-            print(f"[get_orders_by_delivery_man] Including orders from {len(shop_ids)} shops in zone {zone_id}")
-        
-        # Condition 3: Orders from order bookers in the same zone (explicit check)
-        # This ensures delivery men see ALL pending orders from order bookers in their zone
-        if zone_id:
-            from models.order_booker import OrderBooker
-            order_bookers_in_zone = db.query(OrderBooker.id).filter(
-                OrderBooker.zone_id == zone_id,
-                OrderBooker.deleted_at.is_(None),
-                OrderBooker.is_active == True
-            ).all()
-            order_booker_ids_in_zone = [row[0] for row in order_bookers_in_zone]
-            if order_booker_ids_in_zone:
-                conditions.append(Order.order_booker_id.in_(order_booker_ids_in_zone))
-                print(f"[get_orders_by_delivery_man] Including orders from {len(order_booker_ids_in_zone)} order bookers in zone {zone_id}")
-        
-        # Condition 4: Orders that have deliveries for this delivery man
-        # This ensures delivery men can see orders they've already worked on, even if not explicitly assigned
-        from models.delivery import Delivery
-        delivery_order_ids = db.query(Delivery.order_id).filter(
-            Delivery.delivery_man_id == delivery_man_id,
-            Delivery.deleted_at.is_(None)
-        ).distinct().all()
-        delivery_order_ids_list = [row[0] for row in delivery_order_ids]
-        if delivery_order_ids_list:
-            conditions.append(Order.id.in_(delivery_order_ids_list))
-            print(f"[get_orders_by_delivery_man] Found {len(delivery_order_ids_list)} orders with deliveries for this delivery man")
-        
-        # Include all order statuses - frontend will filter them appropriately
-        # Orders tab shows: pending
-        # Deliveries tab shows: delivered, disapproved
+        # Status filter - used in all queries
         from models.order import OrderStatus
         status_filter = Order.status.in_([OrderStatus.PENDING, OrderStatus.DELIVERED, OrderStatus.DISAPPROVED])
         
-        # Query orders matching any condition and status filter
-        # Note: We use batch loading in _format_orders to avoid N+1 queries
-        if len(conditions) > 0:
-            # Use or_() to match any condition, and and_() to combine with status filter
-            if len(conditions) == 1:
-                # Only one condition - combine with status filter directly
-                print(f"[get_orders_by_delivery_man] Querying with 1 condition: explicitly assigned orders")
-                orders = db.query(Order).filter(
-                    and_(
-                        conditions[0],
-                        status_filter
-                    )
-                ).order_by(Order.created_at.desc()).all()
-            else:
-                # Multiple conditions - use or_() to match any
-                print(f"[get_orders_by_delivery_man] Querying with {len(conditions)} conditions: explicitly assigned OR shops in zone OR orders with deliveries")
-                orders = db.query(Order).filter(
-                    and_(
-                        or_(*conditions),
-                        status_filter
-                    )
-                ).order_by(Order.created_at.desc()).all()
-            print(f"[get_orders_by_delivery_man] Found {len(orders)} orders")
-            if orders:
-                # Debug: Show order details (convert status to string for debugging)
-                order_details = [(o.id, o.shop_id, o.status.value if hasattr(o.status, 'value') else str(o.status), o.delivery_man_id, getattr(o, 'order_resolution_type', None)) for o in orders]
-                print(f"[get_orders_by_delivery_man] Order details: {order_details}")
+        # Build separate queries for UNION (each can use its specific index)
+        # Using UNION ALL for better performance, then getting distinct order IDs
+        order_ids_set = set()
+        
+        # Query 1: Explicitly assigned orders (uses idx_orders_delivery_man_status_created)
+        q1_ids = db.query(Order.id).filter(
+            Order.delivery_man_id == delivery_man_id,
+            status_filter
+        ).all()
+        order_ids_set.update([row[0] for row in q1_ids])
+        print(f"[get_orders_by_delivery_man] Query 1 (explicitly assigned): {len(q1_ids)} orders")
+        
+        if zone_id:
+            # Query 2: Orders from shops in zone (uses idx_orders_shop_status_created)
+            # Use subquery to get shop IDs efficiently (uses idx_shops_zone_active)
+            from models.shop import Shop
+            shop_ids_subq = select(Shop.id).filter(
+                Shop.zone_id == zone_id,
+                Shop.deleted_at.is_(None),
+                Shop.is_active == True
+            )
+            q2_ids = db.query(Order.id).filter(
+                Order.shop_id.in_(shop_ids_subq),
+                status_filter
+            ).all()
+            order_ids_set.update([row[0] for row in q2_ids])
+            print(f"[get_orders_by_delivery_man] Query 2 (shops in zone): {len(q2_ids)} orders")
+            
+            # Query 3: Orders from order bookers in zone (uses idx_orders_order_booker_status_created)
+            # Use subquery to get order booker IDs efficiently (uses idx_order_bookers_zone_active)
+            from models.order_booker import OrderBooker
+            order_booker_ids_subq = select(OrderBooker.id).filter(
+                OrderBooker.zone_id == zone_id,
+                OrderBooker.deleted_at.is_(None),
+                OrderBooker.is_active == True
+            )
+            q3_ids = db.query(Order.id).filter(
+                Order.order_booker_id.in_(order_booker_ids_subq),
+                status_filter
+            ).all()
+            order_ids_set.update([row[0] for row in q3_ids])
+            print(f"[get_orders_by_delivery_man] Query 3 (order bookers in zone): {len(q3_ids)} orders")
+        
+        # Query 4: Orders with deliveries (uses idx_deliveries_delivery_man_order)
+        # Use subquery to get order IDs efficiently
+        from models.delivery import Delivery
+        delivery_order_ids_subq = select(Delivery.order_id).filter(
+            Delivery.delivery_man_id == delivery_man_id,
+            Delivery.deleted_at.is_(None)
+        ).distinct()
+        q4_ids = db.query(Order.id).filter(
+            Order.id.in_(delivery_order_ids_subq),
+            status_filter
+        ).all()
+        order_ids_set.update([row[0] for row in q4_ids])
+        print(f"[get_orders_by_delivery_man] Query 4 (orders with deliveries): {len(q4_ids)} orders")
+        
+        # Convert set to list for IN clause
+        order_ids = list(order_ids_set)
+        
+        print(f"[get_orders_by_delivery_man] Found {len(order_ids)} unique orders from all query conditions")
+        
+        if order_ids:
+            # Fetch full order objects using the IDs (uses primary key index)
+            # Order by created_at DESC (uses idx_orders_created_at_desc or idx_orders_status_created)
+            orders = db.query(Order).filter(
+                Order.id.in_(order_ids)
+            ).order_by(Order.created_at.desc()).all()
         else:
-            # No conditions (shouldn't happen, but handle gracefully)
             orders = []
-            print(f"[get_orders_by_delivery_man] No conditions to query, returning empty list")
+            print(f"[get_orders_by_delivery_man] No orders found")
+        
+        if orders:
+            # Debug: Show order details
+            order_details = [(o.id, o.shop_id, o.status.value if hasattr(o.status, 'value') else str(o.status), o.delivery_man_id, getattr(o, 'order_resolution_type', None)) for o in orders]
+            print(f"[get_orders_by_delivery_man] Order details: {order_details}")
         
         return OrderService._format_orders(db, orders)
     

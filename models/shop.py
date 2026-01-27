@@ -126,16 +126,7 @@ class Shop(Base):
       * Set by KPO/Area Manager during approval
     """
 
-    legacy_balance = Column(Numeric(10, 2), default=0)
-    """
-    Outstanding balance from previous system (if any).
-    - Default: 0 (no legacy balance)
-    - Format: Decimal (10 digits total, 2 decimal places)
-    - Example: 15000.50 (Rs. 15,000.50)
-    - Used to:
-      * Track existing debts when migrating from old system
-      * Include in total outstanding calculation
-    """
+    # legacy_balance column has been removed - legacy balance input now goes directly to outstanding_balance
 
     outstanding_balance = Column(Numeric(10, 2), default=0, nullable=False)
     """
@@ -143,7 +134,8 @@ class Shop(Base):
     - Default: 0 (no outstanding balance)
     - Format: Decimal (10 digits total, 2 decimal places)
     - Example: 25000.00 (Rs. 25,000)
-    - Formula: (Total unpaid orders) - (Total payments) + (Legacy balance)
+    - Formula: (Total unpaid orders) - (Total payments) + (Initial legacy balance if any)
+    - Note: Legacy balance (from old system) is included in outstanding_balance when shop is created
     - Updated automatically when:
       * Order is created: outstanding_balance += order_amount
       * Payment is received: outstanding_balance -= payment_amount

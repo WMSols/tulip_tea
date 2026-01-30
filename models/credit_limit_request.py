@@ -10,7 +10,7 @@ Order Bookers can request credit limit changes, and Distributors review and appr
 WORKFLOW:
 1. Order Booker registers new shop with credit limit → Creates request
 2. Order Booker requests credit limit change for existing shop → Creates request
-3. Request status: "pending" → "approved" or "rejected"
+3. Request status: "pending" → "approved" or "disapproved"
 4. Distributor reviews, can edit credit limit value, and approves/rejects
 5. On approval, shop's credit_limit is updated
 
@@ -22,7 +22,7 @@ RELATIONSHIPS:
 STATUS VALUES:
 - "pending" - Awaiting distributor review
 - "approved" - Distributor approved, credit limit updated
-- "rejected" - Distributor rejected the request
+- "disapproved" - Distributor rejected the request
 
 DATABASE TABLE: credit_limit_requests
 """
@@ -107,11 +107,11 @@ class CreditLimitRequest(Base):
     status = Column(String, nullable=True)
     """
     Request status.
-    - Values: "pending", "approved", "rejected"
+    - Values: "pending", "approved", "disapproved"
     - Default: "pending" when created
     - "pending": Awaiting distributor review
     - "approved": Distributor approved, shop credit_limit updated
-    - "rejected": Distributor rejected the request
+    - "disapproved": Distributor rejected the request
     """
 
     remarks = Column(String, nullable=True)

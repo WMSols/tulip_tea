@@ -229,7 +229,7 @@ class CreditLimitRequestRepository:
         
         FLOW:
         1. Gets request by ID
-        2. Updates status to "rejected"
+        2. Updates status to "disapproved"
         3. Sets approved_by_distributor and approved_at
         4. Sets remarks (reason for rejection)
         5. Commits transaction
@@ -249,7 +249,7 @@ class CreditLimitRequestRepository:
         if not request:
             return None
         
-        request.status = "rejected"
+        request.status = "disapproved"
         request.approved_by_distributor = distributor_id
         request.approved_at = datetime.utcnow()
         

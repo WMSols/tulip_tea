@@ -14,7 +14,7 @@ FLOW:
 1. Order Booker creates request → Status: "pending"
 2. Distributor views pending requests
 3. Distributor can edit credit limit value
-4. Distributor approves/rejects → Status: "approved"/"rejected"
+4. Distributor approves/rejects → Status: "approved"/"disapproved"
 5. On approval, shop's credit_limit is updated
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Request
@@ -327,29 +327,45 @@ async def reject_credit_limit_request(
             remarks=rejection_data.remarks
         )
         
-        # Log credit limit rejection
-        ActivityLogService.log_reject(
-            db=db,
-            user_id=distributor_id,
-            user_role='distributor',
-            entity_type='credit_limit_request',
-            entity_id=request_id,
-            old_values={
-                'status': old_status,
-                'old_credit_limit': str(old_credit_limit),
-                'requested_credit_limit': str(requested_limit)
-            },
-            new_values={'status': result.get('status')},
-            changes_summary=f"Credit limit request rejected: {result.get('shop_name')} - Requested: {old_credit_limit} → {requested_limit}",
-            reason=rejection_data.remarks,
-            metadata={'shop_id': result.get('shop_id')},
-            request=request
-        )
+        # Log credit limit rejection (wrap in try-except to not fail the main operation)
+        try:
+            ActivityLogService.log_reject(
+                db=db,
+                user_id=distributor_id,
+                user_role='distributor',
+                entity_type='credit_limit_request',
+                entity_id=request_id,
+                old_values={
+                    'status': old_status,
+                    'old_credit_limit': str(old_credit_limit),
+                    'requested_credit_limit': str(requested_limit)
+                },
+                new_values={'status': result.get('status')},
+                changes_summary=f"Credit limit request rejected: {result.get('shop_name')} - Requested: {old_credit_limit} → {requested_limit}",
+                reason=rejection_data.remarks,
+                metadata={'shop_id': result.get('shop_id')},
+                request=request
+            )
+        except Exception as log_error:
+            # Log the error but don't fail the rejection
+            import traceback
+            print(f"Warning: Failed to log rejection activity: {log_error}")
+            traceback.print_exc()
         
         return result
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
+        )
+    except Exception as e:
+        # Catch all other exceptions to ensure proper error response with CORS headers
+        import traceback
+        error_msg = str(e)
+        print(f"Error rejecting credit limit request: {error_msg}")
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error rejecting credit limit request: {error_msg}"
         )
 

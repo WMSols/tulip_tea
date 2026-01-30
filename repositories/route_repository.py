@@ -4,6 +4,7 @@ Data access layer for Route operations.
 """
 from sqlalchemy.orm import Session
 from models.route import Route
+from models.zone import Zone
 from typing import Optional, List
 
 
@@ -29,41 +30,74 @@ class RouteRepository:
     @staticmethod
     def get_by_id(db: Session, route_id: int, include_deleted: bool = False) -> Optional[Route]:
         """Get route by ID (excludes soft-deleted and inactive by default)."""
-        query = db.query(Route).filter(Route.id == route_id)
+        query = db.query(Route).outerjoin(Zone, Route.zone_id == Zone.id).filter(Route.id == route_id)
         if not include_deleted:
-            query = query.filter(Route.deleted_at.is_(None), Route.is_active == True)
+            query = query.filter(
+                Route.deleted_at.is_(None), 
+                Route.is_active == True
+            ).filter(
+                # Zone must be active (or NULL if route has no zone)
+                (Route.zone_id.is_(None)) | 
+                ((Zone.deleted_at.is_(None)) & (Zone.is_active == True))
+            )
         return query.first()
     
     @staticmethod
     def get_all(db: Session, skip: int = 0, limit: int = 100, include_deleted: bool = False) -> List[Route]:
         """Get all routes with pagination (excludes soft-deleted and inactive by default)."""
-        query = db.query(Route)
+        query = db.query(Route).outerjoin(Zone, Route.zone_id == Zone.id)
         if not include_deleted:
-            query = query.filter(Route.deleted_at.is_(None), Route.is_active == True)
+            query = query.filter(
+                Route.deleted_at.is_(None), 
+                Route.is_active == True
+            ).filter(
+                # Zone must be active (or NULL if route has no zone)
+                (Route.zone_id.is_(None)) | 
+                ((Zone.deleted_at.is_(None)) & (Zone.is_active == True))
+            )
         return query.offset(skip).limit(limit).all()
     
     @staticmethod
     def get_by_zone(db: Session, zone_id: int, include_deleted: bool = False) -> List[Route]:
         """Get all routes for a zone (excludes soft-deleted and inactive by default)."""
-        query = db.query(Route).filter(Route.zone_id == zone_id)
+        query = db.query(Route).join(Zone, Route.zone_id == Zone.id).filter(Route.zone_id == zone_id)
         if not include_deleted:
-            query = query.filter(Route.deleted_at.is_(None), Route.is_active == True)
+            query = query.filter(
+                Route.deleted_at.is_(None), 
+                Route.is_active == True,
+                Zone.deleted_at.is_(None),
+                Zone.is_active == True
+            )
         return query.all()
     
     @staticmethod
     def get_by_distributor(db: Session, distributor_id: int, include_deleted: bool = False) -> List[Route]:
         """Get all routes created by a distributor (excludes soft-deleted and inactive by default)."""
-        query = db.query(Route).filter(Route.created_by_distributor == distributor_id)
+        query = db.query(Route).outerjoin(Zone, Route.zone_id == Zone.id).filter(Route.created_by_distributor == distributor_id)
         if not include_deleted:
-            query = query.filter(Route.deleted_at.is_(None), Route.is_active == True)
+            query = query.filter(
+                Route.deleted_at.is_(None), 
+                Route.is_active == True
+            ).filter(
+                # Zone must be active (or NULL if route has no zone)
+                (Route.zone_id.is_(None)) | 
+                ((Zone.deleted_at.is_(None)) & (Zone.is_active == True))
+            )
         return query.all()
     
     @staticmethod
     def get_by_order_booker(db: Session, order_booker_id: int, include_deleted: bool = False) -> List[Route]:
         """Get all routes assigned to an order booker (excludes soft-deleted and inactive by default)."""
-        query = db.query(Route).filter(Route.order_booker_id == order_booker_id)
+        query = db.query(Route).outerjoin(Zone, Route.zone_id == Zone.id).filter(Route.order_booker_id == order_booker_id)
         if not include_deleted:
-            query = query.filter(Route.deleted_at.is_(None), Route.is_active == True)
+            query = query.filter(
+                Route.deleted_at.is_(None), 
+                Route.is_active == True
+            ).filter(
+                # Zone must be active (or NULL if route has no zone)
+                (Route.zone_id.is_(None)) | 
+                ((Zone.deleted_at.is_(None)) & (Zone.is_active == True))
+            )
         return query.all()
     
     @staticmethod

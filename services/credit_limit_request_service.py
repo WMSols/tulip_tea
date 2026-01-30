@@ -126,6 +126,12 @@ class CreditLimitRequestService:
                 requester = DeliveryManRepository.get_by_id(db, req.requested_by_id)
                 requested_by_name = requester.name if requester else None
             
+            # Get distributor name if approved/disapproved
+            approved_by_name = None
+            if req.approved_by_distributor:
+                distributor = DistributorRepository.get_by_id(db, req.approved_by_distributor)
+                approved_by_name = distributor.name if distributor else None
+            
             result.append({
                 "id": req.id,
                 "shop_id": req.shop_id,
@@ -138,6 +144,70 @@ class CreditLimitRequestService:
                 "requested_credit_limit": float(req.requested_credit_limit),
                 "status": req.status,
                 "remarks": req.remarks,
+                "approved_by_distributor": req.approved_by_distributor,
+                "approved_by_name": approved_by_name,
+                "approved_at": req.approved_at.isoformat() if req.approved_at else None,
+                "created_at": req.created_at.isoformat() if req.created_at else None
+            })
+        
+        return result
+    
+    @staticmethod
+    def get_all_requests(db: Session, distributor_id: int = None) -> List[Dict]:
+        """
+        Get all credit limit requests (pending, approved, disapproved).
+        
+        FLOW:
+        1. Gets all requests from repository (all statuses)
+        2. Includes shop information
+        3. Returns formatted list
+        
+        Args:
+            db: Database session
+            distributor_id: Optional distributor ID (currently not used for filtering)
+        
+        Returns:
+            List[Dict]: List of all requests with shop info (all statuses)
+        
+        Note: Distributors are not assigned to zones, so distributor_id is not used for filtering.
+        All requests are returned regardless of distributor or status.
+        """
+        requests = CreditLimitRequestRepository.get_all(db, distributor_id)
+        
+        result = []
+        for req in requests:
+            shop = ShopRepository.get_by_id(db, req.shop_id)
+            
+            # Get requester name based on role
+            requested_by_name = None
+            if req.requested_by_role == "order_booker":
+                requester = OrderBookerRepository.get_by_id(db, req.requested_by_id)
+                requested_by_name = requester.name if requester else None
+            elif req.requested_by_role == "delivery_man":
+                requester = DeliveryManRepository.get_by_id(db, req.requested_by_id)
+                requested_by_name = requester.name if requester else None
+            
+            # Get distributor name if approved/disapproved
+            approved_by_name = None
+            if req.approved_by_distributor:
+                distributor = DistributorRepository.get_by_id(db, req.approved_by_distributor)
+                approved_by_name = distributor.name if distributor else None
+            
+            result.append({
+                "id": req.id,
+                "shop_id": req.shop_id,
+                "shop_name": shop.name if shop else "Unknown",
+                "shop_owner": shop.owner_name if shop else None,
+                "requested_by_role": req.requested_by_role,
+                "requested_by_id": req.requested_by_id,
+                "requested_by_name": requested_by_name,
+                "old_credit_limit": float(req.old_credit_limit) if req.old_credit_limit else 0,
+                "requested_credit_limit": float(req.requested_credit_limit),
+                "status": req.status,
+                "remarks": req.remarks,
+                "approved_by_distributor": req.approved_by_distributor,
+                "approved_by_name": approved_by_name,
+                "approved_at": req.approved_at.isoformat() if req.approved_at else None,
                 "created_at": req.created_at.isoformat() if req.created_at else None
             })
         

@@ -148,6 +148,33 @@ class CreditLimitRequestRepository:
         ).order_by(CreditLimitRequest.created_at.asc()).all()
     
     @staticmethod
+    def get_all(db: Session, distributor_id: int = None) -> List[CreditLimitRequest]:
+        """
+        Get all credit limit requests (pending, approved, disapproved).
+        
+        FLOW:
+        1. Queries credit_limit_requests table
+        2. Returns all requests regardless of status
+        3. Excludes soft-deleted requests
+        
+        Args:
+            db: SQLAlchemy database session
+            distributor_id: Optional distributor ID (currently not used for filtering)
+        
+        Returns:
+            List[CreditLimitRequest]: List of all request instances (all statuses)
+        
+        Note: Distributors are not assigned to zones, so distributor_id is not used for filtering.
+        All requests are returned regardless of distributor or status.
+        """
+        # Return all requests (exclude soft-deleted)
+        # Note: Distributors are not assigned to zones, so we return all requests
+        # If zone filtering is needed, filter by shop.zone_id at the service layer instead
+        return db.query(CreditLimitRequest).filter(
+            CreditLimitRequest.deleted_at.is_(None)  # Exclude soft-deleted requests
+        ).order_by(CreditLimitRequest.created_at.desc()).all()
+    
+    @staticmethod
     def update(db: Session, request_id: int, **kwargs) -> Optional[CreditLimitRequest]:
         """
         Update credit limit request fields.

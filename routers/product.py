@@ -34,7 +34,8 @@ async def create_product(
             db=db,
             code=product.code,
             name=product.name,
-            unit=product.unit
+            unit=product.unit,
+            price=product.price
         )
         
         # Log activity (with error handling - don't fail if logging fails)

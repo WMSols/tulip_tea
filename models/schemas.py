@@ -405,12 +405,15 @@ class CreditLimitRequestResponse(BaseModel):
     id: int
     shop_id: int
     shop_name: Optional[str] = None
+    shop_owner: Optional[str] = None
     requested_by_role: str
     requested_by_id: int
+    requested_by_name: Optional[str] = None
     old_credit_limit: Optional[float] = None
     requested_credit_limit: float
     status: Optional[str] = None
     approved_by_distributor: Optional[int] = None
+    approved_by_name: Optional[str] = None
     approved_at: Optional[str] = None
     remarks: Optional[str] = None
     created_at: Optional[str] = None
@@ -495,6 +498,7 @@ class ProductCreate(BaseModel):
     code: str
     name: str
     unit: Optional[str] = None
+    price: Optional[float] = None
 
 
 class ProductResponse(BaseModel):

@@ -606,7 +606,10 @@
                     
                     <div style="margin-bottom: 20px;">
                         <button class="btn btn-success" onclick="loadAllShopsWithCreditLimits()" style="margin-right: 10px;">Refresh All Credit Limits</button>
-                        <button class="btn btn-primary" onclick="loadPendingCreditLimitRequests()">View Pending Requests Only</button>
+                        <button class="btn btn-primary" onclick="loadPendingCreditLimitRequests()">View Pending Requests</button>
+                        <button class="btn btn-info" onclick="loadAllCreditLimitRequests()" style="margin-left: 10px;">View All Requests</button>
+                        <button class="btn btn-secondary" onclick="loadAllCreditLimitRequests('approved')" style="margin-left: 10px;">View Approved</button>
+                        <button class="btn btn-secondary" onclick="loadAllCreditLimitRequests('disapproved')" style="margin-left: 10px;">View Disapproved</button>
                     </div>
                     
                     <!-- Filter by Zone -->
@@ -619,8 +622,8 @@
                     
                     <div id="creditLimitsList" style="margin-top: 20px;"></div>
                     
-                    <!-- Pending Credit Limit Requests Section -->
-                    <h2 style="margin-top: 40px; color: #e74c3c;">Pending Credit Limit Requests <span id="creditRequestsBadgeInline" style="background: #e74c3c; color: white; padding: 2px 8px; border-radius: 10px; font-size: 14px;">0</span></h2>
+                    <!-- Credit Limit Requests Section -->
+                    <h2 style="margin-top: 40px; color: #e74c3c;">Credit Limit Requests <span id="creditRequestsBadgeInline" style="background: #e74c3c; color: white; padding: 2px 8px; border-radius: 10px; font-size: 14px;">0</span> <small style="color: #666; font-weight: normal;">(Pending count)</small></h2>
                     <div id="creditLimitRequestsList" style="margin-top: 20px;"></div>
                 </div>
 
@@ -2260,7 +2263,7 @@
             }
         }
 
-        // Load Pending Credit Limit Requests
+        // Load Pending Credit Limit Requests (filters from all requests)
         async function loadPendingCreditLimitRequests() {
             const listDiv = document.getElementById('creditLimitRequestsList');
             if (!currentDistributorId) {
@@ -2268,8 +2271,8 @@
                 return;
             }
 
-            const endpoint = `${API_BASE}/credit-limit-requests/pending?distributor_id=${currentDistributorId}`;
-            showApiCall('GET', endpoint, 'Load Pending Credit Limit Requests', 'loading');
+            const endpoint = `${API_BASE}/credit-limit-requests/all?distributor_id=${currentDistributorId}`;
+            showApiCall('GET', endpoint, 'Load Credit Limit Requests', 'loading');
 
             try {
                 const response = await fetch(endpoint, {
@@ -2277,19 +2280,22 @@
                 });
                 const data = await response.json();
                 if (!response.ok) {
-                    showApiCall('GET', endpoint, 'Load Pending Credit Limit Requests', 'error');
+                    showApiCall('GET', endpoint, 'Load Credit Limit Requests', 'error');
                     throw new Error(data.detail || 'Failed to load credit limit requests');
                 }
 
-                if (data.length === 0) {
+                // Filter for pending requests only
+                const pendingRequests = data.filter(req => req.status === 'pending');
+
+                if (pendingRequests.length === 0) {
                     listDiv.innerHTML = '<p>No pending credit limit requests.</p>';
                     updateCreditRequestsBadge(0);
-                    showApiCall('GET', endpoint, 'Load Pending Credit Limit Requests', 'success');
+                    showApiCall('GET', endpoint, 'Load Credit Limit Requests', 'success');
                     return;
                 }
 
-                updateCreditRequestsBadge(data.length);
-                listDiv.innerHTML = data.map(req => {
+                updateCreditRequestsBadge(pendingRequests.length);
+                listDiv.innerHTML = pendingRequests.map(req => {
                     // Escape single quotes in strings to prevent JavaScript errors
                     const shopName = (req.shop_name || 'N/A').replace(/'/g, "\\'");
                     const remarks = (req.remarks || '').replace(/'/g, "\\'");
@@ -2299,7 +2305,7 @@
                             <strong>Shop: ${req.shop_name || 'N/A'}</strong><br>
                             Current Limit: Rs. ${(req.old_credit_limit || 0).toLocaleString()}<br>
                             Requested Limit: Rs. ${(req.requested_credit_limit || 0).toLocaleString()}<br>
-                            Requested By: ${req.requested_by_role} (ID: ${req.requested_by_id})<br>
+                            Requested By: ${req.requested_by_name || req.requested_by_role} (ID: ${req.requested_by_id})<br>
                             ${req.remarks ? `Remarks: ${req.remarks}<br>` : ''}
                             <small>Request ID: ${req.id} | Created: ${new Date(req.created_at).toLocaleString()}</small>
                         </div>
@@ -2307,7 +2313,76 @@
                 `;
                 }).join('');
 
-                showApiCall('GET', endpoint, 'Load Pending Credit Limit Requests', 'success');
+                showApiCall('GET', endpoint, 'Load Credit Limit Requests', 'success');
+            } catch (error) {
+                listDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+
+        // Load All Credit Limit Requests (with status filter)
+        async function loadAllCreditLimitRequests(statusFilter = null) {
+            const listDiv = document.getElementById('creditLimitRequestsList');
+            if (!currentDistributorId) {
+                listDiv.innerHTML = '<p>Please login first</p>';
+                return;
+            }
+
+            const endpoint = `${API_BASE}/credit-limit-requests/all?distributor_id=${currentDistributorId}`;
+            showApiCall('GET', endpoint, 'Load All Credit Limit Requests', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    showApiCall('GET', endpoint, 'Load All Credit Limit Requests', 'error');
+                    throw new Error(data.detail || 'Failed to load credit limit requests');
+                }
+
+                // Filter by status if provided
+                let filteredData = data;
+                if (statusFilter) {
+                    filteredData = data.filter(req => req.status === statusFilter);
+                }
+
+                if (filteredData.length === 0) {
+                    const statusText = statusFilter ? `${statusFilter} ` : '';
+                    listDiv.innerHTML = `<p>No ${statusText}credit limit requests.</p>`;
+                    updateCreditRequestsBadge(0);
+                    showApiCall('GET', endpoint, 'Load All Credit Limit Requests', 'success');
+                    return;
+                }
+
+                // Update badge with pending count
+                const pendingCount = data.filter(req => req.status === 'pending').length;
+                updateCreditRequestsBadge(pendingCount);
+
+                listDiv.innerHTML = filteredData.map(req => {
+                    // Escape single quotes in strings to prevent JavaScript errors
+                    const shopName = (req.shop_name || 'N/A').replace(/'/g, "\\'");
+                    const remarks = (req.remarks || '').replace(/'/g, "\\'");
+                    const statusColor = req.status === 'approved' ? 'green' : req.status === 'disapproved' ? 'red' : 'orange';
+                    const statusText = req.status || 'pending';
+                    
+                    return `
+                    <div class="list-item" onclick="${req.status === 'pending' ? `openEditCreditRequestModal(${req.id}, ${req.shop_id}, '${shopName}', ${req.old_credit_limit || 0}, ${req.requested_credit_limit || 0}, '${remarks}', '${(req.created_at || '').replace(/'/g, "\\'")}', '${req.requested_by_role}', ${req.requested_by_id})` : 'void(0)'}" style="${req.status !== 'pending' ? 'cursor: default; opacity: 0.8;' : ''}">
+                        <div class="list-item-info">
+                            <strong>Shop: ${req.shop_name || 'N/A'}</strong><br>
+                            Current Limit: Rs. ${(req.old_credit_limit || 0).toLocaleString()}<br>
+                            Requested Limit: Rs. ${(req.requested_credit_limit || 0).toLocaleString()}<br>
+                            Status: <span style="color: ${statusColor}; font-weight: bold;">${statusText.toUpperCase()}</span><br>
+                            Requested By: ${req.requested_by_name || req.requested_by_role} (ID: ${req.requested_by_id})<br>
+                            ${req.approved_by_name ? `Approved/Disapproved By: ${req.approved_by_name}<br>` : ''}
+                            ${req.approved_at ? `Action Date: ${new Date(req.approved_at).toLocaleString()}<br>` : ''}
+                            ${req.remarks ? `Remarks: ${req.remarks}<br>` : ''}
+                            <small>Request ID: ${req.id} | Created: ${new Date(req.created_at).toLocaleString()}</small>
+                        </div>
+                    </div>
+                `;
+                }).join('');
+
+                showApiCall('GET', endpoint, 'Load All Credit Limit Requests', 'success');
             } catch (error) {
                 listDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
             }

@@ -5,6 +5,7 @@ Data access layer for Warehouse operations.
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from models.warehouse import Warehouse
+from models.zone import Zone
 from typing import Optional, List
 
 
@@ -28,25 +29,40 @@ class WarehouseRepository:
     @staticmethod
     def get_by_id(db: Session, warehouse_id: int, include_deleted: bool = False) -> Optional[Warehouse]:
         """Get warehouse by ID (excludes soft-deleted and inactive by default)."""
-        query = db.query(Warehouse).filter(Warehouse.id == warehouse_id)
+        query = db.query(Warehouse).join(Zone, Warehouse.zone_id == Zone.id).filter(Warehouse.id == warehouse_id)
         if not include_deleted:
-            query = query.filter(Warehouse.deleted_at.is_(None), Warehouse.is_active == True)
+            query = query.filter(
+                Warehouse.deleted_at.is_(None), 
+                Warehouse.is_active == True,
+                Zone.deleted_at.is_(None),
+                Zone.is_active == True
+            )
         return query.first()
     
     @staticmethod
     def get_all(db: Session, include_deleted: bool = False) -> List[Warehouse]:
         """Get all warehouses (excludes soft-deleted and inactive by default)."""
-        query = db.query(Warehouse)
+        query = db.query(Warehouse).join(Zone, Warehouse.zone_id == Zone.id)
         if not include_deleted:
-            query = query.filter(Warehouse.deleted_at.is_(None), Warehouse.is_active == True)
+            query = query.filter(
+                Warehouse.deleted_at.is_(None), 
+                Warehouse.is_active == True,
+                Zone.deleted_at.is_(None),
+                Zone.is_active == True
+            )
         return query.all()
     
     @staticmethod
     def get_by_zone(db: Session, zone_id: int, include_deleted: bool = False) -> List[Warehouse]:
         """Get warehouses by zone."""
-        query = db.query(Warehouse).filter(Warehouse.zone_id == zone_id)
+        query = db.query(Warehouse).join(Zone, Warehouse.zone_id == Zone.id).filter(Warehouse.zone_id == zone_id)
         if not include_deleted:
-            query = query.filter(Warehouse.deleted_at.is_(None), Warehouse.is_active == True)
+            query = query.filter(
+                Warehouse.deleted_at.is_(None), 
+                Warehouse.is_active == True,
+                Zone.deleted_at.is_(None),
+                Zone.is_active == True
+            )
         return query.all()
     
     @staticmethod

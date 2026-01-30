@@ -5,21 +5,21 @@ Handles API endpoints for credit limit requests.
 
 API ENDPOINTS:
 - POST /credit-limit-requests/order-booker/{order_booker_id} - Create request (Order Booker)
-- GET /credit-limit-requests/pending - List pending requests (Distributor)
+- GET /credit-limit-requests/all - List all requests (Distributor) - Returns all statuses (pending, approved, disapproved)
 - PUT /credit-limit-requests/{request_id} - Update request (Distributor)
 - POST /credit-limit-requests/{request_id}/approve - Approve request (Distributor)
 - POST /credit-limit-requests/{request_id}/reject - Reject request (Distributor)
 
 FLOW:
 1. Order Booker creates request → Status: "pending"
-2. Distributor views pending requests
+2. Distributor views all requests via GET /credit-limit-requests/all (frontend filters by status)
 3. Distributor can edit credit limit value
 4. Distributor approves/rejects → Status: "approved"/"disapproved"
 5. On approval, shop's credit_limit is updated
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from config.database import get_db
 from models.schemas import (
     CreditLimitRequestCreate, CreditLimitRequestResponse,
@@ -106,23 +106,25 @@ async def create_credit_limit_request(
         )
 
 
-@router.get("/pending", response_model=List[CreditLimitRequestResponse])
-async def get_pending_requests(
-    distributor_id: int = None,
+@router.get("/all", response_model=List[CreditLimitRequestResponse])
+async def get_all_requests(
+    distributor_id: Optional[int] = Query(None, description="Distributor ID (optional, not used for filtering)"),
     db: Session = Depends(get_db)
 ):
     """
-    Get all pending credit limit requests.
+    Get all credit limit requests (pending, approved, disapproved).
     
-    API: GET /credit-limit-requests/pending?distributor_id={id}
+    API: GET /credit-limit-requests/all?distributor_id={id}
     
     FLOW:
-    1. Distributor views dashboard
-    2. Service gets all pending requests
-    3. Returns list with shop information
+    1. Distributor views all requests
+    2. Service gets all requests regardless of status
+    3. Returns list with shop information and status
+    4. Frontend can filter by status as needed
     
     Note: Distributors are not assigned to zones, so distributor_id is accepted
-    but doesn't filter results. All pending requests are returned.
+    but doesn't filter results. All requests are returned regardless of status.
+    Frontend should filter by status field to show only pending/approved/disapproved requests.
     
     Response (200):
         [
@@ -133,19 +135,22 @@ async def get_pending_requests(
                 "shop_owner": "Ahmed Ali",
                 "old_credit_limit": 50000.00,
                 "requested_credit_limit": 75000.00,
-                "status": "pending",
+                "status": "pending",  // or "approved" or "disapproved"
+                "approved_by_distributor": 1,  // null if pending
+                "approved_by_name": "Distributor Name",  // null if pending
+                "approved_at": "2026-01-21T19:26:14",  // null if pending
                 ...
             },
             ...
         ]
     """
     try:
-        requests = CreditLimitRequestService.get_pending_requests(db=db, distributor_id=distributor_id)
+        requests = CreditLimitRequestService.get_all_requests(db=db, distributor_id=distributor_id)
         return requests
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching pending requests: {str(e)}"
+            detail=f"Error fetching requests: {str(e)}"
         )
 
 

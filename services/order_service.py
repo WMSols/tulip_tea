@@ -259,7 +259,8 @@ class OrderService:
         if credit_limit > 0:  # Only check if shop has a credit limit
             # Use shop's outstanding_balance field (maintained automatically)
             current_outstanding = Decimal(str(shop.outstanding_balance or 0))
-            available_credit = credit_limit - current_outstanding
+            # Available credit cannot be negative - if outstanding > credit_limit, available = 0
+            available_credit = max(Decimal('0'), credit_limit - current_outstanding)
             
             # Check if credit is sufficient
             if current_outstanding + total_amount > credit_limit:

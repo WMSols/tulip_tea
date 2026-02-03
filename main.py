@@ -12,11 +12,11 @@ import traceback
 import os
 
 # Import all models to register them with Base
-from models import distributor, order_booker, delivery_man, zone, route, shop, credit_limit_request, daily_collection, payment, shop_visit, visit_type, order, order_item, activity_log, super_admin, warehouse, inventory, delivery_man_warehouse, product, delivery, delivery_item, subsidy
+from models import distributor, order_booker, delivery_man, zone, route, shop, credit_limit_request, daily_collection, payment, shop_visit, visit_type, order, order_item, activity_log, super_admin, warehouse, inventory, delivery_man_warehouse, product, delivery, delivery_item, subsidy, wallet, wallet_transaction
 
 # Import routers
 from routers import auth, distributor as distributor_router, order_booker, delivery_man, zone, route, shop
-from routers import credit_limit_request as credit_limit_request_router, daily_collection as daily_collection_router, shop_visit as shop_visit_router, order as order_router, super_admin as super_admin_router, warehouse as warehouse_router, product as product_router, activity_log as activity_log_router, delivery as delivery_router, subsidy as subsidy_router
+from routers import credit_limit_request as credit_limit_request_router, daily_collection as daily_collection_router, shop_visit as shop_visit_router, order as order_router, super_admin as super_admin_router, warehouse as warehouse_router, product as product_router, activity_log as activity_log_router, delivery as delivery_router, subsidy as subsidy_router, wallet as wallet_router
 
 app = FastAPI(
     title=settings.app_name,
@@ -115,6 +115,7 @@ app.include_router(super_admin_router.router)
 app.include_router(activity_log_router.router)
 app.include_router(delivery_router.router)
 app.include_router(subsidy_router.router)
+app.include_router(wallet_router.router)
 
 
 @app.get("/")

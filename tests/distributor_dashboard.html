@@ -187,56 +187,25 @@
         .close-button:hover {
             color: #000;
         }
-        .dashboard-layout {
-            display: flex;
-            gap: 20px;
-            min-height: 600px;
-        }
-        .sidebar {
-            width: 240px;
-            background: #f8f9fa;
-            border-radius: 8px;
-            padding: 20px 0;
-            flex-shrink: 0;
-            box-shadow: 2px 0 10px rgba(0,0,0,0.1);
-            max-height: 80vh;
-            overflow-y: auto;
-        }
         .tabs {
             display: flex;
-            flex-direction: column;
-            gap: 3px;
+            border-bottom: 2px solid #ddd;
+            margin-bottom: 20px;
         }
         .tab {
-            padding: 14px 20px;
-            background: transparent;
-            border: none;
-            border-left: 4px solid transparent;
-            border-radius: 0;
+            padding: 15px 30px;
             cursor: pointer;
-            font-size: 15px;
+            background: #f8f9fa;
+            border: none;
+            font-size: 16px;
+            font-weight: 600;
+            color: #666;
             transition: all 0.3s;
-            text-align: left;
-            color: #555;
-            width: 100%;
-            font-weight: 500;
-        }
-        .tab:hover {
-            background: #e9ecef;
-            color: #667eea;
         }
         .tab.active {
-            background: #e7ecff;
-            color: #667eea;
-            border-left-color: #667eea;
-            font-weight: 600;
-        }
-        .main-content {
-            flex: 1;
-            min-width: 0;
             background: white;
-            border-radius: 8px;
-            padding: 20px;
+            color: #667eea;
+            border-bottom: 3px solid #667eea;
         }
         .tab-content {
             display: none;
@@ -427,6 +396,7 @@
                 <p><strong>Logged in as:</strong> <span id="userName"></span></p>
                 <p><strong>Zone:</strong> <span id="userZone"></span></p>
                 <p><strong>Phone:</strong> <span id="userPhone"></span></p>
+                <p><strong>💰 Wallet Balance:</strong> <span id="userWalletBalance">Rs. 0.00</span></p>
                 <button class="btn btn-danger" onclick="logout()" style="margin-top: 10px;">Logout</button>
             </div>
         </div>
@@ -449,22 +419,18 @@
 
             <!-- Dashboard Section (Hidden until login) -->
             <div id="dashboardSection" class="section hidden">
-                <div class="dashboard-layout">
-                    <div class="sidebar">
-                        <div class="tabs">
-                            <button class="tab active" onclick="switchTab('zones')">📍 Zones</button>
-                            <button class="tab" onclick="switchTab('routes')">🛣️ Routes</button>
-                            <button class="tab" onclick="switchTab('orderBookers')">👤 Order Bookers</button>
-                            <button class="tab" onclick="switchTab('deliveryMen')">🚚 Delivery Men</button>
-                            <button class="tab" onclick="switchTab('warehouses')">🏭 Warehouses</button>
-                            <button class="tab" onclick="switchTab('products')">📦 Products</button>
-                            <button class="tab" onclick="switchTab('shops')">🏪 Shops <span id="pendingShopsBadge" style="background: #e74c3c; color: white; padding: 2px 6px; border-radius: 10px; font-size: 11px; margin-left: 5px;">0</span></button>
-                            <button class="tab" onclick="switchTab('creditLimits')">💳 Credit Limits <span id="creditRequestsBadge" style="background: #e74c3c; color: white; padding: 2px 6px; border-radius: 10px; font-size: 11px; margin-left: 5px;">0</span></button>
-                            <button class="tab" onclick="switchTab('subsidies')">💰 Subsidies</button>
-                            <button class="tab" onclick="switchTab('visits')">📋 Visits</button>
-                        </div>
-                    </div>
-                    <div class="main-content">
+                <div class="tabs">
+                    <button class="tab active" onclick="switchTab('zones')">Zones</button>
+                    <button class="tab" onclick="switchTab('routes')">Routes</button>
+                    <button class="tab" onclick="switchTab('orderBookers')">Order Bookers</button>
+                    <button class="tab" onclick="switchTab('deliveryMen')">Delivery Men</button>
+                    <button class="tab" onclick="switchTab('warehouses')">🏭 Warehouses</button>
+                    <button class="tab" onclick="switchTab('products')">📦 Products</button>
+                    <button class="tab" onclick="switchTab('shops')">Shops <span id="pendingShopsBadge" style="background: #e74c3c; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 5px;">0</span></button>
+                    <button class="tab" onclick="switchTab('creditLimits')">Credit Limits <span id="creditRequestsBadge" style="background: #e74c3c; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 5px;">0</span></button>
+                    <button class="tab" onclick="switchTab('visits')">📍 Visits</button>
+                    <button class="tab" onclick="switchTab('wallet')">💵 Wallet</button>
+                </div>
 
                 <!-- Zones Tab -->
                 <div id="zonesTab" class="tab-content active">
@@ -488,14 +454,21 @@
                     <h2>Create Route</h2>
                     <form id="routeForm" onsubmit="createRoute(event)">
                         <div class="form-group">
-                            <label>Route Name</label>
+                            <label>Route Name *</label>
                             <input type="text" id="routeName" required placeholder="e.g., Route 1, Route 2">
                         </div>
                         <div class="form-group">
                             <label>Zone *</label>
-                            <select id="routeZoneId" required>
+                            <select id="routeZoneId" required onchange="updateOrderBookersForRouteCreate()">
                                 <option value="">Select Zone</option>
                             </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Order Booker (Optional)</label>
+                            <select id="routeOrderBookerId">
+                                <option value="">Select Order Booker (Optional)</option>
+                            </select>
+                            <small style="color: #666;">You can assign an order booker now or later via Edit</small>
                         </div>
                         <button type="submit" class="btn btn-primary">Create Route</button>
                     </form>
@@ -505,7 +478,8 @@
                     <button class="btn btn-success" onclick="loadRoutes()">Refresh List</button>
                     <div id="routesList" style="margin-top: 20px;"></div>
                     
-                    <h2 style="margin-top: 40px;">Assign Route to Order Booker</h2>
+                    <h2 style="margin-top: 40px; color: #999; font-size: 1.2em;">⚠️ Legacy: Assign Route to Order Booker</h2>
+                    <p style="color: #666; margin-bottom: 15px; font-size: 14px;">This form is kept for backward compatibility. You can now assign order bookers directly when creating or editing routes above.</p>
                     <form id="assignRouteForm" onsubmit="assignRoute(event)">
                         <div class="form-group">
                             <label>Select Route</label>
@@ -712,44 +686,6 @@
                     <div id="productsList" style="margin-top: 20px;"></div>
                 </div>
 
-                <!-- Subsidies Tab -->
-                <div id="subsidiesTab" class="tab-content">
-                    <h2>💰 Create Subsidy</h2>
-                    <form id="subsidyForm" onsubmit="createSubsidy(event)">
-                        <div class="form-group">
-                            <label>Subsidy Name *</label>
-                            <input type="text" id="subsidyName" required placeholder="e.g., New Year Discount, Special Offer">
-                        </div>
-                        <div class="form-group">
-                            <label>Percentage (%) *</label>
-                            <input type="number" id="subsidyPercentage" required step="0.01" min="0" max="100" placeholder="e.g., 10.00 for 10%">
-                            <small style="color: #666;">Enter the discount percentage (e.g., 10.00 for 10% discount)</small>
-                        </div>
-                        <div class="form-group">
-                            <label>Description (Optional)</label>
-                            <textarea id="subsidyDescription" rows="3" placeholder="Description of the subsidy"></textarea>
-                        </div>
-                        <div class="form-group">
-                            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-                                <input type="checkbox" id="subsidyIsActive" checked style="width: auto;">
-                                <span>Active (uncheck to deactivate)</span>
-                            </label>
-                        </div>
-                        <button type="submit" class="btn btn-primary">Create Subsidy</button>
-                    </form>
-                    <div id="subsidyResult" class="result"></div>
-                    
-                    <h2 style="margin-top: 40px;">Existing Subsidies</h2>
-                    <div style="margin-bottom: 20px;">
-                        <button class="btn btn-success" onclick="loadSubsidies()" style="margin-right: 10px;">Refresh List</button>
-                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-                            <input type="checkbox" id="includeInactiveSubsidies" onchange="loadSubsidies()" style="width: auto;">
-                            <span>Include Inactive Subsidies</span>
-                        </label>
-                    </div>
-                    <div id="subsidiesList" style="margin-top: 20px;"></div>
-                </div>
-
                 <!-- Visits Tab -->
                 <div id="visitsTab" class="tab-content">
                     <h2>📍 All Shop Visits</h2>
@@ -769,9 +705,29 @@
                     
                     <div id="visitsList" style="margin-top: 20px;"></div>
                 </div>
+
+                <!-- Wallet Tab -->
+                <div id="walletTab" class="tab-content">
+                    <h2>💵 Wallet Management</h2>
+                    
+                    <!-- Wallet Balance Card -->
+                    <div class="info-card" style="margin-bottom: 30px;">
+                        <h3>💰 Current Balance</h3>
+                        <div class="info-row">
+                            <span class="info-label">Balance:</span>
+                            <span class="info-value" id="walletBalanceDisplay" style="font-size: 1.5em; font-weight: bold; color: #28a745;">Rs. 0.00</span>
+                        </div>
+                        <button class="btn btn-success" onclick="loadWalletBalance()" style="margin-top: 10px;">Refresh Balance</button>
                     </div>
+
+                    <!-- Transaction History -->
+                    <h3 style="margin-top: 30px;">📊 Transaction History</h3>
+                    <button class="btn btn-success" onclick="loadWalletTransactions()" style="margin-bottom: 20px;">Refresh Transactions</button>
+                    <div id="walletTransactionsList" style="margin-top: 20px;"></div>
                 </div>
             </div>
+        </div>
+    </div>
 
     <!-- Edit Shop Modal -->
     <div id="editShopModal" class="modal hidden">
@@ -1009,10 +965,10 @@
             });
 
             // Show selected tab
-            const tabs = ['zones', 'routes', 'orderBookers', 'deliveryMen', 'warehouses', 'products', 'shops', 'creditLimits', 'subsidies', 'visits'];
+            const tabs = ['zones', 'routes', 'orderBookers', 'deliveryMen', 'warehouses', 'products', 'shops', 'creditLimits', 'visits', 'wallet'];
             const tabIndex = tabs.indexOf(tabName);
             if (tabIndex !== -1) {
-                const tabContents = ['zonesTab', 'routesTab', 'orderBookersTab', 'deliveryMenTab', 'warehousesTab', 'productsTab', 'shopsTab', 'creditLimitsTab', 'subsidiesTab', 'visitsTab'];
+                const tabContents = ['zonesTab', 'routesTab', 'orderBookersTab', 'deliveryMenTab', 'warehousesTab', 'productsTab', 'shopsTab', 'creditLimitsTab', 'visitsTab', 'walletTab'];
                 const tabContentElement = document.getElementById(tabContents[tabIndex]);
                 if (tabContentElement) {
                     tabContentElement.classList.add('active');
@@ -1036,10 +992,11 @@
                 } else if (tabName === 'creditLimits') {
                     loadAllShopsWithCreditLimits();
                     loadPendingCreditLimitRequests();
-                } else if (tabName === 'subsidies') {
-                    loadSubsidies();
                 } else if (tabName === 'visits') {
                     loadAllVisits();
+                } else if (tabName === 'wallet') {
+                    loadWalletBalance();
+                    loadWalletTransactions();
                 }
             }
         }
@@ -1100,6 +1057,7 @@
                 loadPendingShops();
                 loadAllShopsWithCreditLimits();
                 loadPendingCreditLimitRequests();
+                loadWalletBalance();
             } catch (error) {
                 resultDiv.className = 'result error';
                 resultDiv.textContent = `Error: ${error.message}`;
@@ -1402,6 +1360,12 @@
                         data.map(z => `<option value="${z.id}">${z.name}</option>`).join('');
                 }
                 
+                // Initialize order booker dropdown for route creation
+                const routeOrderBookerSelect = document.getElementById('routeOrderBookerId');
+                if (routeOrderBookerSelect) {
+                    routeOrderBookerSelect.innerHTML = '<option value="">Select Zone First</option>';
+                }
+                
                 const obZoneSelect = document.getElementById('obZoneId');
                 if (obZoneSelect) {
                     obZoneSelect.innerHTML = '<option value="">Select Zone (Optional)</option>' + 
@@ -1478,14 +1442,33 @@
                     zoneMap[zone.id] = zone.name;
                 });
                 
+                // Get order booker names for display
+                const orderBookerMap = {};
+                try {
+                    const obResponse = await fetch(`${API_BASE}/order-bookers/distributor/${currentDistributorId}`, {
+                        headers: { 'Authorization': `Bearer ${currentToken}` }
+                    });
+                    if (obResponse.ok) {
+                        const orderBookers = await obResponse.json();
+                        orderBookers.forEach(ob => {
+                            orderBookerMap[ob.id] = ob.name;
+                        });
+                    }
+                } catch (error) {
+                    console.error('Error loading order bookers for display:', error);
+                }
+                
                 listDiv.innerHTML = data.map(route => {
                     const zoneName = route.zone_id ? (zoneMap[route.zone_id] || `Zone ${route.zone_id}`) : 'No Zone';
+                    const orderBookerName = route.order_booker_id && orderBookerMap[route.order_booker_id] 
+                        ? orderBookerMap[route.order_booker_id] 
+                        : (route.order_booker_id ? `ID: ${route.order_booker_id}` : null);
                     return `
                     <div class="list-item" style="display: flex; justify-content: space-between; align-items: center;">
                         <div class="list-item-info">
                             <strong>${route.name}</strong><br>
                             Zone: ${zoneName}<br>
-                            ${route.order_booker_id ? `Assigned to Order Booker ID: ${route.order_booker_id}` : 'Not assigned'}<br>
+                            ${orderBookerName ? `Assigned to: ${orderBookerName}` : '<span style="color: #999;">Not assigned to any order booker</span>'}<br>
                             <small>ID: ${route.id} | Created: ${new Date(route.created_at).toLocaleDateString()}</small>
                         </div>
                         <div style="display: flex; gap: 10px;">
@@ -1519,6 +1502,12 @@
                 zone_id: parseInt(document.getElementById('routeZoneId').value)
             };
             
+            // Add order_booker_id if provided
+            const orderBookerId = document.getElementById('routeOrderBookerId').value;
+            if (orderBookerId) {
+                routeData.order_booker_id = parseInt(orderBookerId);
+            }
+            
             try {
                 const response = await fetch(`${API_BASE}/routes/${currentDistributorId}`, {
                     method: 'POST',
@@ -1532,12 +1521,55 @@
                 if (!response.ok) throw new Error(data.detail || 'Failed to create route');
                 
                 resultDiv.className = 'result success';
-                resultDiv.textContent = `Route "${data.name}" created successfully!`;
+                let successMsg = `Route "${data.name}" created successfully!`;
+                if (data.order_booker_id) {
+                    successMsg += ` Assigned to Order Booker ID: ${data.order_booker_id}`;
+                }
+                resultDiv.textContent = successMsg;
                 document.getElementById('routeForm').reset();
                 loadRoutes();
             } catch (error) {
                 resultDiv.className = 'result error';
                 resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+        
+        // Update order bookers dropdown for route creation based on selected zone
+        async function updateOrderBookersForRouteCreate() {
+            const zoneId = document.getElementById('routeZoneId').value;
+            const orderBookerSelect = document.getElementById('routeOrderBookerId');
+            
+            if (!zoneId) {
+                orderBookerSelect.innerHTML = '<option value="">Select Zone First</option>';
+                return;
+            }
+            
+            try {
+                const endpoint = `${API_BASE}/order-bookers/zone/${zoneId}?distributor_id=${currentDistributorId}`;
+                const response = await fetch(endpoint, {
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to load order bookers for zone');
+                }
+                
+                const orderBookers = await response.json();
+                
+                // Populate dropdown with order bookers from the same zone
+                orderBookerSelect.innerHTML = '<option value="">Select Order Booker (Optional)</option>' + 
+                    orderBookers.map(ob => {
+                        const zoneName = ob.zone_id && allZones.find(z => z.id == ob.zone_id) ? 
+                            allZones.find(z => z.id == ob.zone_id).name : '';
+                        return `<option value="${ob.id}">${ob.name} (${ob.phone})${zoneName ? ' - ' + zoneName : ''}</option>`;
+                    }).join('');
+                
+                if (orderBookers.length === 0) {
+                    orderBookerSelect.innerHTML = '<option value="">No order bookers in this zone</option>';
+                }
+            } catch (error) {
+                console.error('Error loading order bookers for zone:', error);
+                orderBookerSelect.innerHTML = '<option value="">Error loading order bookers</option>';
             }
         }
 
@@ -1716,108 +1748,31 @@
                 resultDiv.textContent = `Error: ${error.message}`;
             }
         }
-        
-        // Delete Zone
-        async function deleteZone(zoneId) {
-            if (!confirm('Are you sure you want to soft delete this zone? This will also affect all associated routes, order bookers, delivery men, and shops.')) {
-                return;
-            }
-            
-            const endpoint = `${API_BASE}/zones/${zoneId}`;
-            showApiCall('DELETE', endpoint, 'Delete Zone', 'loading');
-            
-            try {
-                const response = await fetch(endpoint, {
-                    method: 'DELETE',
-                    headers: {
-                        'Authorization': `Bearer ${currentToken}`
-                    }
-                });
-                
-                if (!response.ok) {
-                    const data = await response.json();
-                    showApiCall('DELETE', endpoint, 'Delete Zone', 'error');
-                    throw new Error(data.detail || 'Failed to delete zone');
-                }
-                
-                showApiCall('DELETE', endpoint, 'Delete Zone', 'success');
-                alert('Zone soft deleted successfully!');
-                loadZones();
-            } catch (error) {
-                alert(`Error: ${error.message}`);
-            }
-        }
 
-        // Store original order booker ID and zone ID when opening edit modal
-        let originalOrderBookerId = null;
-        let originalZoneId = null;
-        
-        // Update order bookers when zone changes in edit modal
-        async function updateOrderBookersForRouteEditOnZoneChange() {
-            const zoneId = document.getElementById('editRouteZoneId').value;
-            const orderBookerSelect = document.getElementById('editRouteOrderBookerId');
+        // Open Edit Route Modal
+        async function openEditRouteModal(routeId, routeName, routeZoneId, routeOrderBookerId) {
+            const modal = document.getElementById('editRouteModal');
+            document.getElementById('editRouteId').value = routeId;
+            document.getElementById('editRouteName').value = routeName || '';
             
-            // If no zone selected, clear order booker dropdown
-            if (!zoneId) {
-                orderBookerSelect.innerHTML = '<option value="">Select Zone First</option>';
-                return;
+            // Store original values for comparison
+            originalZoneId = routeZoneId && routeZoneId !== 'null' ? parseInt(routeZoneId) : null;
+            originalOrderBookerId = routeOrderBookerId && routeOrderBookerId !== 'null' ? parseInt(routeOrderBookerId) : null;
+            
+            // Load zones for dropdown
+            await loadZonesForRouteEdit();
+            
+            // Set zone value after zones are loaded
+            const zoneSelect = document.getElementById('editRouteZoneId');
+            if (zoneSelect && originalZoneId) {
+                zoneSelect.value = originalZoneId;
             }
             
-            // Load order bookers for the selected zone
-            // Preserve current selection if it's still valid
-            const currentOrderBookerId = originalOrderBookerId;
-            await loadOrderBookersForRouteEdit(zoneId, currentOrderBookerId);
+            // Load order bookers for the route's zone
+            await loadOrderBookersForRouteEdit(originalZoneId, originalOrderBookerId);
             
-            // If the current order booker is not in the new zone, show a warning
-            const newZoneIdInt = zoneId ? parseInt(zoneId) : null;
-            if (currentOrderBookerId && newZoneIdInt !== null && newZoneIdInt !== originalZoneId) {
-                const resultDiv = document.getElementById('editRouteResult');
-                resultDiv.className = 'result info';
-                resultDiv.textContent = '⚠️ Zone changed. Please verify the assigned order booker is in the new zone, or unassign if needed.';
-            }
-        }
-        
-        // Load order bookers for route edit modal
-        async function loadOrderBookersForRouteEdit(zoneId, currentOrderBookerId) {
-            const orderBookerSelect = document.getElementById('editRouteOrderBookerId');
-            if (!orderBookerSelect) return;
-            
-            if (!zoneId || zoneId === 'null') {
-                orderBookerSelect.innerHTML = '<option value="">Select Zone First</option>';
-                orderBookerSelect.disabled = true;
-                return;
-            }
-            
-            orderBookerSelect.disabled = false;
-            orderBookerSelect.innerHTML = '<option value="">Loading Order Bookers...</option>';
-            
-            try {
-                const endpoint = `${API_BASE}/order-bookers/zone/${zoneId}?distributor_id=${currentDistributorId}`;
-                const response = await fetch(endpoint, {
-                    headers: { 'Authorization': `Bearer ${currentToken}` }
-                });
-                
-                if (!response.ok) {
-                    throw new Error('Failed to load order bookers for zone');
-                }
-                
-                const orderBookers = await response.json();
-                
-                orderBookerSelect.innerHTML = '<option value="">Unassign Order Booker</option>' + 
-                    orderBookers.map(ob => {
-                        const zoneName = ob.zone_id && allZones.find(z => z.id == ob.zone_id) ? 
-                            allZones.find(z => z.id == ob.zone_id).name : '';
-                        const selected = (currentOrderBookerId && ob.id == currentOrderBookerId) ? 'selected' : '';
-                        return `<option value="${ob.id}" ${selected}>${ob.name} (${ob.phone})${zoneName ? ' - ' + zoneName : ''}</option>`;
-                    }).join('');
-                
-                if (orderBookers.length === 0) {
-                    orderBookerSelect.innerHTML = '<option value="">No order bookers in this zone</option>';
-                }
-            } catch (error) {
-                console.error('Error loading order bookers for zone:', error);
-                orderBookerSelect.innerHTML = '<option value="">Error loading order bookers</option>';
-            }
+            modal.classList.remove('hidden');
+            modal.classList.add('active');
         }
         
         // Load zones for route edit modal
@@ -1864,30 +1819,43 @@
             }
         }
         
-        // Open Edit Route Modal
-        async function openEditRouteModal(routeId, routeName, routeZoneId, routeOrderBookerId) {
-            const modal = document.getElementById('editRouteModal');
-            document.getElementById('editRouteId').value = routeId;
-            document.getElementById('editRouteName').value = routeName || '';
+        // Load order bookers for route edit modal
+        async function loadOrderBookersForRouteEdit(zoneId, currentOrderBookerId) {
+            const orderBookerSelect = document.getElementById('editRouteOrderBookerId');
             
-            // Store original values for comparison
-            originalZoneId = routeZoneId && routeZoneId !== 'null' ? parseInt(routeZoneId) : null;
-            originalOrderBookerId = routeOrderBookerId && routeOrderBookerId !== 'null' ? parseInt(routeOrderBookerId) : null;
-            
-            // Load zones for dropdown
-            await loadZonesForRouteEdit();
-            
-            // Set zone value after zones are loaded
-            const zoneSelect = document.getElementById('editRouteZoneId');
-            if (zoneSelect && originalZoneId) {
-                zoneSelect.value = originalZoneId;
+            if (!zoneId) {
+                orderBookerSelect.innerHTML = '<option value="">Route has no zone assigned</option>';
+                return;
             }
             
-            // Load order bookers for the route's zone
-            await loadOrderBookersForRouteEdit(originalZoneId, originalOrderBookerId);
-            
-            modal.classList.remove('hidden');
-            modal.classList.add('active');
+            try {
+                const endpoint = `${API_BASE}/order-bookers/zone/${zoneId}?distributor_id=${currentDistributorId}`;
+                const response = await fetch(endpoint, {
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to load order bookers for zone');
+                }
+                
+                const orderBookers = await response.json();
+                
+                // Populate dropdown with order bookers from the same zone
+                orderBookerSelect.innerHTML = '<option value="">Unassign Order Booker</option>' + 
+                    orderBookers.map(ob => {
+                        const zoneName = ob.zone_id && allZones.find(z => z.id == ob.zone_id) ? 
+                            allZones.find(z => z.id == ob.zone_id).name : '';
+                        const selected = (currentOrderBookerId && ob.id == currentOrderBookerId) ? 'selected' : '';
+                        return `<option value="${ob.id}" ${selected}>${ob.name} (${ob.phone})${zoneName ? ' - ' + zoneName : ''}</option>`;
+                    }).join('');
+                
+                if (orderBookers.length === 0) {
+                    orderBookerSelect.innerHTML = '<option value="">No order bookers in this zone</option>';
+                }
+            } catch (error) {
+                console.error('Error loading order bookers for zone:', error);
+                orderBookerSelect.innerHTML = '<option value="">Error loading order bookers</option>';
+            }
         }
 
         // Close Edit Route Modal
@@ -1902,6 +1870,35 @@
             originalZoneId = null; // Reset stored value
         }
 
+        // Store original order booker ID and zone ID when opening edit modal
+        let originalOrderBookerId = null;
+        let originalZoneId = null;
+        
+        // Update order bookers when zone changes in edit modal
+        async function updateOrderBookersForRouteEditOnZoneChange() {
+            const zoneId = document.getElementById('editRouteZoneId').value;
+            const orderBookerSelect = document.getElementById('editRouteOrderBookerId');
+            
+            // If no zone selected, clear order booker dropdown
+            if (!zoneId) {
+                orderBookerSelect.innerHTML = '<option value="">Select Zone First</option>';
+                return;
+            }
+            
+            // Load order bookers for the selected zone
+            // Preserve current selection if it's still valid
+            const currentOrderBookerId = originalOrderBookerId;
+            await loadOrderBookersForRouteEdit(zoneId, currentOrderBookerId);
+            
+            // If the current order booker is not in the new zone, show a warning
+            const newZoneIdInt = zoneId ? parseInt(zoneId) : null;
+            if (currentOrderBookerId && newZoneIdInt !== null && newZoneIdInt !== originalZoneId) {
+                const resultDiv = document.getElementById('editRouteResult');
+                resultDiv.className = 'result info';
+                resultDiv.textContent = '⚠️ Zone changed. Please verify the assigned order booker is in the new zone, or unassign if needed.';
+            }
+        }
+        
         // Update Route
         async function updateRoute(event) {
             event.preventDefault();
@@ -1926,6 +1923,7 @@
             // Handle zone_id:
             // - If a value is selected and different from original: update zone
             // - If empty string: don't update (keep current zone)
+            // Note: We don't allow unassigning zones (setting to null) as routes should have zones
             const newZoneId = zoneId ? parseInt(zoneId) : null;
             if (newZoneId !== null && newZoneId !== originalZoneId) {
                 updateData.zone_id = newZoneId;
@@ -1996,13 +1994,38 @@
                 resultDiv.textContent = `Error: ${error.message}`;
             }
         }
-        
+
+        // Delete Zone
+        async function deleteZone(zoneId) {
+            const endpoint = `${API_BASE}/zones/${zoneId}`;
+            showApiCall('DELETE', endpoint, 'Delete Zone', 'loading');
+            
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+                
+                if (!response.ok) {
+                    const data = await response.json();
+                    showApiCall('DELETE', endpoint, 'Delete Zone', 'error');
+                    throw new Error(data.detail || 'Failed to delete zone');
+                }
+                
+                showApiCall('DELETE', endpoint, 'Delete Zone', 'success');
+                alert('Zone soft deleted successfully! The record has been hidden but data is preserved.');
+                
+                // Reload zones
+                loadZones();
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        }
+
         // Delete Route
         async function deleteRoute(routeId) {
-            if (!confirm('Are you sure you want to soft delete this route? This will unassign it from any order bookers and shops.')) {
-                return;
-            }
-            
             const endpoint = `${API_BASE}/routes/${routeId}`;
             showApiCall('DELETE', endpoint, 'Delete Route', 'loading');
             
@@ -2021,7 +2044,9 @@
                 }
                 
                 showApiCall('DELETE', endpoint, 'Delete Route', 'success');
-                alert('Route soft deleted successfully!');
+                alert('Route soft deleted successfully! The record has been hidden but data is preserved.');
+                
+                // Reload routes
                 loadRoutes();
             } catch (error) {
                 alert(`Error: ${error.message}`);
@@ -2032,7 +2057,7 @@
         let currentEditType = null; // 'order_booker' or 'delivery_man'
         let currentEditId = null;
 
-        function openEditModal(type, id, name, phone, email, zoneId) {
+        async function openEditModal(type, id, name, phone, email, zoneId) {
             currentEditType = type;
             currentEditId = id;
             
@@ -2059,15 +2084,15 @@
                 editEmailGroup.style.display = type === 'order_booker' ? 'block' : 'none';
             }
             
-            // Set zone
+            // Load zones for dropdown first (await to ensure it's loaded)
+            await loadZonesForModal();
+            
+            // Set zone AFTER zones are loaded
             if (zoneId && zoneId !== 'null' && zoneId !== null) {
                 editZoneId.value = zoneId;
             } else {
                 editZoneId.value = '';
             }
-            
-            // Load zones for dropdown
-            loadZonesForModal();
             
             // Show modal
             modal.classList.remove('hidden');
@@ -2083,23 +2108,45 @@
         }
 
         async function loadZonesForModal() {
-            try {
-                const response = await fetch(`${API_BASE}/zones/`, {
-                    headers: {
-                        'Authorization': `Bearer ${currentToken}`
+            const zoneSelect = document.getElementById('editZoneId');
+            if (!zoneSelect) return;
+            
+            // Preserve current value before rebuilding dropdown
+            const currentValue = zoneSelect.value;
+            
+            // Use allZones if already loaded, otherwise fetch
+            let zones = [];
+            if (allZones && allZones.length > 0) {
+                zones = allZones;
+            } else {
+                try {
+                    const response = await fetch(`${API_BASE}/zones/`, {
+                        headers: {
+                            'Authorization': `Bearer ${currentToken}`
+                        }
+                    });
+                    const data = await response.json();
+                    if (response.ok && data.length > 0) {
+                        zones = data;
+                        allZones = data; // Cache for future use
+                    } else {
+                        console.error('Failed to load zones:', data);
+                        zoneSelect.innerHTML = '<option value="">Error loading zones</option>';
+                        return;
                     }
-                });
-                const data = await response.json();
-                if (response.ok && data.length > 0) {
-                    const zoneSelect = document.getElementById('editZoneId');
-                    if (zoneSelect) {
-                        const currentValue = zoneSelect.value;
-                        zoneSelect.innerHTML = '<option value="">Select Zone (Optional)</option>' + 
-                            data.map(z => `<option value="${z.id}" ${z.id == currentValue ? 'selected' : ''}>${z.name}</option>`).join('');
-                    }
+                } catch (error) {
+                    console.error('Error loading zones:', error);
+                    zoneSelect.innerHTML = '<option value="">Error loading zones</option>';
+                    return;
                 }
-            } catch (error) {
-                console.error('Error loading zones:', error);
+            }
+            
+            // Populate dropdown
+            if (zones.length > 0) {
+                zoneSelect.innerHTML = '<option value="">Select Zone (Optional)</option>' + 
+                    zones.map(z => `<option value="${z.id}" ${z.id == currentValue ? 'selected' : ''}>${z.name}</option>`).join('');
+            } else {
+                zoneSelect.innerHTML = '<option value="">No zones available</option>';
             }
         }
 
@@ -3109,12 +3156,6 @@
                             Owner: ${shop.owner_name || 'N/A'}<br>
                             Phone: ${shop.owner_phone || 'N/A'}<br>
                             Credit Limit: Rs. ${(shop.credit_limit || 0).toLocaleString()}<br>
-                            ${(() => {
-                                const creditLimit = parseFloat(shop.credit_limit || 0);
-                                const outstandingBalance = parseFloat(shop.outstanding_balance || 0);
-                                const availableCredit = creditLimit > 0 ? Math.max(0, creditLimit - outstandingBalance) : 0;
-                                return `Available Credit: <strong style="color: ${availableCredit > 0 ? '#27ae60' : '#e74c3c'}">Rs. ${availableCredit.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong><br>`;
-                            })()}
                             Status: <span style="color: ${statusColor}">${statusText}</span>${routeInfo}<br>
                             ${hasCnicPhotos ? '<span style="color: #667eea; font-weight: bold;">📷 CNIC Photos Available</span><br>' : ''}
                             Created By: ${shop.created_by_order_booker_name || 'N/A'}<br>
@@ -3289,7 +3330,7 @@
                                 <strong style="color: ${creditLimitColor}; font-size: 1.1em;">
                                     Credit Limit: Rs. ${creditLimit.toLocaleString()}
                                 </strong><br>
-                                <!-- Legacy Balance removed - it's now part of outstanding_balance -->
+                                Legacy Balance: Rs. ${(shop.legacy_balance || 0).toLocaleString()}<br>
                                 Status: <span style="color: ${shop.registration_status === 'approved' ? 'green' : 'orange'}">${shop.registration_status || 'pending'}</span><br>
                                 Created By: ${shop.created_by_order_booker_name || 'N/A'}<br>
                                 <small>ID: ${shop.id} | Created: ${new Date(shop.created_at).toLocaleString()}</small>
@@ -3929,39 +3970,10 @@
                                         <span class="info-label">Total Amount:</span>
                                         <span class="info-value"><strong style="color: #3498db;">Rs. ${parseFloat(order.total_amount || 0).toFixed(2)}</strong></span>
                                     </div>
-                                    ${order.original_amount && order.original_amount !== order.total_amount ? `
-                                    <div class="info-row">
-                                        <span class="info-label">Original Amount:</span>
-                                        <span class="info-value"><strong style="color: #95a5a6; text-decoration: line-through;">Rs. ${parseFloat(order.original_amount || 0).toFixed(2)}</strong></span>
-                                    </div>
-                                    <div class="info-row">
-                                        <span class="info-label">Discount Applied:</span>
-                                        <span class="info-value"><strong style="color: #27ae60;">Rs. ${(parseFloat(order.original_amount || 0) - parseFloat(order.total_amount || 0)).toFixed(2)}</strong></span>
-                                    </div>
-                                    ` : ''}
-                                    ${order.order_resolution_type && order.order_resolution_type !== 'normal' ? `
-                                    <div class="info-row">
-                                        <span class="info-label">Order Resolution:</span>
-                                        <span class="info-value">
-                                            <span style="background: ${order.order_resolution_type === 'subsidy' ? '#f39c12' : order.order_resolution_type === 'payment_before_delivery' ? '#3498db' : '#95a5a6'}; color: white; padding: 4px 10px; border-radius: 15px; font-size: 12px;">
-                                                ${order.order_resolution_type === 'subsidy' ? '💰 SUBSIDY APPLIED' : order.order_resolution_type === 'payment_before_delivery' ? '💳 PAYMENT BEFORE DELIVERY' : order.order_resolution_type.toUpperCase()}
-                                            </span>
-                                        </span>
-                                    </div>
-                                    ` : ''}
-                                    ${order.payment_collected_before_delivery ? `
-                                    <div class="info-row">
-                                        <span class="info-label">Payment Collected:</span>
-                                        <span class="info-value">
-                                            <strong style="color: #27ae60;">Yes</strong> - Rs. ${parseFloat(order.payment_collected_amount || 0).toFixed(2)}
-                                            ${order.payment_collected_at ? ` (${new Date(order.payment_collected_at).toLocaleString()})` : ''}
-                                        </span>
-                                    </div>
-                                    ` : ''}
                                     <div class="info-row">
                                         <span class="info-label">Status:</span>
                                         <span class="info-value">
-                                            <span style="background: ${order.status === 'pending' ? '#f39c12' : order.status === 'delivered' ? '#27ae60' : order.status === 'disapproved' ? '#e74c3c' : '#95a5a6'}; color: white; padding: 4px 10px; border-radius: 15px; font-size: 12px;">
+                                            <span style="background: ${order.status === 'pending' ? '#f39c12' : order.status === 'confirmed' ? '#27ae60' : order.status === 'delivered' ? '#27ae60' : order.status === 'cancelled' ? '#e74c3c' : '#95a5a6'}; color: white; padding: 4px 10px; border-radius: 15px; font-size: 12px;">
                                                 ${(order.status || 'pending').toUpperCase()}
                                             </span>
                                         </span>
@@ -4696,10 +4708,6 @@
             if (event.target === inventoryModal) {
                 closeInventoryModal();
             }
-            const editSubsidyModal = document.getElementById('editSubsidyModal');
-            if (event.target === editSubsidyModal) {
-                closeEditSubsidyModal();
-            }
         });
 
         // ==================== WAREHOUSE FUNCTIONS ====================
@@ -5289,222 +5297,6 @@
             }
         }
 
-        // ==================== SUBSIDY FUNCTIONS ====================
-
-        // Create Subsidy
-        async function createSubsidy(event) {
-            event.preventDefault();
-            const resultDiv = document.getElementById('subsidyResult');
-
-            if (!currentToken || !currentDistributorId) {
-                resultDiv.className = 'result error';
-                resultDiv.textContent = 'Please login first';
-                return;
-            }
-
-            const subsidyData = {
-                distributor_id: currentDistributorId,
-                name: document.getElementById('subsidyName').value.trim(),
-                percentage: parseFloat(document.getElementById('subsidyPercentage').value),
-                description: document.getElementById('subsidyDescription').value.trim() || null,
-                is_active: document.getElementById('subsidyIsActive').checked
-            };
-
-            const endpoint = `${API_BASE}/subsidies/distributor/${currentDistributorId}`;
-            showApiCall('POST', endpoint, 'Create Subsidy', 'loading');
-
-            try {
-                const response = await fetch(endpoint, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${currentToken}`
-                    },
-                    body: JSON.stringify(subsidyData)
-                });
-
-                const data = await response.json();
-
-                if (!response.ok) {
-                    showApiCall('POST', endpoint, 'Create Subsidy', 'error');
-                    throw new Error(data.detail || 'Failed to create subsidy');
-                }
-
-                resultDiv.className = 'result success';
-                resultDiv.textContent = `Subsidy "${data.name}" (${data.percentage}%) created successfully!`;
-                showApiCall('POST', endpoint, 'Create Subsidy', 'success');
-
-                // Reset form
-                document.getElementById('subsidyForm').reset();
-                document.getElementById('subsidyIsActive').checked = true;
-
-                // Reload list
-                loadSubsidies();
-            } catch (error) {
-                resultDiv.className = 'result error';
-                resultDiv.textContent = `Error: ${error.message}`;
-            }
-        }
-
-        // Load Subsidies
-        async function loadSubsidies() {
-            const listDiv = document.getElementById('subsidiesList');
-
-            if (!currentDistributorId) {
-                listDiv.innerHTML = '<p>Please login first</p>';
-                return;
-            }
-
-            const includeInactive = document.getElementById('includeInactiveSubsidies')?.checked || false;
-            const endpoint = includeInactive 
-                ? `${API_BASE}/subsidies/distributor/${currentDistributorId}?include_inactive=true`
-                : `${API_BASE}/subsidies/distributor/${currentDistributorId}/active`;
-            showApiCall('GET', endpoint, 'Load Subsidies', 'loading');
-
-            try {
-                const response = await fetch(endpoint, {
-                    headers: {
-                        'Authorization': `Bearer ${currentToken}`
-                    }
-                });
-
-                const data = await response.json();
-
-                if (!response.ok) {
-                    showApiCall('GET', endpoint, 'Load Subsidies', 'error');
-                    throw new Error(data.detail || 'Failed to load subsidies');
-                }
-
-                showApiCall('GET', endpoint, 'Load Subsidies', 'success');
-
-                if (data.length === 0) {
-                    listDiv.innerHTML = '<p>No subsidies found. Create one above.</p>';
-                    return;
-                }
-
-                listDiv.innerHTML = data.map(subsidy => {
-                    const statusColor = subsidy.is_active ? 'green' : 'red';
-                    const statusText = subsidy.is_active ? 'Active' : 'Inactive';
-                    return `
-                        <div class="list-item" onclick="openEditSubsidyModal(${subsidy.id}, '${(subsidy.name || '').replace(/'/g, "\\'")}', ${subsidy.percentage}, '${(subsidy.description || '').replace(/'/g, "\\'")}', ${subsidy.is_active})">
-                            <div class="list-item-info" style="flex: 1;">
-                                <strong>${subsidy.name}</strong><br>
-                                Percentage: <strong style="color: #667eea;">${subsidy.percentage}%</strong><br>
-                                ${subsidy.description ? `Description: ${subsidy.description}<br>` : ''}
-                                Status: <span style="color: ${statusColor}">${statusText}</span><br>
-                                <small>ID: ${subsidy.id} | Created: ${new Date(subsidy.created_at).toLocaleDateString()}</small>
-                            </div>
-                            <div style="display: flex; align-items: center; gap: 10px;">
-                                <button class="btn btn-primary" onclick="event.stopPropagation(); openEditSubsidyModal(${subsidy.id}, '${(subsidy.name || '').replace(/'/g, "\\'")}', ${subsidy.percentage}, '${(subsidy.description || '').replace(/'/g, "\\'")}', ${subsidy.is_active})" style="padding: 8px 15px; font-size: 14px;">✏️ Edit</button>
-                                <button class="btn btn-danger" onclick="event.stopPropagation(); if(confirm('Delete subsidy ${(subsidy.name || '').replace(/'/g, "\\'")}? This will soft delete the subsidy.')) { deleteSubsidy(${subsidy.id}); }" style="padding: 8px 15px; font-size: 14px;">🗑️ Delete</button>
-                            </div>
-                        </div>
-                    `;
-                }).join('');
-            } catch (error) {
-                listDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
-            }
-        }
-
-        // Open Edit Subsidy Modal
-        function openEditSubsidyModal(subsidyId, name, percentage, description, isActive) {
-            const modal = document.getElementById('editSubsidyModal');
-            modal.classList.remove('hidden');
-            modal.classList.add('active');
-            
-            document.getElementById('editSubsidyId').value = subsidyId;
-            document.getElementById('editSubsidyName').value = name || '';
-            document.getElementById('editSubsidyPercentage').value = percentage || '';
-            document.getElementById('editSubsidyDescription').value = description || '';
-            document.getElementById('editSubsidyIsActive').checked = isActive;
-        }
-
-        // Close Edit Subsidy Modal
-        function closeEditSubsidyModal() {
-            const modal = document.getElementById('editSubsidyModal');
-            modal.classList.add('hidden');
-            modal.classList.remove('active');
-            document.getElementById('editSubsidyForm').reset();
-            document.getElementById('editSubsidyResult').className = 'result';
-            document.getElementById('editSubsidyResult').textContent = '';
-        }
-
-        // Update Subsidy
-        async function updateSubsidy(event) {
-            event.preventDefault();
-            const resultDiv = document.getElementById('editSubsidyResult');
-            const subsidyId = document.getElementById('editSubsidyId').value;
-
-            const subsidyData = {
-                name: document.getElementById('editSubsidyName').value.trim(),
-                percentage: parseFloat(document.getElementById('editSubsidyPercentage').value),
-                description: document.getElementById('editSubsidyDescription').value.trim() || null,
-                is_active: document.getElementById('editSubsidyIsActive').checked
-            };
-
-            const endpoint = `${API_BASE}/subsidies/${subsidyId}`;
-            showApiCall('PUT', endpoint, 'Update Subsidy', 'loading');
-
-            try {
-                const response = await fetch(endpoint, {
-                    method: 'PUT',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${currentToken}`
-                    },
-                    body: JSON.stringify(subsidyData)
-                });
-
-                const data = await response.json();
-
-                if (!response.ok) {
-                    showApiCall('PUT', endpoint, 'Update Subsidy', 'error');
-                    throw new Error(data.detail || 'Failed to update subsidy');
-                }
-
-                showApiCall('PUT', endpoint, 'Update Subsidy', 'success');
-                resultDiv.className = 'result success';
-                resultDiv.textContent = 'Subsidy updated successfully!';
-                
-                setTimeout(() => {
-                    closeEditSubsidyModal();
-                    loadSubsidies();
-                }, 1500);
-            } catch (error) {
-                resultDiv.className = 'result error';
-                resultDiv.textContent = `Error: ${error.message}`;
-            }
-        }
-
-        // Delete Subsidy
-        async function deleteSubsidy(subsidyId) {
-            const endpoint = `${API_BASE}/subsidies/${subsidyId}`;
-            showApiCall('DELETE', endpoint, 'Delete Subsidy', 'loading');
-
-            try {
-                const response = await fetch(endpoint, {
-                    method: 'DELETE',
-                    headers: {
-                        'Authorization': `Bearer ${currentToken}`
-                    }
-                });
-
-                if (!response.ok) {
-                    const data = await response.json();
-                    showApiCall('DELETE', endpoint, 'Delete Subsidy', 'error');
-                    throw new Error(data.detail || 'Failed to delete subsidy');
-                }
-
-                showApiCall('DELETE', endpoint, 'Delete Subsidy', 'success');
-                alert('Subsidy deleted successfully!');
-                
-                // Reload subsidies
-                loadSubsidies();
-            } catch (error) {
-                alert(`Error: ${error.message}`);
-            }
-        }
-
         // ==================== PRODUCT FUNCTIONS ====================
 
         // Create Product
@@ -5721,6 +5513,472 @@
                 alert(`Error: ${error.message}`);
             }
         }
+
+        // Wallet Functions
+        async function loadWalletBalance() {
+            if (!currentDistributorId) return;
+            
+            try {
+                const endpoint = `${API_BASE}/wallets/distributor/${currentDistributorId}/balance`;
+                const response = await fetch(endpoint);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                const balance = data.current_balance || 0;
+                
+                // Update header display
+                document.getElementById('userWalletBalance').textContent = `Rs. ${balance.toFixed(2)}`;
+                
+                // Update wallet tab display
+                const balanceDisplay = document.getElementById('walletBalanceDisplay');
+                if (balanceDisplay) {
+                    balanceDisplay.textContent = `Rs. ${balance.toFixed(2)}`;
+                    balanceDisplay.style.color = balance > 0 ? '#28a745' : '#dc3545';
+                }
+            } catch (error) {
+                console.error('Error loading wallet balance:', error);
+            }
+        }
+
+        async function loadWalletTransactions() {
+            if (!currentDistributorId) return;
+            
+            try {
+                const endpoint = `${API_BASE}/wallets/distributor/${currentDistributorId}/transactions?limit=50`;
+                const response = await fetch(endpoint);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const transactions = await response.json();
+                const transactionsList = document.getElementById('walletTransactionsList');
+                
+                if (!transactionsList) return;
+                
+                if (transactions.length === 0) {
+                    transactionsList.innerHTML = '<p style="color: #666;">No transactions found.</p>';
+                    return;
+                }
+                
+                transactionsList.innerHTML = transactions.map(t => {
+                    const typeColor = t.transaction_type === 'credit' || t.transaction_type === 'transfer_in' ? '#28a745' : '#dc3545';
+                    const typeIcon = t.transaction_type === 'credit' || t.transaction_type === 'transfer_in' ? '➕' : '➖';
+                    const date = t.created_at ? new Date(t.created_at).toLocaleString() : 'N/A';
+                    
+                    // Build details HTML
+                    let detailsHtml = '';
+                    
+                    // Collection details with complete trail
+                    if (t.reference_type === 'daily_collection' && t.collection_id) {
+                        detailsHtml += `<div style="margin-top: 8px; padding: 12px; background: #e8f4f8; border-radius: 5px; border-left: 3px solid #3498db;">`;
+                        detailsHtml += `<strong style="color: #3498db;">💰 Collection Trail:</strong><br>`;
+                        if (t.collection_amount) {
+                            detailsHtml += `<div style="margin-top: 5px;"><strong>Amount:</strong> Rs. ${t.collection_amount.toFixed(2)}</div>`;
+                        }
+                        if (t.collected_by_name) {
+                            detailsHtml += `<div style="margin-top: 5px;"><strong>Collected By:</strong> ${t.collected_by_name} <span style="color: #666;">(${t.collected_by_type || 'N/A'})</span></div>`;
+                        }
+                        if (t.shop_name) {
+                            detailsHtml += `<div style="margin-top: 5px;"><strong>Shop:</strong> ${t.shop_name}${t.shop_owner ? ` (Owner: ${t.shop_owner})` : ''}${t.shop_id ? ` <span style="color: #666;">[ID: ${t.shop_id}]</span>` : ''}</div>`;
+                        }
+                        if (t.route_name || t.zone_name) {
+                            detailsHtml += `<div style="margin-top: 5px;"><strong>Location:</strong> `;
+                            if (t.route_name) {
+                                detailsHtml += `Route: <span style="color: #667eea; font-weight: bold;">${t.route_name}</span>`;
+                            }
+                            if (t.zone_name) {
+                                if (t.route_name) detailsHtml += ` | `;
+                                detailsHtml += `Zone: <span style="color: #667eea; font-weight: bold;">${t.zone_name}</span>`;
+                            }
+                            detailsHtml += `</div>`;
+                        }
+                        if (t.collection_status) {
+                            const statusColor = t.collection_status === 'verified' ? '#27ae60' : t.collection_status === 'pending' ? '#f39c12' : '#e74c3c';
+                            detailsHtml += `<div style="margin-top: 5px;"><strong>Status:</strong> <span style="color: ${statusColor}; font-weight: bold;">${t.collection_status.toUpperCase()}</span></div>`;
+                        }
+                        if (t.collection_date) {
+                            detailsHtml += `<div style="margin-top: 5px;"><strong>Date:</strong> ${new Date(t.collection_date).toLocaleString()}</div>`;
+                        }
+                        detailsHtml += `</div>`;
+                    }
+                    
+                    // Transfer details
+                    if (t.transaction_type === 'transfer_in' || t.transaction_type === 'transfer_out') {
+                        if (t.related_user_name) {
+                            detailsHtml += `<div style="margin-top: 8px; padding: 8px; background: #fff3cd; border-radius: 5px; border-left: 3px solid #ffc107;">`;
+                            detailsHtml += `<strong style="color: #856404;">💸 Transfer ${t.transaction_type === 'transfer_in' ? 'From' : 'To'}:</strong><br>`;
+                            detailsHtml += `${t.related_user_name} (${t.related_user_type || 'N/A'})<br>`;
+                            detailsHtml += `</div>`;
+                        }
+                    }
+                    
+                    // Initiated by details
+                    if (t.initiated_by_name) {
+                        detailsHtml += `<div style="margin-top: 5px; font-size: 11px; color: #666;">`;
+                        detailsHtml += `Initiated by: ${t.initiated_by_name} (${t.initiated_by_type || 'N/A'})`;
+                        detailsHtml += `</div>`;
+                    }
+                    
+                    // Store transaction data as JSON for modal
+                    const transactionJson = JSON.stringify(t).replace(/"/g, '&quot;');
+                    
+                    return `
+                        <div class="list-item" onclick="openTransactionDetailsModal('${transactionJson}')" style="cursor: pointer;">
+                            <div class="list-item-info">
+                                <strong style="color: ${typeColor};">
+                                    ${typeIcon} ${t.transaction_type.toUpperCase().replace('_', ' ')}
+                                </strong><br>
+                                <small>Amount: <strong>Rs. ${t.amount.toFixed(2)}</strong></small><br>
+                                <small>Balance: Rs. ${t.balance_before.toFixed(2)} → Rs. ${t.balance_after.toFixed(2)}</small><br>
+                                <small>${t.description || 'No description'}</small><br>
+                                ${detailsHtml}
+                                <small style="color: #666; margin-top: 8px; display: block;">${date}</small>
+                                <small style="color: #667eea; margin-top: 5px; display: block; font-style: italic;">👆 Click to view full details</small>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            } catch (error) {
+                console.error('Error loading wallet transactions:', error);
+                const transactionsList = document.getElementById('walletTransactionsList');
+                if (transactionsList) {
+                    transactionsList.innerHTML = `<p style="color: #dc3545;">Error loading transactions: ${error.message}</p>`;
+                }
+            }
+        }
+
+        // Transaction Details Modal Functions
+        function openTransactionDetailsModal(transactionJson) {
+            const modal = document.getElementById('transactionDetailsModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('active');
+            
+            try {
+                // Parse transaction data
+                const transaction = JSON.parse(transactionJson.replace(/&quot;/g, '"'));
+                
+                const typeColor = transaction.transaction_type === 'credit' || transaction.transaction_type === 'transfer_in' ? '#28a745' : '#dc3545';
+                const typeIcon = transaction.transaction_type === 'credit' || transaction.transaction_type === 'transfer_in' ? '➕' : '➖';
+                const date = transaction.created_at ? new Date(transaction.created_at).toLocaleString() : 'N/A';
+                
+                // Build complete details HTML
+                let detailsHtml = '';
+                
+                // Transaction Basic Info
+                detailsHtml += `
+                    <div class="info-card" style="margin-bottom: 20px;">
+                        <h3 style="color: #667eea; margin-bottom: 15px;">📊 Transaction Information</h3>
+                        <div class="info-row">
+                            <span class="info-label">Transaction ID:</span>
+                            <span class="info-value"><strong>#${transaction.id}</strong></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Type:</span>
+                            <span class="info-value">
+                                <span style="color: ${typeColor}; font-weight: bold; font-size: 1.1em;">
+                                    ${typeIcon} ${transaction.transaction_type.toUpperCase().replace('_', ' ')}
+                                </span>
+                            </span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Amount:</span>
+                            <span class="info-value" style="font-size: 1.3em; font-weight: bold; color: ${typeColor};">
+                                Rs. ${transaction.amount.toFixed(2)}
+                            </span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Balance Change:</span>
+                            <span class="info-value">
+                                Rs. ${transaction.balance_before.toFixed(2)} → Rs. ${transaction.balance_after.toFixed(2)}
+                            </span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Description:</span>
+                            <span class="info-value">${transaction.description || 'No description'}</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Date & Time:</span>
+                            <span class="info-value">${date}</span>
+                        </div>
+                    </div>
+                `;
+                
+                // Collection Trail Details
+                if (transaction.reference_type === 'daily_collection' && transaction.collection_id) {
+                    detailsHtml += `
+                        <div class="info-card" style="margin-bottom: 20px; background: #e8f4f8; border-left: 4px solid #3498db;">
+                            <h3 style="color: #3498db; margin-bottom: 15px;">💰 Collection Trail</h3>
+                            <div class="info-row">
+                                <span class="info-label">Collection ID:</span>
+                                <span class="info-value"><strong>#${transaction.collection_id}</strong></span>
+                            </div>
+                            ${transaction.collection_amount ? `
+                            <div class="info-row">
+                                <span class="info-label">Collection Amount:</span>
+                                <span class="info-value" style="font-size: 1.2em; font-weight: bold; color: #3498db;">
+                                    Rs. ${transaction.collection_amount.toFixed(2)}
+                                </span>
+                            </div>
+                            ` : ''}
+                            ${transaction.collected_by_name ? `
+                            <div class="info-row">
+                                <span class="info-label">Collected By:</span>
+                                <span class="info-value">
+                                    <strong>${transaction.collected_by_name}</strong>
+                                    <span style="color: #666; margin-left: 10px;">(${transaction.collected_by_type || 'N/A'})</span>
+                                    ${transaction.collected_by_id ? `<span style="color: #999;">[ID: ${transaction.collected_by_id}]</span>` : ''}
+                                </span>
+                            </div>
+                            ` : ''}
+                            ${transaction.shop_name ? `
+                            <div class="info-row">
+                                <span class="info-label">Shop:</span>
+                                <span class="info-value">
+                                    <strong>${transaction.shop_name}</strong>
+                                    ${transaction.shop_owner ? ` (Owner: ${transaction.shop_owner})` : ''}
+                                    ${transaction.shop_id ? ` <span style="color: #666;">[ID: ${transaction.shop_id}]</span>` : ''}
+                                </span>
+                            </div>
+                            ` : ''}
+                            ${transaction.route_name || transaction.zone_name ? `
+                            <div class="info-row">
+                                <span class="info-label">Location:</span>
+                                <span class="info-value">
+                                    ${transaction.route_name ? `
+                                        <span style="color: #667eea; font-weight: bold;">Route: ${transaction.route_name}</span>
+                                        ${transaction.route_id ? ` <span style="color: #999;">[ID: ${transaction.route_id}]</span>` : ''}
+                                    ` : ''}
+                                    ${transaction.route_name && transaction.zone_name ? ' | ' : ''}
+                                    ${transaction.zone_name ? `
+                                        <span style="color: #667eea; font-weight: bold;">Zone: ${transaction.zone_name}</span>
+                                        ${transaction.zone_id ? ` <span style="color: #999;">[ID: ${transaction.zone_id}]</span>` : ''}
+                                    ` : ''}
+                                </span>
+                            </div>
+                            ` : ''}
+                            ${transaction.collection_status ? `
+                            <div class="info-row">
+                                <span class="info-label">Status:</span>
+                                <span class="info-value">
+                                    ${(() => {
+                                        const statusColor = transaction.collection_status === 'verified' ? '#27ae60' : 
+                                                           transaction.collection_status === 'pending' ? '#f39c12' : '#e74c3c';
+                                        return `<span style="color: ${statusColor}; font-weight: bold; font-size: 1.1em; padding: 4px 12px; background: ${statusColor}20; border-radius: 15px;">
+                                            ${transaction.collection_status.toUpperCase()}
+                                        </span>`;
+                                    })()}
+                                </span>
+                            </div>
+                            ` : ''}
+                            ${transaction.collection_date ? `
+                            <div class="info-row">
+                                <span class="info-label">Collection Date:</span>
+                                <span class="info-value">${new Date(transaction.collection_date).toLocaleString()}</span>
+                            </div>
+                            ` : ''}
+                        </div>
+                    `;
+                }
+                
+                // Transfer Details with Collection Trail
+                if (transaction.transaction_type === 'transfer_in' || transaction.transaction_type === 'transfer_out') {
+                    detailsHtml += `
+                        <div class="info-card" style="margin-bottom: 20px; background: #fff3cd; border-left: 4px solid #ffc107;">
+                            <h3 style="color: #856404; margin-bottom: 15px;">💸 Transfer Details</h3>
+                            <div class="info-row">
+                                <span class="info-label">Transfer Type:</span>
+                                <span class="info-value">
+                                    <strong>${transaction.transaction_type === 'transfer_in' ? 'Received From' : 'Sent To'}</strong>
+                                </span>
+                            </div>
+                            ${transaction.related_user_name ? `
+                            <div class="info-row">
+                                <span class="info-label">${transaction.transaction_type === 'transfer_in' ? 'From' : 'To'}:</span>
+                                <span class="info-value">
+                                    <strong>${transaction.related_user_name}</strong>
+                                    <span style="color: #666; margin-left: 10px;">(${transaction.related_user_type || 'N/A'})</span>
+                                    ${transaction.related_user_id ? ` <span style="color: #999;">[ID: ${transaction.related_user_id}]</span>` : ''}
+                                </span>
+                            </div>
+                            ` : ''}
+                            ${transaction.related_wallet_id ? `
+                            <div class="info-row">
+                                <span class="info-label">Related Wallet ID:</span>
+                                <span class="info-value">#${transaction.related_wallet_id}</span>
+                            </div>
+                            ` : ''}
+                        </div>
+                    `;
+                    
+                    // Show collection trail if available (where the money originally came from)
+                    if (transaction.shop_name || transaction.collection_trails) {
+                        detailsHtml += `
+                            <div class="info-card" style="margin-bottom: 20px; background: #e8f4f8; border-left: 4px solid #3498db;">
+                                <h3 style="color: #3498db; margin-bottom: 15px;">📍 Original Collection Source</h3>
+                        `;
+                        
+                        // If single collection trail (direct info in metadata)
+                        if (transaction.shop_name && !transaction.collection_trails) {
+                            detailsHtml += `
+                                ${transaction.shop_name ? `
+                                <div class="info-row">
+                                    <span class="info-label">Shop:</span>
+                                    <span class="info-value">
+                                        <strong>${transaction.shop_name}</strong>
+                                        ${transaction.shop_owner ? ` (Owner: ${transaction.shop_owner})` : ''}
+                                        ${transaction.shop_id ? ` <span style="color: #666;">[ID: ${transaction.shop_id}]</span>` : ''}
+                                    </span>
+                                </div>
+                                ` : ''}
+                                ${transaction.route_name || transaction.zone_name ? `
+                                <div class="info-row">
+                                    <span class="info-label">Location:</span>
+                                    <span class="info-value">
+                                        ${transaction.route_name ? `
+                                            <span style="color: #667eea; font-weight: bold;">Route: ${transaction.route_name}</span>
+                                            ${transaction.route_id ? ` <span style="color: #999;">[ID: ${transaction.route_id}]</span>` : ''}
+                                        ` : ''}
+                                        ${transaction.route_name && transaction.zone_name ? ' | ' : ''}
+                                        ${transaction.zone_name ? `
+                                            <span style="color: #667eea; font-weight: bold;">Zone: ${transaction.zone_name}</span>
+                                            ${transaction.zone_id ? ` <span style="color: #999;">[ID: ${transaction.zone_id}]</span>` : ''}
+                                        ` : ''}
+                                    </span>
+                                </div>
+                                ` : ''}
+                            `;
+                        }
+                        // If multiple collection trails
+                        else if (transaction.collection_trails && transaction.collection_trails.length > 0) {
+                            detailsHtml += `
+                                <div class="info-row">
+                                    <span class="info-label">Collections Included:</span>
+                                    <span class="info-value"><strong>${transaction.collection_trails.length} collection(s)</strong></span>
+                                </div>
+                                <div style="margin-top: 15px; max-height: 300px; overflow-y: auto;">
+                                    ${transaction.collection_trails.map((trail, idx) => `
+                                        <div style="padding: 10px; margin-bottom: 10px; background: white; border-radius: 5px; border-left: 3px solid #3498db;">
+                                            <strong style="color: #3498db;">Collection #${idx + 1}:</strong><br>
+                                            ${trail.shop_name ? `
+                                                <div style="margin-top: 5px;"><strong>Shop:</strong> ${trail.shop_name}${trail.shop_owner ? ` (Owner: ${trail.shop_owner})` : ''}${trail.shop_id ? ` [ID: ${trail.shop_id}]` : ''}</div>
+                                            ` : ''}
+                                            ${trail.route_name || trail.zone_name ? `
+                                                <div style="margin-top: 5px;"><strong>Location:</strong> 
+                                                    ${trail.route_name ? `Route: ${trail.route_name}` : ''}
+                                                    ${trail.route_name && trail.zone_name ? ' | ' : ''}
+                                                    ${trail.zone_name ? `Zone: ${trail.zone_name}` : ''}
+                                                </div>
+                                            ` : ''}
+                                            ${trail.collection_amount ? `
+                                                <div style="margin-top: 5px;"><strong>Amount:</strong> Rs. ${trail.collection_amount.toFixed(2)}</div>
+                                            ` : ''}
+                                            ${trail.collection_id ? `
+                                                <div style="margin-top: 5px;"><strong>Collection ID:</strong> #${trail.collection_id}</div>
+                                            ` : ''}
+                                            ${trail.collection_date ? `
+                                                <div style="margin-top: 5px;"><strong>Date:</strong> ${new Date(trail.collection_date).toLocaleString()}</div>
+                                            ` : ''}
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            `;
+                        }
+                        
+                        detailsHtml += `</div>`;
+                    }
+                }
+                
+                // Reference Information
+                if (transaction.reference_type || transaction.reference_id) {
+                    detailsHtml += `
+                        <div class="info-card" style="margin-bottom: 20px;">
+                            <h3 style="color: #667eea; margin-bottom: 15px;">🔗 Reference Information</h3>
+                            ${transaction.reference_type ? `
+                            <div class="info-row">
+                                <span class="info-label">Reference Type:</span>
+                                <span class="info-value"><strong>${transaction.reference_type}</strong></span>
+                            </div>
+                            ` : ''}
+                            ${transaction.reference_id ? `
+                            <div class="info-row">
+                                <span class="info-label">Reference ID:</span>
+                                <span class="info-value"><strong>#${transaction.reference_id}</strong></span>
+                            </div>
+                            ` : ''}
+                        </div>
+                    `;
+                }
+                
+                // Initiated By Information
+                if (transaction.initiated_by_name || transaction.initiated_by_type) {
+                    detailsHtml += `
+                        <div class="info-card" style="margin-bottom: 20px;">
+                            <h3 style="color: #667eea; margin-bottom: 15px;">👤 Initiated By</h3>
+                            ${transaction.initiated_by_name ? `
+                            <div class="info-row">
+                                <span class="info-label">Name:</span>
+                                <span class="info-value">
+                                    <strong>${transaction.initiated_by_name}</strong>
+                                    <span style="color: #666; margin-left: 10px;">(${transaction.initiated_by_type || 'N/A'})</span>
+                                    ${transaction.initiated_by_id ? ` <span style="color: #999;">[ID: ${transaction.initiated_by_id}]</span>` : ''}
+                                </span>
+                            </div>
+                            ` : ''}
+                        </div>
+                    `;
+                }
+                
+                // Metadata (if available and not already shown)
+                if (transaction.metadata && typeof transaction.metadata === 'object') {
+                    const metadataKeys = Object.keys(transaction.metadata);
+                    const shownKeys = ['shop_id', 'shop_name', 'shop_owner', 'route_id', 'route_name', 'zone_id', 'zone_name', 
+                                      'collection_id', 'collection_amount', 'collection_date', 'collection_status', 
+                                      'collected_by_name', 'collected_by_type', 'collected_by_id'];
+                    const remainingKeys = metadataKeys.filter(k => !shownKeys.includes(k));
+                    
+                    if (remainingKeys.length > 0) {
+                        detailsHtml += `
+                            <div class="info-card" style="margin-bottom: 20px; background: #f8f9fa;">
+                                <h3 style="color: #667eea; margin-bottom: 15px;">📋 Additional Metadata</h3>
+                                ${remainingKeys.map(key => `
+                                    <div class="info-row">
+                                        <span class="info-label">${key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}:</span>
+                                        <span class="info-value">${transaction.metadata[key]}</span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `;
+                    }
+                }
+                
+                document.getElementById('transactionDetailsModalTitle').textContent = 
+                    `Transaction #${transaction.id} - ${transaction.transaction_type.toUpperCase().replace('_', ' ')}`;
+                document.getElementById('transactionDetailsContent').innerHTML = detailsHtml;
+            } catch (error) {
+                console.error('Error parsing transaction data:', error);
+                document.getElementById('transactionDetailsContent').innerHTML = 
+                    `<p style="color: red;">Error loading transaction details: ${error.message}</p>`;
+            }
+        }
+
+        function closeTransactionDetailsModal() {
+            const modal = document.getElementById('transactionDetailsModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('active');
+            document.getElementById('transactionDetailsContent').innerHTML = '';
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const transactionModal = document.getElementById('transactionDetailsModal');
+            if (event.target === transactionModal) {
+                closeTransactionDetailsModal();
+            }
+        }
     </script>
 
     <!-- Edit Modal -->
@@ -5883,37 +6141,14 @@
         </div>
     </div>
 
-    <!-- Edit Subsidy Modal -->
-    <div id="editSubsidyModal" class="modal hidden">
-        <div class="modal-content">
-            <span class="close-button" onclick="closeEditSubsidyModal()">&times;</span>
-            <h2>Edit Subsidy</h2>
-            <form id="editSubsidyForm" onsubmit="updateSubsidy(event)">
-                <input type="hidden" id="editSubsidyId">
-                <div class="form-group">
-                    <label>Subsidy Name *</label>
-                    <input type="text" id="editSubsidyName" required placeholder="e.g., New Year Discount, Special Offer">
-                </div>
-                <div class="form-group">
-                    <label>Percentage (%) *</label>
-                    <input type="number" id="editSubsidyPercentage" required step="0.01" min="0" max="100" placeholder="e.g., 10.00 for 10%">
-                </div>
-                <div class="form-group">
-                    <label>Description (Optional)</label>
-                    <textarea id="editSubsidyDescription" rows="3" placeholder="Description of the subsidy"></textarea>
-                </div>
-                <div class="form-group">
-                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-                        <input type="checkbox" id="editSubsidyIsActive" style="width: auto;">
-                        <span>Active (uncheck to deactivate)</span>
-                    </label>
-                </div>
-                <div class="modal-actions">
-                    <button type="submit" class="btn btn-primary">Update Subsidy</button>
-                    <button type="button" class="btn" onclick="closeEditSubsidyModal()" style="background: #6c757d; color: white;">Cancel</button>
-                </div>
-            </form>
-            <div id="editSubsidyResult" class="result"></div>
+    <!-- Transaction Details Modal -->
+    <div id="transactionDetailsModal" class="modal hidden">
+        <div class="modal-content" style="max-width: 800px;">
+            <span class="close-button" onclick="closeTransactionDetailsModal()">&times;</span>
+            <h2 id="transactionDetailsModalTitle">Transaction Details</h2>
+            <div id="transactionDetailsContent">
+                <!-- Transaction details will be populated here -->
+            </div>
         </div>
     </div>
 </body>

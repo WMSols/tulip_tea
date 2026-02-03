@@ -77,6 +77,14 @@ class DeliveryManService:
         # Routes are no longer assigned to delivery men
         assigned_route_ids = []
         
+        # Create wallet for delivery man
+        try:
+            from services.wallet_service import WalletService
+            WalletService.get_or_create_wallet(db, "delivery_man", delivery_man.id)
+        except Exception as e:
+            # Log error but don't fail user creation
+            print(f"Warning: Failed to create wallet for delivery man {delivery_man.id}: {str(e)}")
+        
         return {
             "id": delivery_man.id,
             "name": delivery_man.name,

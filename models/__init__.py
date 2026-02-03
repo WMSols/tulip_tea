@@ -18,6 +18,8 @@ MODELS INCLUDED:
 5. Route - Delivery routes containing multiple shops
 6. Shop - Retail locations where products are sold (now uses route_id directly)
 7. CreditLimitRequest - Requests for credit limit changes
+8. Wallet - Cash wallets for distributors, order bookers, and delivery men
+9. WalletTransaction - Transaction history for wallets
 NOTE: RouteShop and DeliveryManRoute models removed - shops use route_id directly, delivery men work by zone
 
 USAGE:
@@ -27,7 +29,7 @@ USAGE:
 """
 # Import all models to ensure they're registered with Base
 # This is critical for SQLAlchemy to discover all table definitions
-from . import distributor, order_booker, delivery_man, zone, route, shop, credit_limit_request, daily_collection, payment, shop_visit, visit_type, order, order_item, activity_log, super_admin, warehouse, inventory, delivery_man_warehouse, product, delivery, delivery_item, subsidy
+from . import distributor, order_booker, delivery_man, zone, route, shop, credit_limit_request, daily_collection, payment, shop_visit, visit_type, order, order_item, activity_log, super_admin, warehouse, inventory, delivery_man_warehouse, product, delivery, delivery_item, subsidy, wallet, wallet_transaction
 
 # Export all models for easy importing
-__all__ = ["distributor", "order_booker", "delivery_man", "zone", "route", "shop", "credit_limit_request", "daily_collection", "payment", "shop_visit", "visit_type", "order", "order_item", "activity_log", "super_admin", "warehouse", "inventory", "delivery_man_warehouse", "product", "delivery", "delivery_item", "subsidy"]
+__all__ = ["distributor", "order_booker", "delivery_man", "zone", "route", "shop", "credit_limit_request", "daily_collection", "payment", "shop_visit", "visit_type", "order", "order_item", "activity_log", "super_admin", "warehouse", "inventory", "delivery_man_warehouse", "product", "delivery", "delivery_item", "subsidy", "wallet", "wallet_transaction"]

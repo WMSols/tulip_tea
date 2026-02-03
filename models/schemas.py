@@ -66,7 +66,9 @@ class OrderBookerResponse(BaseModel):
     email: Optional[str]
     phone: str
     zone_id: Optional[int] = None
+    zone_name: Optional[str] = None  # Denormalized zone name
     distributor_id: int
+    distributor_name: Optional[str] = None  # Denormalized distributor name
     created_at: Optional[str]
 
     class Config:
@@ -127,6 +129,8 @@ class ZoneUpdate(BaseModel):
 class ZoneResponse(BaseModel):
     id: int
     name: str
+    route_count: Optional[int] = None  # Number of routes in this zone
+    shop_count: Optional[int] = None  # Number of shops in this zone
     created_at: Optional[str]
 
     class Config:
@@ -150,7 +154,9 @@ class RouteResponse(BaseModel):
     id: int
     name: str
     zone_id: Optional[int] = None
+    zone_name: Optional[str] = None  # Denormalized zone name
     order_booker_id: Optional[int] = None
+    order_booker_name: Optional[str] = None  # Denormalized order booker name
     created_by_distributor: Optional[int] = None
     created_at: Optional[str] = None
 
@@ -185,6 +191,10 @@ class ShopRegister(BaseModel):
     legacy_balance: Optional[float] = 0
     owner_cnic_front_photo: Optional[str] = None  # Base64 encoded image
     owner_cnic_back_photo: Optional[str] = None  # Base64 encoded image
+    owner_photo: Optional[str] = None  # Base64 encoded image
+    shop_exterior_photo: Optional[str] = None  # Base64 encoded image
+    user_gps_lat: Optional[float] = None  # Order booker's current GPS location for validation
+    user_gps_lng: Optional[float] = None  # Order booker's current GPS location for validation
 
 
 class ShopResponse(BaseModel):
@@ -307,6 +317,9 @@ class OrderItemCreate(BaseModel):
 
 
 class ShopVisitCreate(BaseModel):
+    # Note: user_gps_lat and user_gps_lng are optional fields for location validation.
+    # If provided, the backend will validate that the user is near the shop location.
+    # If not provided, validation will use gps_lat/gps_lng (visit location) instead.
     shop_id: Optional[int] = None
     visit_types: Optional[List[str]] = []  # List of visit types: ["order_booking", "daily_collections", etc.]
     gps_lat: Optional[float] = None
@@ -330,6 +343,7 @@ class ShopVisitResponse(BaseModel):
     shop_id: Optional[int] = None
     shop_name: Optional[str] = None
     shop_zone_id: Optional[int] = None  # Zone ID of the shop
+    shop_routes: Optional[List[Dict]] = None  # List of routes this shop belongs to
     order_booker_id: Optional[int] = None
     order_booker_name: Optional[str] = None
     delivery_man_id: Optional[int] = None
@@ -442,10 +456,12 @@ class CreditLimitRequestResponse(BaseModel):
     shop_name: Optional[str] = None
     requested_by_role: str
     requested_by_id: int
+    requested_by_name: Optional[str] = None  # Denormalized name of requester
     old_credit_limit: Optional[float] = None
     requested_credit_limit: float
     status: Optional[str] = None
     approved_by_distributor: Optional[int] = None
+    approved_by_distributor_name: Optional[str] = None  # Denormalized name of approver
     approved_at: Optional[str] = None
     remarks: Optional[str] = None
     created_at: Optional[str] = None
@@ -606,3 +622,16 @@ class SubsidyResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# Wallet Schemas
+class WalletTransferRequest(BaseModel):
+    from_user_type: str  # 'distributor', 'order_booker', 'delivery_man'
+    from_user_id: int
+    to_user_type: str  # 'distributor', 'order_booker', 'delivery_man'
+    to_user_id: int
+    amount: float
+    description: Optional[str] = None
+    initiated_by_type: Optional[str] = None  # 'distributor', 'order_booker', 'delivery_man', 'system'
+    initiated_by_id: Optional[int] = None
+    metadata: Optional[Dict[str, Any]] = None

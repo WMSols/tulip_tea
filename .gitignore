@@ -112,3 +112,7 @@ scripts/SHOP_VISIT_DELETION_UPDATE.md
 sql/add_shop_visits_performance_indexes.sql
 sql/fix_and_optimize_delivery_man_orders_indexes.sql
 sql/remove_legacy_balance_column.sql
+docs/GEOLOCATION_VALIDATION_ARCHITECTURE.md
+docs/WALLET_OPTIMIZATION_IMPLEMENTATION.md
+docs/WALLET_TRANSFER_OPTIMIZATION_ANALYSIS.md
+sql/optimize_wallet_tables.sql

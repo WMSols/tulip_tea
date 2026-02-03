@@ -79,11 +79,26 @@ class CreditLimitRequestService:
             remarks=remarks
         )
         
+        # Get requester name based on role
+        requested_by_name = None
+        if request.requested_by_role == "order_booker":
+            requester = OrderBookerRepository.get_by_id(db, request.requested_by_id)
+            requested_by_name = requester.name if requester else None
+        elif request.requested_by_role == "delivery_man":
+            requester = DeliveryManRepository.get_by_id(db, request.requested_by_id)
+            requested_by_name = requester.name if requester else None
+        
+        # Get shop name
+        shop = ShopRepository.get_by_id(db, request.shop_id)
+        shop_name = shop.name if shop else None
+        
         return {
             "id": request.id,
             "shop_id": request.shop_id,
+            "shop_name": shop_name,
             "requested_by_role": request.requested_by_role,
             "requested_by_id": request.requested_by_id,
+            "requested_by_name": requested_by_name,
             "old_credit_limit": float(request.old_credit_limit) if request.old_credit_limit else 0,
             "requested_credit_limit": float(request.requested_credit_limit),
             "status": request.status.value if hasattr(request.status, 'value') else str(request.status),
@@ -126,6 +141,12 @@ class CreditLimitRequestService:
                 requester = DeliveryManRepository.get_by_id(db, req.requested_by_id)
                 requested_by_name = requester.name if requester else None
             
+            # Get approved_by_distributor_name if approved
+            approved_by_distributor_name = None
+            if req.approved_by_distributor:
+                distributor = DistributorRepository.get_by_id(db, req.approved_by_distributor)
+                approved_by_distributor_name = distributor.name if distributor else None
+            
             result.append({
                 "id": req.id,
                 "shop_id": req.shop_id,
@@ -137,6 +158,9 @@ class CreditLimitRequestService:
                 "old_credit_limit": float(req.old_credit_limit) if req.old_credit_limit else 0,
                 "requested_credit_limit": float(req.requested_credit_limit),
                 "status": req.status.value if hasattr(req.status, 'value') else str(req.status),
+                "approved_by_distributor": req.approved_by_distributor,
+                "approved_by_distributor_name": approved_by_distributor_name,
+                "approved_at": req.approved_at.isoformat() if req.approved_at else None,
                 "remarks": req.remarks,
                 "created_at": req.created_at.isoformat() if req.created_at else None
             })
@@ -182,12 +206,31 @@ class CreditLimitRequestService:
         if not updated:
             raise ValueError("Failed to update request")
         
+        # Get shop name
+        shop = ShopRepository.get_by_id(db, updated.shop_id)
+        shop_name = shop.name if shop else None
+        
+        # Get requester name based on role
+        requested_by_name = None
+        if updated.requested_by_role == "order_booker":
+            requester = OrderBookerRepository.get_by_id(db, updated.requested_by_id)
+            requested_by_name = requester.name if requester else None
+        elif updated.requested_by_role == "delivery_man":
+            requester = DeliveryManRepository.get_by_id(db, updated.requested_by_id)
+            requested_by_name = requester.name if requester else None
+        
         return {
             "id": updated.id,
             "shop_id": updated.shop_id,
+            "shop_name": shop_name,
+            "requested_by_role": updated.requested_by_role,
+            "requested_by_id": updated.requested_by_id,
+            "requested_by_name": requested_by_name,
+            "old_credit_limit": float(updated.old_credit_limit) if updated.old_credit_limit else 0,
             "requested_credit_limit": float(updated.requested_credit_limit),
             "status": updated.status.value if hasattr(updated.status, 'value') else str(updated.status),
-            "remarks": updated.remarks
+            "remarks": updated.remarks,
+            "created_at": updated.created_at.isoformat() if updated.created_at else None
         }
     
     @staticmethod
@@ -259,6 +302,12 @@ class CreditLimitRequestService:
             requester = DeliveryManRepository.get_by_id(db, approved.requested_by_id)
             requested_by_name = requester.name if requester else None
         
+        # Get approved_by_distributor_name
+        approved_by_distributor_name = None
+        if approved.approved_by_distributor:
+            distributor = DistributorRepository.get_by_id(db, approved.approved_by_distributor)
+            approved_by_distributor_name = distributor.name if distributor else None
+        
         return {
             "id": approved.id,
             "shop_id": approved.shop_id,
@@ -270,6 +319,7 @@ class CreditLimitRequestService:
             "requested_credit_limit": float(approved.requested_credit_limit),
             "status": approved.status.value if hasattr(approved.status, 'value') else str(approved.status),
             "approved_by_distributor": approved.approved_by_distributor,
+            "approved_by_distributor_name": approved_by_distributor_name,
             "approved_at": approved.approved_at.isoformat() if approved.approved_at else None,
             "remarks": approved.remarks,
             "created_at": approved.created_at.isoformat() if approved.created_at else None
@@ -331,6 +381,12 @@ class CreditLimitRequestService:
             requester = DeliveryManRepository.get_by_id(db, rejected.requested_by_id)
             requested_by_name = requester.name if requester else None
         
+        # Get approved_by_distributor_name
+        approved_by_distributor_name = None
+        if rejected.approved_by_distributor:
+            distributor = DistributorRepository.get_by_id(db, rejected.approved_by_distributor)
+            approved_by_distributor_name = distributor.name if distributor else None
+        
         return {
             "id": rejected.id,
             "shop_id": rejected.shop_id,
@@ -342,6 +398,7 @@ class CreditLimitRequestService:
             "requested_credit_limit": float(rejected.requested_credit_limit),
             "status": rejected.status.value if hasattr(rejected.status, 'value') else str(rejected.status),
             "approved_by_distributor": rejected.approved_by_distributor,
+            "approved_by_distributor_name": approved_by_distributor_name,
             "approved_at": rejected.approved_at.isoformat() if rejected.approved_at else None,
             "remarks": rejected.remarks,
             "created_at": rejected.created_at.isoformat() if rejected.created_at else None

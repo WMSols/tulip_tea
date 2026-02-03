@@ -52,11 +52,20 @@ class RouteService:
             order_booker_id=order_booker_id
         )
         
+        # Get denormalized names
+        zone_name = zone.name if zone else None
+        order_booker_name = None
+        if order_booker_id:
+            order_booker = OrderBookerRepository.get_by_id(db, order_booker_id)
+            order_booker_name = order_booker.name if order_booker else None
+        
         return {
             "id": route.id,
             "name": route.name,
             "zone_id": route.zone_id,
+            "zone_name": zone_name,
             "order_booker_id": route.order_booker_id,
+            "order_booker_name": order_booker_name,
             "created_by_distributor": route.created_by_distributor,
             "created_at": route.created_at.isoformat() if route.created_at else None
         }
@@ -65,33 +74,58 @@ class RouteService:
     def get_routes_by_distributor(db: Session, distributor_id: int) -> List[Dict]:
         """Get all routes created by a distributor."""
         routes = RouteRepository.get_by_distributor(db, distributor_id)
-        return [
-            {
+        result = []
+        for route in routes:
+            # Get denormalized names
+            zone_name = None
+            if route.zone_id:
+                zone = ZoneRepository.get_by_id(db, route.zone_id)
+                zone_name = zone.name if zone else None
+            
+            order_booker_name = None
+            if route.order_booker_id:
+                order_booker = OrderBookerRepository.get_by_id(db, route.order_booker_id)
+                order_booker_name = order_booker.name if order_booker else None
+            
+            result.append({
                 "id": route.id,
                 "name": route.name,
                 "zone_id": route.zone_id,
+                "zone_name": zone_name,
                 "order_booker_id": route.order_booker_id,
+                "order_booker_name": order_booker_name,
                 "created_by_distributor": route.created_by_distributor,
                 "created_at": route.created_at.isoformat() if route.created_at else None
-            }
-            for route in routes
-        ]
+            })
+        return result
     
     @staticmethod
     def get_routes_by_zone(db: Session, zone_id: int) -> List[Dict]:
         """Get all routes in a zone."""
         routes = RouteRepository.get_by_zone(db, zone_id)
-        return [
-            {
+        # Get zone name once
+        zone = ZoneRepository.get_by_id(db, zone_id)
+        zone_name = zone.name if zone else None
+        
+        result = []
+        for route in routes:
+            # Get order booker name
+            order_booker_name = None
+            if route.order_booker_id:
+                order_booker = OrderBookerRepository.get_by_id(db, route.order_booker_id)
+                order_booker_name = order_booker.name if order_booker else None
+            
+            result.append({
                 "id": route.id,
                 "name": route.name,
                 "zone_id": route.zone_id,
+                "zone_name": zone_name,
                 "order_booker_id": route.order_booker_id,
+                "order_booker_name": order_booker_name,
                 "created_by_distributor": route.created_by_distributor,
                 "created_at": route.created_at.isoformat() if route.created_at else None
-            }
-            for route in routes
-        ]
+            })
+        return result
     
     @staticmethod
     def assign_route_to_order_booker(db: Session, route_id: int, order_booker_id: int) -> Dict:
@@ -138,11 +172,25 @@ class RouteService:
         
         # Refresh route to get updated order_booker_id
         route = RouteRepository.get_by_id(db, route_id)
+        
+        # Get denormalized names
+        zone_name = None
+        if route.zone_id:
+            zone = ZoneRepository.get_by_id(db, route.zone_id)
+            zone_name = zone.name if zone else None
+        
+        order_booker_name = None
+        if route.order_booker_id:
+            order_booker = OrderBookerRepository.get_by_id(db, route.order_booker_id)
+            order_booker_name = order_booker.name if order_booker else None
+        
         return {
             "id": route.id,
             "name": route.name,
             "zone_id": route.zone_id,
+            "zone_name": zone_name,
             "order_booker_id": route.order_booker_id,
+            "order_booker_name": order_booker_name,
             "created_by_distributor": route.created_by_distributor,
             "created_at": route.created_at.isoformat() if route.created_at else None
         }
@@ -151,17 +199,29 @@ class RouteService:
     def get_routes_by_order_booker(db: Session, order_booker_id: int) -> List[Dict]:
         """Get all routes assigned to an order booker."""
         routes = RouteRepository.get_by_order_booker(db, order_booker_id)
-        return [
-            {
+        # Get order booker name once
+        order_booker = OrderBookerRepository.get_by_id(db, order_booker_id)
+        order_booker_name = order_booker.name if order_booker else None
+        
+        result = []
+        for route in routes:
+            # Get zone name
+            zone_name = None
+            if route.zone_id:
+                zone = ZoneRepository.get_by_id(db, route.zone_id)
+                zone_name = zone.name if zone else None
+            
+            result.append({
                 "id": route.id,
                 "name": route.name,
                 "zone_id": route.zone_id,
+                "zone_name": zone_name,
                 "order_booker_id": route.order_booker_id,
+                "order_booker_name": order_booker_name,
                 "created_by_distributor": route.created_by_distributor,
                 "created_at": route.created_at.isoformat() if route.created_at else None
-            }
-            for route in routes
-        ]
+            })
+        return result
     
     @staticmethod
     def update_route(db: Session, route_id: int, name: Optional[str] = None,
@@ -248,11 +308,24 @@ class RouteService:
             # Refresh to get latest data
             route = RouteRepository.get_by_id(db, route_id)
         
+        # Get denormalized names
+        zone_name = None
+        if route.zone_id:
+            zone = ZoneRepository.get_by_id(db, route.zone_id)
+            zone_name = zone.name if zone else None
+        
+        order_booker_name = None
+        if route.order_booker_id:
+            order_booker = OrderBookerRepository.get_by_id(db, route.order_booker_id)
+            order_booker_name = order_booker.name if order_booker else None
+        
         return {
             "id": route.id,
             "name": route.name,
             "zone_id": route.zone_id,
+            "zone_name": zone_name,
             "order_booker_id": route.order_booker_id,
+            "order_booker_name": order_booker_name,
             "created_by_distributor": route.created_by_distributor,
             "created_at": route.created_at.isoformat() if route.created_at else None
         }

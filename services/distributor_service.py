@@ -45,6 +45,14 @@ class DistributorService:
             password_hash=password_hash
         )
         
+        # Create wallet for distributor
+        try:
+            from services.wallet_service import WalletService
+            WalletService.get_or_create_wallet(db, "distributor", distributor.id)
+        except Exception as e:
+            # Log error but don't fail user creation
+            print(f"Warning: Failed to create wallet for distributor {distributor.id}: {str(e)}")
+        
         return {
             "id": distributor.id,
             "name": distributor.name,

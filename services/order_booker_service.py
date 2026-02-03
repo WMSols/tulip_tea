@@ -4,6 +4,7 @@ Order Booker business logic service.
 from sqlalchemy.orm import Session
 from repositories.order_booker_repository import OrderBookerRepository
 from repositories.distributor_repository import DistributorRepository
+from repositories.zone_repository import ZoneRepository
 from services.auth_service import get_password_hash, verify_password, create_access_token
 from typing import Optional, Dict, List
 
@@ -44,13 +45,31 @@ class OrderBookerService:
             zone_id=zone_id
         )
         
+        # Get denormalized names
+        zone_name = None
+        if zone_id:
+            zone = ZoneRepository.get_by_id(db, zone_id)
+            zone_name = zone.name if zone else None
+        
+        distributor_name = distributor.name if distributor else None
+        
+        # Create wallet for order booker
+        try:
+            from services.wallet_service import WalletService
+            WalletService.get_or_create_wallet(db, "order_booker", order_booker.id)
+        except Exception as e:
+            # Log error but don't fail user creation
+            print(f"Warning: Failed to create wallet for order booker {order_booker.id}: {str(e)}")
+        
         return {
             "id": order_booker.id,
             "name": order_booker.name,
             "email": order_booker.email,
             "phone": order_booker.phone,
             "zone_id": order_booker.zone_id,
+            "zone_name": zone_name,
             "distributor_id": order_booker.distributor_id,
+            "distributor_name": distributor_name,
             "created_at": order_booker.created_at.isoformat() if order_booker.created_at else None
         }
     
@@ -102,15 +121,27 @@ class OrderBookerService:
         """Get all order bookers for a distributor."""
         try:
             order_bookers = OrderBookerRepository.get_by_distributor(db, distributor_id)
+            # Get distributor name once
+            distributor = DistributorRepository.get_by_id(db, distributor_id)
+            distributor_name = distributor.name if distributor else None
+            
             result = []
             for ob in order_bookers:
+                # Get zone name
+                zone_name = None
+                if ob.zone_id:
+                    zone = ZoneRepository.get_by_id(db, ob.zone_id)
+                    zone_name = zone.name if zone else None
+                
                 result.append({
                     "id": ob.id,
                     "name": ob.name,
                     "email": ob.email if ob.email else None,
                     "phone": ob.phone,
                     "zone_id": ob.zone_id,
+                    "zone_name": zone_name,
                     "distributor_id": ob.distributor_id,
+                    "distributor_name": distributor_name,
                     "created_at": ob.created_at.isoformat() if ob.created_at else None
                 })
             return result
@@ -132,15 +163,27 @@ class OrderBookerService:
         """
         try:
             order_bookers = OrderBookerRepository.get_by_zone(db, zone_id, distributor_id)
+            # Get zone name once
+            zone = ZoneRepository.get_by_id(db, zone_id)
+            zone_name = zone.name if zone else None
+            
             result = []
             for ob in order_bookers:
+                # Get distributor name
+                distributor_name = None
+                if ob.distributor_id:
+                    distributor = DistributorRepository.get_by_id(db, ob.distributor_id)
+                    distributor_name = distributor.name if distributor else None
+                
                 result.append({
                     "id": ob.id,
                     "name": ob.name,
                     "email": ob.email if ob.email else None,
                     "phone": ob.phone,
                     "zone_id": ob.zone_id,
+                    "zone_name": zone_name,
                     "distributor_id": ob.distributor_id,
+                    "distributor_name": distributor_name,
                     "created_at": ob.created_at.isoformat() if ob.created_at else None
                 })
             return result
@@ -173,13 +216,26 @@ class OrderBookerService:
         if not updated:
             raise ValueError("Failed to update order booker")
         
+        # Get denormalized names
+        zone_name = None
+        if updated.zone_id:
+            zone = ZoneRepository.get_by_id(db, updated.zone_id)
+            zone_name = zone.name if zone else None
+        
+        distributor_name = None
+        if updated.distributor_id:
+            distributor = DistributorRepository.get_by_id(db, updated.distributor_id)
+            distributor_name = distributor.name if distributor else None
+        
         return {
             "id": updated.id,
             "name": updated.name,
             "email": updated.email,
             "phone": updated.phone,
             "zone_id": updated.zone_id,
+            "zone_name": zone_name,
             "distributor_id": updated.distributor_id,
+            "distributor_name": distributor_name,
             "created_at": updated.created_at.isoformat() if updated.created_at else None
         }
     

@@ -21,7 +21,9 @@ class ShopService:
                       gps_lat: Decimal, gps_lng: Decimal, order_booker_id: int,
                       zone_id: int = None, route_id: int = None, credit_limit: Decimal = None,
                       legacy_balance: Decimal = None, owner_cnic_front_photo: str = None,
-                      owner_cnic_back_photo: str = None) -> Dict:
+                      owner_cnic_back_photo: str = None, owner_photo: str = None,
+                      shop_exterior_photo: str = None, user_gps_lat: Decimal = None,
+                      user_gps_lng: Decimal = None) -> Dict:
         """
         Register a new shop.
         
@@ -59,9 +61,30 @@ class ShopService:
             if not zone:
                 raise ValueError("Zone not found")
         
-        # Validate GPS coordinates
+        # Validate GPS coordinates format and range before saving
         if gps_lat is None or gps_lng is None:
             raise ValueError("GPS coordinates are required")
+        
+        # Validate GPS coordinates format and range (first use case)
+        from services.geolocation_service import GeolocationService
+        is_valid_coords, coord_message = GeolocationService.validate_coordinates(
+            float(gps_lat), float(gps_lng)
+        )
+        if not is_valid_coords:
+            raise ValueError(coord_message)
+        
+        # Validate location if user GPS coordinates are provided (order booker's current location)
+        # This ensures the order booker is physically at the shop location when registering
+        if user_gps_lat is not None and user_gps_lng is not None:
+            is_valid, distance_km, message = GeolocationService.validate_creation_location(
+                target_lat=gps_lat,
+                target_lng=gps_lng,
+                user_lat=user_gps_lat,
+                user_lng=user_gps_lng,
+                entity_type="shop"
+            )
+            if not is_valid:
+                raise ValueError(message)
         
         # Create shop with pending status
         # Note: assigned_to_order_booker is automatically set to order_booker_id
@@ -122,6 +145,48 @@ class ShopService:
                     print(f"ERROR: Failed to upload CNIC back photo for shop {shop.id}")
             except Exception as e:
                 print(f"ERROR: Exception uploading CNIC back photo for shop {shop.id}: {type(e).__name__}: {str(e)}")
+                import traceback
+                traceback.print_exc()
+        
+        # Upload owner photo to Supabase Storage if provided
+        if owner_photo:
+            print(f"INFO: Attempting to upload owner photo for shop {shop.id}")
+            try:
+                owner_photo_url = ImageService.upload_shop_owner_photo(
+                    shop_id=shop.id,
+                    order_booker_id=order_booker_id,
+                    base64_image=owner_photo
+                )
+                if owner_photo_url:
+                    print(f"SUCCESS: Owner photo uploaded: {owner_photo_url}")
+                    shop.owner_photo = owner_photo_url
+                    db.commit()
+                    db.refresh(shop)
+                else:
+                    print(f"ERROR: Failed to upload owner photo for shop {shop.id}")
+            except Exception as e:
+                print(f"ERROR: Exception uploading owner photo for shop {shop.id}: {type(e).__name__}: {str(e)}")
+                import traceback
+                traceback.print_exc()
+        
+        # Upload shop exterior photo to Supabase Storage if provided
+        if shop_exterior_photo:
+            print(f"INFO: Attempting to upload shop exterior photo for shop {shop.id}")
+            try:
+                shop_exterior_url = ImageService.upload_shop_exterior(
+                    shop_id=shop.id,
+                    order_booker_id=order_booker_id,
+                    base64_image=shop_exterior_photo
+                )
+                if shop_exterior_url:
+                    print(f"SUCCESS: Shop exterior photo uploaded: {shop_exterior_url}")
+                    shop.shop_exterior_photo = shop_exterior_url
+                    db.commit()
+                    db.refresh(shop)
+                else:
+                    print(f"ERROR: Failed to upload shop exterior photo for shop {shop.id}")
+            except Exception as e:
+                print(f"ERROR: Exception uploading shop exterior photo for shop {shop.id}: {type(e).__name__}: {str(e)}")
                 import traceback
                 traceback.print_exc()
         

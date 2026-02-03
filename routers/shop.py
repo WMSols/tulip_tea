@@ -61,6 +61,13 @@ async def register_shop(
         Shop data with credit_limit_request_id if request was created
     """
     try:
+        # Convert user GPS coordinates if provided (for location validation)
+        user_gps_lat = None
+        user_gps_lng = None
+        if shop.user_gps_lat is not None and shop.user_gps_lng is not None:
+            user_gps_lat = Decimal(str(shop.user_gps_lat))
+            user_gps_lng = Decimal(str(shop.user_gps_lng))
+        
         result = ShopService.register_shop(
             db=db,
             name=shop.name,
@@ -74,7 +81,11 @@ async def register_shop(
             credit_limit=Decimal(str(shop.credit_limit)) if shop.credit_limit else None,
             legacy_balance=Decimal(str(shop.legacy_balance)) if shop.legacy_balance else None,
             owner_cnic_front_photo=shop.owner_cnic_front_photo,
-            owner_cnic_back_photo=shop.owner_cnic_back_photo
+            owner_cnic_back_photo=shop.owner_cnic_back_photo,
+            owner_photo=shop.owner_photo,
+            shop_exterior_photo=shop.shop_exterior_photo,
+            user_gps_lat=user_gps_lat,
+            user_gps_lng=user_gps_lng
         )
         
         # Log shop creation

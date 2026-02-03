@@ -258,6 +258,7 @@
             <div class="user-info" id="userInfo">
                 <p><strong>Logged in as:</strong> <span id="userName"></span></p>
                 <p><strong>Phone:</strong> <span id="userPhone"></span></p>
+                <p><strong>💰 Wallet Balance:</strong> <span id="userWalletBalance">Rs. 0.00</span></p>
                 <button class="btn btn-danger" onclick="logout()" style="margin-top: 10px;">Logout</button>
             </div>
         </div>
@@ -288,6 +289,7 @@
                     <button class="tab" onclick="switchTab('orders')" style="padding: 15px 30px; cursor: pointer; background: #f8f9fa; border: none; font-size: 16px; font-weight: 600; color: #666; transition: all 0.3s;">📦 Orders <span id="ordersBadge" style="background: #e74c3c; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 5px;">0</span></button>
                     <button class="tab" onclick="switchTab('deliveries')" style="padding: 15px 30px; cursor: pointer; background: #f8f9fa; border: none; font-size: 16px; font-weight: 600; color: #666; transition: all 0.3s;">🚚 Deliveries</button>
                     <button class="tab" onclick="switchTab('warehouses')" style="padding: 15px 30px; cursor: pointer; background: #f8f9fa; border: none; font-size: 16px; font-weight: 600; color: #666; transition: all 0.3s;">🏭 Warehouses</button>
+                    <button class="tab" onclick="switchTab('wallet')" style="padding: 15px 30px; cursor: pointer; background: #f8f9fa; border: none; font-size: 16px; font-weight: 600; color: #666; transition: all 0.3s;">💵 Wallet</button>
                 </div>
 
                 <!-- Dashboard Tab -->
@@ -352,6 +354,49 @@
                     <h3>🏭 My Assigned Warehouses</h3>
                     <button class="btn btn-primary" onclick="loadMyWarehouses()" style="margin-bottom: 20px;">Refresh Warehouses</button>
                     <div id="warehousesList" style="margin-top: 20px;"></div>
+                </div>
+
+                <!-- Wallet Tab -->
+                <div id="walletTab" class="tab-content" style="display: none;">
+                    <h2>💵 Wallet Management</h2>
+                    
+                    <!-- Wallet Balance Card -->
+                    <div class="info-card" style="margin-bottom: 30px;">
+                        <h3>💰 Current Balance</h3>
+                        <div class="info-row">
+                            <span class="info-label">Balance:</span>
+                            <span class="info-value" id="walletBalanceDisplay" style="font-size: 1.5em; font-weight: bold; color: #28a745;">Rs. 0.00</span>
+                        </div>
+                        <button class="btn btn-success" onclick="loadWalletBalance()" style="margin-top: 10px;">Refresh Balance</button>
+                    </div>
+
+                    <!-- Transfer to Distributor -->
+                    <div class="info-card" style="margin-bottom: 30px;">
+                        <h3>💸 Transfer to Distributor</h3>
+                        <p style="color: #666; margin-bottom: 15px; font-size: 14px;">Transfer money to your assigned distributor. The distributor ID is automatically filled from your account.</p>
+                        <form id="transferForm" onsubmit="transferToDistributor(event)">
+                            <div class="form-group">
+                                <label>Distributor ID *</label>
+                                <input type="number" id="transferDistributorId" required readonly style="background: #f0f0f0; cursor: not-allowed;" placeholder="Your distributor ID will appear here">
+                                <small style="color: #666;">This is automatically set from your account</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Amount (Rs.) *</label>
+                                <input type="number" id="transferAmount" required step="0.01" min="0.01" placeholder="Enter amount to transfer">
+                            </div>
+                            <div class="form-group">
+                                <label>Description (Optional)</label>
+                                <textarea id="transferDescription" rows="3" placeholder="Optional description"></textarea>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Transfer Money</button>
+                        </form>
+                        <div id="transferResult" class="result" style="margin-top: 15px;"></div>
+                    </div>
+
+                    <!-- Transaction History -->
+                    <h3 style="margin-top: 30px;">📊 Transaction History</h3>
+                    <button class="btn btn-success" onclick="loadWalletTransactions()" style="margin-bottom: 20px;">Refresh Transactions</button>
+                    <div id="walletTransactionsList" style="margin-top: 20px;"></div>
                 </div>
             </div>
         </div>
@@ -621,7 +666,8 @@
                 'dashboard': 'dashboardTab',
                 'orders': 'ordersTab',
                 'deliveries': 'deliveriesTab',
-                'warehouses': 'warehousesTab'
+                'warehouses': 'warehousesTab',
+                'wallet': 'walletTab'
             };
             
             const tabElement = document.getElementById(tabContents[tabName]);
@@ -643,6 +689,9 @@
                 loadMyDeliveries();
             } else if (tabName === 'warehouses') {
                 loadMyWarehouses();
+            } else if (tabName === 'wallet') {
+                loadWalletBalance();
+                loadWalletTransactions();
             }
         }
 
@@ -685,6 +734,17 @@
                 // Update header info
                 document.getElementById('userName').textContent = data.user.name;
                 document.getElementById('userPhone').textContent = data.user.phone;
+                
+                // Auto-fill distributor ID in transfer form
+                if (data.user.distributor_id) {
+                    const distributorIdInput = document.getElementById('transferDistributorId');
+                    if (distributorIdInput) {
+                        distributorIdInput.value = data.user.distributor_id;
+                    }
+                }
+                
+                // Load wallet balance
+                loadWalletBalance();
 
                 // Update dashboard info
                 document.getElementById('welcomeName').textContent = data.user.name;
@@ -3152,6 +3212,196 @@
             const returnModal = document.getElementById('returnModal');
             if (event.target === returnModal) {
                 closeReturnModal();
+            }
+        }
+
+        // Wallet Functions
+        async function loadWalletBalance() {
+            if (!currentDeliveryManId) return;
+            
+            try {
+                const endpoint = `${API_BASE}/wallets/delivery_man/${currentDeliveryManId}/balance`;
+                const response = await fetch(endpoint);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                const balance = data.current_balance || 0;
+                
+                // Update header display
+                document.getElementById('userWalletBalance').textContent = `Rs. ${balance.toFixed(2)}`;
+                
+                // Update wallet tab display
+                const balanceDisplay = document.getElementById('walletBalanceDisplay');
+                if (balanceDisplay) {
+                    balanceDisplay.textContent = `Rs. ${balance.toFixed(2)}`;
+                    balanceDisplay.style.color = balance > 0 ? '#28a745' : '#dc3545';
+                }
+            } catch (error) {
+                console.error('Error loading wallet balance:', error);
+            }
+        }
+
+        async function loadWalletTransactions() {
+            if (!currentDeliveryManId) return;
+            
+            try {
+                const endpoint = `${API_BASE}/wallets/delivery_man/${currentDeliveryManId}/transactions?limit=50`;
+                const response = await fetch(endpoint);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const transactions = await response.json();
+                const transactionsList = document.getElementById('walletTransactionsList');
+                
+                if (!transactionsList) return;
+                
+                if (transactions.length === 0) {
+                    transactionsList.innerHTML = '<p style="color: #666;">No transactions found.</p>';
+                    return;
+                }
+                
+                transactionsList.innerHTML = transactions.map(t => {
+                    const typeColor = t.transaction_type === 'credit' || t.transaction_type === 'transfer_in' ? '#28a745' : '#dc3545';
+                    const typeIcon = t.transaction_type === 'credit' || t.transaction_type === 'transfer_in' ? '➕' : '➖';
+                    const date = t.created_at ? new Date(t.created_at).toLocaleString() : 'N/A';
+                    
+                    // Build details HTML
+                    let detailsHtml = '';
+                    
+                    // Collection details
+                    if (t.reference_type === 'daily_collection' && t.collection_id) {
+                        detailsHtml += `<div style="margin-top: 8px; padding: 8px; background: #e8f4f8; border-radius: 5px; border-left: 3px solid #3498db;">`;
+                        detailsHtml += `<strong style="color: #3498db;">💰 Collection Details:</strong><br>`;
+                        if (t.collection_amount) {
+                            detailsHtml += `Collection Amount: <strong>Rs. ${t.collection_amount.toFixed(2)}</strong><br>`;
+                        }
+                        if (t.collected_by_name) {
+                            detailsHtml += `Collected By: <strong>${t.collected_by_name}</strong> (${t.collected_by_type || 'N/A'})<br>`;
+                        }
+                        if (t.shop_name) {
+                            detailsHtml += `From Shop: <strong>${t.shop_name}</strong>${t.shop_id ? ` (ID: ${t.shop_id})` : ''}<br>`;
+                        }
+                        if (t.collection_status) {
+                            const statusColor = t.collection_status === 'verified' ? '#27ae60' : t.collection_status === 'pending' ? '#f39c12' : '#e74c3c';
+                            detailsHtml += `Status: <span style="color: ${statusColor}; font-weight: bold;">${t.collection_status.toUpperCase()}</span><br>`;
+                        }
+                        if (t.collection_date) {
+                            detailsHtml += `Collection Date: ${new Date(t.collection_date).toLocaleString()}<br>`;
+                        }
+                        detailsHtml += `</div>`;
+                    }
+                    
+                    // Transfer details
+                    if (t.transaction_type === 'transfer_in' || t.transaction_type === 'transfer_out') {
+                        if (t.related_user_name) {
+                            detailsHtml += `<div style="margin-top: 8px; padding: 8px; background: #fff3cd; border-radius: 5px; border-left: 3px solid #ffc107;">`;
+                            detailsHtml += `<strong style="color: #856404;">💸 Transfer ${t.transaction_type === 'transfer_in' ? 'From' : 'To'}:</strong><br>`;
+                            detailsHtml += `${t.related_user_name} (${t.related_user_type || 'N/A'})<br>`;
+                            detailsHtml += `</div>`;
+                        }
+                    }
+                    
+                    // Initiated by details
+                    if (t.initiated_by_name) {
+                        detailsHtml += `<div style="margin-top: 5px; font-size: 11px; color: #666;">`;
+                        detailsHtml += `Initiated by: ${t.initiated_by_name} (${t.initiated_by_type || 'N/A'})`;
+                        detailsHtml += `</div>`;
+                    }
+                    
+                    return `
+                        <div class="list-item">
+                            <div class="list-item-info">
+                                <strong style="color: ${typeColor};">
+                                    ${typeIcon} ${t.transaction_type.toUpperCase().replace('_', ' ')}
+                                </strong><br>
+                                <small>Amount: <strong>Rs. ${t.amount.toFixed(2)}</strong></small><br>
+                                <small>Balance: Rs. ${t.balance_before.toFixed(2)} → Rs. ${t.balance_after.toFixed(2)}</small><br>
+                                <small>${t.description || 'No description'}</small><br>
+                                ${detailsHtml}
+                                <small style="color: #666; margin-top: 8px; display: block;">${date}</small>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            } catch (error) {
+                console.error('Error loading wallet transactions:', error);
+                const transactionsList = document.getElementById('walletTransactionsList');
+                if (transactionsList) {
+                    transactionsList.innerHTML = `<p style="color: #dc3545;">Error loading transactions: ${error.message}</p>`;
+                }
+            }
+        }
+
+        async function transferToDistributor(event) {
+            event.preventDefault();
+            if (!currentDeliveryManId || !currentUser) return;
+            
+            // Get distributor ID from current user (auto-filled)
+            const distributorId = currentUser.distributor_id;
+            if (!distributorId) {
+                const resultDiv = document.getElementById('transferResult');
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Error: No distributor assigned to your account. Please contact support.';
+                return;
+            }
+            
+            const amount = parseFloat(document.getElementById('transferAmount').value);
+            const description = document.getElementById('transferDescription').value;
+            const resultDiv = document.getElementById('transferResult');
+            
+            if (!amount || amount <= 0) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Please enter a valid amount.';
+                return;
+            }
+            
+            try {
+                const endpoint = `${API_BASE}/wallets/transfer`;
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        from_user_type: 'delivery_man',
+                        from_user_id: currentDeliveryManId,
+                        to_user_type: 'distributor',
+                        to_user_id: parseInt(distributorId),
+                        amount: amount,
+                        description: description || `Transfer from delivery man ${currentDeliveryManId} to distributor ${distributorId}`,
+                        initiated_by_type: 'delivery_man',
+                        initiated_by_id: currentDeliveryManId
+                    })
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                resultDiv.className = 'result success';
+                resultDiv.textContent = `Transfer successful! Rs. ${amount.toFixed(2)} transferred to distributor ${distributorId}.`;
+                
+                // Clear form (but preserve distributor ID)
+                const distributorIdInput = document.getElementById('transferDistributorId');
+                const savedDistributorId = distributorIdInput ? distributorIdInput.value : null;
+                document.getElementById('transferForm').reset();
+                if (distributorIdInput && savedDistributorId) {
+                    distributorIdInput.value = savedDistributorId;
+                }
+                
+                // Reload balance and transactions
+                loadWalletBalance();
+                loadWalletTransactions();
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
             }
         }
     </script>

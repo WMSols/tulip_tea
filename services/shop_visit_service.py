@@ -199,6 +199,20 @@ class ShopVisitService:
             # Only approved shops can have visits registered
             if shop.registration_status != "approved":
                 raise ValueError(f"Visits can only be registered for approved shops. This shop status is: {shop.registration_status}")
+            
+            # Validate GPS location if both shop and visit GPS coordinates are provided
+            # This ensures order booker/delivery man is within 100m of shop location
+            if shop.gps_lat and shop.gps_lng and gps_lat and gps_lng:
+                from services.geolocation_service import GeolocationService
+                is_valid, distance_km, message = GeolocationService.validate_visit_location(
+                    target_lat=shop.gps_lat,
+                    target_lng=shop.gps_lng,
+                    visit_lat=Decimal(str(gps_lat)),
+                    visit_lng=Decimal(str(gps_lng)),
+                    entity_type="shop"
+                )
+                if not is_valid:
+                    raise ValueError(message)
         
         # Validate order booker exists if order_booker_id provided
         if order_booker_id:

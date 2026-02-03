@@ -3,6 +3,8 @@ Zone business logic service.
 """
 from sqlalchemy.orm import Session
 from repositories.zone_repository import ZoneRepository
+from repositories.route_repository import RouteRepository
+from repositories.shop_repository import ShopRepository
 from typing import Dict, List
 
 
@@ -19,9 +21,15 @@ class ZoneService:
         
         zone = ZoneRepository.create(db=db, name=name)
         
+        # Get counts (will be 0 for new zone)
+        routes = RouteRepository.get_by_zone(db, zone.id, include_deleted=False)
+        shops = ShopRepository.get_by_zone(db, zone.id, include_deleted=False)
+        
         return {
             "id": zone.id,
             "name": zone.name,
+            "route_count": len(route_count) if route_count else 0,
+            "shop_count": len(shop_count) if shop_count else 0,
             "created_at": zone.created_at.isoformat() if zone.created_at else None
         }
     
@@ -29,14 +37,20 @@ class ZoneService:
     def get_all_zones(db: Session) -> List[Dict]:
         """Get all zones."""
         zones = ZoneRepository.get_all(db)
-        return [
-            {
+        result = []
+        for zone in zones:
+            # Get counts for each zone
+            routes = RouteRepository.get_by_zone(db, zone.id, include_deleted=False)
+            shops = ShopRepository.get_by_zone(db, zone.id, include_deleted=False)
+            
+            result.append({
                 "id": zone.id,
                 "name": zone.name,
+                "route_count": len(routes) if routes else 0,
+                "shop_count": len(shops) if shops else 0,
                 "created_at": zone.created_at.isoformat() if zone.created_at else None
-            }
-            for zone in zones
-        ]
+            })
+        return result
     
     @staticmethod
     def get_zone_by_id(db: Session, zone_id: int) -> Dict:
@@ -45,9 +59,15 @@ class ZoneService:
         if not zone:
             raise ValueError("Zone not found")
         
+        # Get counts
+        routes = RouteRepository.get_by_zone(db, zone.id, include_deleted=False)
+        shops = ShopRepository.get_by_zone(db, zone.id, include_deleted=False)
+        
         return {
             "id": zone.id,
             "name": zone.name,
+            "route_count": len(routes) if routes else 0,
+            "shop_count": len(shops) if shops else 0,
             "created_at": zone.created_at.isoformat() if zone.created_at else None
         }
     
@@ -68,9 +88,15 @@ class ZoneService:
         if not updated_zone:
             raise ValueError("Failed to update zone")
         
+        # Get counts
+        routes = RouteRepository.get_by_zone(db, updated_zone.id, include_deleted=False)
+        shops = ShopRepository.get_by_zone(db, updated_zone.id, include_deleted=False)
+        
         return {
             "id": updated_zone.id,
             "name": updated_zone.name,
+            "route_count": len(routes) if routes else 0,
+            "shop_count": len(shops) if shops else 0,
             "created_at": updated_zone.created_at.isoformat() if updated_zone.created_at else None
         }
     

@@ -115,6 +115,83 @@ class DailyCollectionService:
         shop = updated_shop
         order_booker = OrderBookerRepository.get_by_id(db, order_booker_id)
         
+        # **CREDIT WALLET IMMEDIATELY** when collection is created
+        # The collector (order booker or delivery man) has collected the money, so they should see it in their wallet right away
+        from services.wallet_service import WalletService
+        from repositories.route_repository import RouteRepository
+        from repositories.zone_repository import ZoneRepository
+        
+        # Get shop's route and zone information for complete trail
+        route_id = shop.route_id if shop else None
+        route_name = None
+        zone_id = shop.zone_id if shop else None
+        zone_name = None
+        
+        if route_id:
+            route = RouteRepository.get_by_id(db, route_id)
+            route_name = route.name if route else None
+        
+        if zone_id:
+            zone = ZoneRepository.get_by_id(db, zone_id)
+            zone_name = zone.name if zone else None
+        
+        try:
+            # Determine who collected and credit their wallet
+            if collection.collected_by_order_booker:
+                WalletService.credit_wallet(
+                    db=db,
+                    user_type="order_booker",
+                    user_id=collection.collected_by_order_booker,
+                    amount=payment_amount,
+                    description=f"Collection from shop {shop.name if shop else shop_id}",
+                    reference_type="daily_collection",
+                    reference_id=collection.id,
+                    initiated_by_type="order_booker",
+                    initiated_by_id=collection.collected_by_order_booker,
+                    transaction_metadata={
+                        "shop_id": shop_id,
+                        "shop_name": shop.name if shop else None,
+                        "shop_owner": shop.owner_name if shop else None,
+                        "route_id": route_id,
+                        "route_name": route_name,
+                        "zone_id": zone_id,
+                        "zone_name": zone_name,
+                        "collection_id": collection.id,
+                        "collection_date": collection.collection_date.isoformat() if collection.collection_date else None,
+                        "status": "pending"  # Collection is pending distributor approval
+                    }
+                )
+            elif collection.collected_by_delivery_man:
+                WalletService.credit_wallet(
+                    db=db,
+                    user_type="delivery_man",
+                    user_id=collection.collected_by_delivery_man,
+                    amount=payment_amount,
+                    description=f"Collection from shop {shop.name if shop else shop_id}",
+                    reference_type="daily_collection",
+                    reference_id=collection.id,
+                    initiated_by_type="delivery_man",
+                    initiated_by_id=collection.collected_by_delivery_man,
+                    transaction_metadata={
+                        "shop_id": shop_id,
+                        "shop_name": shop.name if shop else None,
+                        "shop_owner": shop.owner_name if shop else None,
+                        "route_id": route_id,
+                        "route_name": route_name,
+                        "zone_id": zone_id,
+                        "zone_name": zone_name,
+                        "collection_id": collection.id,
+                        "collection_date": collection.collection_date.isoformat() if collection.collection_date else None,
+                        "status": "pending"  # Collection is pending distributor approval
+                    }
+                )
+        except Exception as e:
+            # Log error but don't fail collection creation
+            # Wallet credit failure shouldn't prevent collection from being created
+            print(f"Warning: Failed to credit wallet for collection {collection.id}: {str(e)}")
+            import traceback
+            traceback.print_exc()
+        
         return {
             "id": collection.id,
             "shop_id": collection.shop_id,
@@ -133,51 +210,167 @@ class DailyCollectionService:
             # Include updated credit information in response
             "shop_outstanding_balance": float(shop.outstanding_balance) if shop.outstanding_balance else 0.0,
             "shop_credit_limit": float(shop.credit_limit) if shop.credit_limit else 0.0,
-            "shop_available_credit": float(shop.credit_limit - shop.outstanding_balance) if shop.credit_limit and shop.outstanding_balance is not None else (float(shop.credit_limit) if shop.credit_limit else 0.0)
+            "shop_available_credit": max(0.0, float(shop.credit_limit - shop.outstanding_balance)) if shop.credit_limit and shop.outstanding_balance is not None else (float(shop.credit_limit) if shop.credit_limit else 0.0)
         }
     
     @staticmethod
     def get_pending_collections(db: Session, distributor_id: int = None) -> List[Dict]:
         """
-        Get all pending daily collections.
+        Get all pending daily collections with complete trail information.
         
         FLOW:
         1. Gets all pending collections from repository
-        2. Includes shop and order booker information
-        3. Returns formatted list
+        2. Includes shop, route, zone, and collector information
+        3. Returns formatted list with complete trail
         
         Args:
             db: Database session
             distributor_id: Optional distributor ID (currently not used for filtering)
         
         Returns:
-            List[Dict]: List of pending collections with shop and order booker info
+            List[Dict]: List of pending collections with complete trail info
         
         Note: Distributors are not assigned to zones, so distributor_id is not used for filtering.
         All pending collections are returned regardless of distributor.
         """
+        from repositories.route_repository import RouteRepository
+        from repositories.zone_repository import ZoneRepository
+        from repositories.delivery_man_repository import DeliveryManRepository
+        
         collections = DailyCollectionRepository.get_pending(db, distributor_id)
         
         result = []
         for collection in collections:
             shop = ShopRepository.get_by_id(db, collection.shop_id)
-            order_booker = OrderBookerRepository.get_by_id(db, collection.collected_by_order_booker)
+            
+            # Get route and zone information
+            route_id = shop.route_id if shop else None
+            route_name = None
+            zone_id = shop.zone_id if shop else None
+            zone_name = None
+            
+            if route_id:
+                route = RouteRepository.get_by_id(db, route_id)
+                route_name = route.name if route else None
+            
+            if zone_id:
+                zone = ZoneRepository.get_by_id(db, zone_id)
+                zone_name = zone.name if zone else None
+            
+            # Get collector information
+            order_booker_name = None
+            delivery_man_name = None
+            
+            if collection.collected_by_order_booker:
+                order_booker = OrderBookerRepository.get_by_id(db, collection.collected_by_order_booker)
+                order_booker_name = order_booker.name if order_booker else None
+            
+            if collection.collected_by_delivery_man:
+                delivery_man = DeliveryManRepository.get_by_id(db, collection.collected_by_delivery_man)
+                delivery_man_name = delivery_man.name if delivery_man else None
             
             result.append({
                 "id": collection.id,
                 "shop_id": collection.shop_id,
                 "shop_name": shop.name if shop else "Unknown",
                 "shop_owner": shop.owner_name if shop else None,
+                "route_id": route_id,
+                "route_name": route_name,
+                "zone_id": zone_id,
+                "zone_name": zone_name,
                 "order_id": collection.order_id,
                 "collected_by_order_booker": collection.collected_by_order_booker,
-                "order_booker_name": order_booker.name if order_booker else None,
+                "order_booker_name": order_booker_name,
                 "collected_by_delivery_man": collection.collected_by_delivery_man,
+                "delivery_man_name": delivery_man_name,
                 "verified_by_distributor": collection.verified_by_distributor,
                 "amount": float(collection.amount) if collection.amount else 0.0,
                 "status": collection.status.value if hasattr(collection.status, 'value') else str(collection.status),
                 "visit_id": collection.visit_id,
                 "collection_date": collection.collection_date.isoformat() if collection.collection_date else None,
                 "photo_proof": collection.photo_proof
+            })
+        
+        return result
+    
+    @staticmethod
+    def get_all_collections(db: Session, distributor_id: int = None, status: str = None, skip: int = 0, limit: int = 1000) -> List[Dict]:
+        """
+        Get all daily collections with complete trail information for distributor.
+        
+        FLOW:
+        1. Gets all collections (or filtered by status) from repository
+        2. Includes shop, route, zone, and collector information
+        3. Returns formatted list with complete trail
+        
+        Args:
+            db: Database session
+            distributor_id: Optional distributor ID (currently not used for filtering)
+            status: Optional status filter ("pending", "verified", "rejected")
+            skip: Number of records to skip (for pagination)
+            limit: Maximum number of records to return
+        
+        Returns:
+            List[Dict]: List of collections with complete trail info
+        """
+        from repositories.route_repository import RouteRepository
+        from repositories.zone_repository import ZoneRepository
+        from repositories.delivery_man_repository import DeliveryManRepository
+        from repositories.daily_collection_repository import DailyCollectionRepository
+        
+        collections = DailyCollectionRepository.get_all(db, skip=skip, limit=limit, status=status)
+        
+        result = []
+        for collection in collections:
+            shop = ShopRepository.get_by_id(db, collection.shop_id)
+            
+            # Get route and zone information
+            route_id = shop.route_id if shop else None
+            route_name = None
+            zone_id = shop.zone_id if shop else None
+            zone_name = None
+            
+            if route_id:
+                route = RouteRepository.get_by_id(db, route_id)
+                route_name = route.name if route else None
+            
+            if zone_id:
+                zone = ZoneRepository.get_by_id(db, zone_id)
+                zone_name = zone.name if zone else None
+            
+            # Get collector information
+            order_booker_name = None
+            delivery_man_name = None
+            
+            if collection.collected_by_order_booker:
+                order_booker = OrderBookerRepository.get_by_id(db, collection.collected_by_order_booker)
+                order_booker_name = order_booker.name if order_booker else None
+            
+            if collection.collected_by_delivery_man:
+                delivery_man = DeliveryManRepository.get_by_id(db, collection.collected_by_delivery_man)
+                delivery_man_name = delivery_man.name if delivery_man else None
+            
+            result.append({
+                "id": collection.id,
+                "shop_id": collection.shop_id,
+                "shop_name": shop.name if shop else "Unknown",
+                "shop_owner": shop.owner_name if shop else None,
+                "route_id": route_id,
+                "route_name": route_name,
+                "zone_id": zone_id,
+                "zone_name": zone_name,
+                "order_id": collection.order_id,
+                "collected_by_order_booker": collection.collected_by_order_booker,
+                "order_booker_name": order_booker_name,
+                "collected_by_delivery_man": collection.collected_by_delivery_man,
+                "delivery_man_name": delivery_man_name,
+                "verified_by_distributor": collection.verified_by_distributor,
+                "amount": float(collection.amount) if collection.amount else 0.0,
+                "status": collection.status.value if hasattr(collection.status, 'value') else str(collection.status),
+                "visit_id": collection.visit_id,
+                "collection_date": collection.collection_date.isoformat() if collection.collection_date else None,
+                "photo_proof": collection.photo_proof,
+                "created_at": collection.created_at.isoformat() if collection.created_at else None
             })
         
         return result
@@ -316,6 +509,58 @@ class DailyCollectionService:
         shop = updated_shop
         delivery_man = DeliveryManRepository.get_by_id(db, delivery_man_id)
         
+        # **CREDIT WALLET IMMEDIATELY** when collection is created
+        # The collector (delivery man) has collected the money, so they should see it in their wallet right away
+        from services.wallet_service import WalletService
+        from repositories.route_repository import RouteRepository
+        from repositories.zone_repository import ZoneRepository
+        
+        # Get shop's route and zone information for complete trail
+        route_id = shop.route_id if shop else None
+        route_name = None
+        zone_id = shop.zone_id if shop else None
+        zone_name = None
+        
+        if route_id:
+            route = RouteRepository.get_by_id(db, route_id)
+            route_name = route.name if route else None
+        
+        if zone_id:
+            zone = ZoneRepository.get_by_id(db, zone_id)
+            zone_name = zone.name if zone else None
+        
+        try:
+            # Credit delivery man's wallet
+            WalletService.credit_wallet(
+                db=db,
+                user_type="delivery_man",
+                user_id=delivery_man_id,
+                amount=payment_amount,
+                description=f"Collection from shop {shop.name if shop else shop_id}",
+                reference_type="daily_collection",
+                reference_id=collection.id,
+                initiated_by_type="delivery_man",
+                initiated_by_id=delivery_man_id,
+                transaction_metadata={
+                    "shop_id": shop_id,
+                    "shop_name": shop.name if shop else None,
+                    "shop_owner": shop.owner_name if shop else None,
+                    "route_id": route_id,
+                    "route_name": route_name,
+                    "zone_id": zone_id,
+                    "zone_name": zone_name,
+                    "collection_id": collection.id,
+                    "collection_date": collection.collection_date.isoformat() if collection.collection_date else None,
+                    "status": "pending"  # Collection is pending distributor approval
+                }
+            )
+        except Exception as e:
+            # Log error but don't fail collection creation
+            # Wallet credit failure shouldn't prevent collection from being created
+            print(f"Warning: Failed to credit wallet for collection {collection.id}: {str(e)}")
+            import traceback
+            traceback.print_exc()
+        
         return {
             "id": collection.id,
             "shop_id": collection.shop_id,
@@ -335,7 +580,7 @@ class DailyCollectionService:
             # Include updated credit information in response
             "shop_outstanding_balance": float(shop.outstanding_balance) if shop.outstanding_balance else 0.0,
             "shop_credit_limit": float(shop.credit_limit) if shop.credit_limit else 0.0,
-            "shop_available_credit": float(shop.credit_limit - shop.outstanding_balance) if shop.credit_limit and shop.outstanding_balance is not None else (float(shop.credit_limit) if shop.credit_limit else 0.0)
+            "shop_available_credit": max(0.0, float(shop.credit_limit - shop.outstanding_balance)) if shop.credit_limit and shop.outstanding_balance is not None else (float(shop.credit_limit) if shop.credit_limit else 0.0)
         }
     
     @staticmethod
@@ -421,6 +666,7 @@ class DailyCollectionService:
         
         # Create payment record (for accounting/audit trail)
         # Note: Outstanding balance was already reduced when collection was created
+        # Note: Wallet was already credited when collection was created, so we don't credit again here
         payment = PaymentRepository.create(
             db=db,
             shop_id=approved.shop_id,
@@ -430,11 +676,17 @@ class DailyCollectionService:
             payment_date=approved.collection_date or datetime.utcnow()
         )
         
+        # NOTE: Wallet is NOT credited here because it was already credited when the collection was created.
+        # The wallet credit happens immediately when the order booker/delivery man creates the collection,
+        # so they see the money in their wallet right away. Approval is just verification by the distributor.
+        
         # **DO NOT REDUCE OUTSTANDING BALANCE AGAIN** - it was already reduced when collection was created
         # This allows shop to order immediately after payment, while payment record is created later for audit
         
-        # Get shop name for response
+        # Get shop name for response (refresh to get latest data)
         shop = ShopRepository.get_by_id(db, approved.shop_id)
+        if shop:
+            db.refresh(shop)
         order_booker = OrderBookerRepository.get_by_id(db, approved.collected_by_order_booker)
         
         return {

@@ -87,10 +87,10 @@ async def submit_daily_collection_by_delivery_man(
             },
             metadata={
                 'visit_id': result.get('visit_id'),
-                'order_id': result.get('order_id')
+                'order_id': result.get('order_id'),
+                'remarks': collection.remarks,
+                'summary': f"Collection recorded: {result.get('shop_name')} - Rs. {result.get('amount', 0)}"
             },
-            changes_summary=f"Collection recorded: {result.get('shop_name')} - Rs. {result.get('amount', 0)}",
-            reason=collection.remarks,
             request=request
         )
         
@@ -166,10 +166,10 @@ async def submit_daily_collection(
             },
             metadata={
                 'visit_id': result.get('visit_id'),
-                'order_id': result.get('order_id')
+                'order_id': result.get('order_id'),
+                'remarks': collection.remarks,
+                'summary': f"Collection recorded: {result.get('shop_name')} - Rs. {result.get('amount', 0)}"
             },
-            changes_summary=f"Collection recorded: {result.get('shop_name')} - Rs. {result.get('amount', 0)}",
-            reason=collection.remarks,
             request=request
         )
         
@@ -297,13 +297,13 @@ async def list_pending_collections(
     FLOW:
     1. Distributor views pending collections
     2. Service gets all collections with status="pending"
-    3. Returns list for review
+    3. Returns list for review with complete trail (shop, route, zone, collector)
     
     Note: Distributors are not assigned to zones, so distributor_id is accepted
     but doesn't filter results. All pending collections are returned.
     
     Response (200):
-        List of pending collections awaiting approval
+        List of pending collections awaiting approval with complete trail information
     """
     try:
         collections = DailyCollectionService.get_pending_collections(
@@ -315,6 +315,54 @@ async def list_pending_collections(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error fetching pending collections: {str(e)}"
+        )
+
+
+@router.get("/all", response_model=List[DailyCollectionResponse])
+async def list_all_collections(
+    distributor_id: int = None,
+    status: str = None,
+    skip: int = 0,
+    limit: int = 1000,
+    db: Session = Depends(get_db)
+):
+    """
+    List all daily collections with complete trail information (for Distributor).
+    
+    API: GET /daily-collections/all?distributor_id={id}&status={status}&skip={skip}&limit={limit}
+    
+    FLOW:
+    1. Distributor views all collections (or filtered by status)
+    2. Service gets all collections with complete trail information
+    3. Returns list with shop, route, zone, collector details
+    
+    Query Parameters:
+        distributor_id: Optional (not used for filtering, kept for API consistency)
+        status: Optional status filter ("pending", "verified", "rejected")
+        skip: Number of records to skip (default: 0)
+        limit: Maximum number of records to return (default: 1000)
+    
+    Response (200):
+        List of all collections with complete trail information:
+        - Shop details (name, owner)
+        - Route information (route_id, route_name)
+        - Zone information (zone_id, zone_name)
+        - Collector information (order_booker_name or delivery_man_name)
+        - Collection details (amount, date, status)
+    """
+    try:
+        collections = DailyCollectionService.get_all_collections(
+            db=db,
+            distributor_id=distributor_id,
+            status=status,
+            skip=skip,
+            limit=limit
+        )
+        return collections
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching collections: {str(e)}"
         )
 
 

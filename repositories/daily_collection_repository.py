@@ -96,6 +96,25 @@ class DailyCollectionRepository:
         ).order_by(DailyCollection.id.desc()).all()
     
     @staticmethod
+    def get_all(db: Session, skip: int = 0, limit: int = 1000, status: str = None) -> List[DailyCollection]:
+        """
+        Get all daily collections with optional status filter.
+        
+        Args:
+            db: Database session
+            skip: Number of records to skip (for pagination)
+            limit: Maximum number of records to return
+            status: Optional status filter ("pending", "verified", "rejected")
+        
+        Returns:
+            List of collections
+        """
+        query = db.query(DailyCollection)
+        if status:
+            query = query.filter(DailyCollection.status == status)
+        return query.order_by(DailyCollection.id.desc()).offset(skip).limit(limit).all()
+    
+    @staticmethod
     def get_by_delivery_man(db: Session, delivery_man_id: int) -> List[DailyCollection]:
         """Get all collections by a delivery man."""
         return db.query(DailyCollection).filter(

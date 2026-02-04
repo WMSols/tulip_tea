@@ -382,6 +382,7 @@
                     <button class="tab" onclick="switchTab('creditLimit')">💰 Credit Limits</button>
                     <button class="tab" onclick="switchTab('registerVisit')">📍 Register Visit</button>
                     <button class="tab" onclick="switchTab('visitHistory')">📊 Visit History</button>
+                    <button class="tab" onclick="switchTab('schedule')">📅 My Schedule</button>
                     <button class="tab" onclick="switchTab('wallet')">💵 Wallet</button>
                 </div>
 
@@ -573,7 +574,10 @@
                             <select id="visitShopId" onchange="loadShopCreditInfo()">
                                 <option value="">Select Shop (Optional)</option>
                             </select>
-                            <small style="color: #666; display: block; margin-top: 5px;">Only approved shops are shown. Visits can only be registered for approved shops.</small>
+                            <small style="color: #666; display: block; margin-top: 5px;">
+                                Only shops from routes scheduled for today are shown. 
+                                <span id="scheduleInfo" style="color: #667eea; font-weight: 600;"></span>
+                            </small>
                             <!-- Shop Credit Information Display -->
                             <div id="shopCreditInfoDisplay" style="margin-top: 10px; padding: 15px; background: #e8f4f8; border-radius: 5px; border-left: 4px solid #3498db; display: none;">
                                 <h4 style="color: #3498db; margin: 0 0 10px 0; font-size: 16px;">💰 Shop Credit Information</h4>
@@ -761,6 +765,14 @@
                         <button class="btn btn-success" onclick="loadMyVisits()" style="margin-bottom: 15px;">Refresh List</button>
                         <div id="visitsList"></div>
                     </div>
+                </div>
+
+                <!-- Schedule Tab -->
+                <div id="scheduleTab" class="tab-content">
+                    <h2>📅 My Weekly Schedule</h2>
+                    <p style="color: #666; margin-bottom: 20px;">View your weekly route schedule. This shows which routes you need to visit on which days.</p>
+                    <button class="btn btn-success" onclick="loadMySchedule()">🔄 Refresh Schedule</button>
+                    <div id="scheduleList" style="margin-top: 20px;"></div>
                 </div>
 
                 <!-- Wallet Tab -->
@@ -957,12 +969,21 @@
             });
 
             // Show selected tab
-            const tabs = ['dashboard', 'registerShop', 'myShops', 'creditLimit', 'registerVisit', 'visitHistory', 'wallet'];
+            const tabs = ['dashboard', 'registerShop', 'myShops', 'creditLimit', 'registerVisit', 'visitHistory', 'schedule', 'wallet'];
             const tabIndex = tabs.indexOf(tabName);
             if (tabIndex !== -1) {
-                const tabContents = ['dashboardTab', 'registerShopTab', 'myShopsTab', 'creditLimitTab', 'registerVisitTab', 'visitHistoryTab', 'walletTab'];
-                document.getElementById(tabContents[tabIndex]).classList.add('active');
-                document.querySelectorAll('.tab')[tabIndex].classList.add('active');
+                const tabContents = ['dashboardTab', 'registerShopTab', 'myShopsTab', 'creditLimitTab', 'registerVisitTab', 'visitHistoryTab', 'scheduleTab', 'walletTab'];
+                const tabContentElement = document.getElementById(tabContents[tabIndex]);
+                if (tabContentElement) {
+                    tabContentElement.classList.add('active');
+                } else {
+                    console.error(`Tab content element not found: ${tabContents[tabIndex]}`);
+                    return;
+                }
+                const tabButtons = document.querySelectorAll('.tab');
+                if (tabButtons[tabIndex]) {
+                    tabButtons[tabIndex].classList.add('active');
+                }
                 
                 // Load data when switching to specific tabs
                 if (tabName === 'myShops') {
@@ -974,6 +995,8 @@
                     loadShopsForVisitRegistration();
                 } else if (tabName === 'visitHistory') {
                     loadMyVisits();
+                } else if (tabName === 'schedule') {
+                    loadMySchedule();
                 } else if (tabName === 'wallet') {
                     loadWalletBalance();
                     loadWalletTransactions();
@@ -2441,23 +2464,139 @@
             const visitShopSelect = document.getElementById('visitShopId');
             if (!visitShopSelect) return;
             
+            visitShopSelect.innerHTML = '<option value="">Loading shops...</option>';
+            
             try {
-                // Fetch only approved shops for visit registration
+                // Step 1: Get today's day of week (0=Monday, 6=Sunday)
+                const today = new Date();
+                const todayDayOfWeek = today.getDay(); // 0=Sunday, 1=Monday, ..., 6=Saturday
+                // Convert to our format (0=Monday, 6=Sunday)
+                const dayOfWeek = todayDayOfWeek === 0 ? 6 : todayDayOfWeek - 1;
+                
+                // Step 2: Get order booker's schedule
+                const scheduleResponse = await fetch(`${API_BASE}/weekly-route-schedules/order-booker/${currentUser.id}`, {
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+                
+                let scheduledRouteIds = [];
+                if (scheduleResponse.ok) {
+                    const schedules = await scheduleResponse.json();
+                    // Filter schedules for today's day of week and active schedules
+                    const todaySchedules = schedules.filter(s => 
+                        s.day_of_week === dayOfWeek && s.is_active === true
+                    );
+                    scheduledRouteIds = todaySchedules.map(s => s.route_id);
+                } else {
+                    console.warn('Could not load schedule, showing all shops');
+                }
+                
+                // Step 3: Fetch approved shops
                 const shopsResponse = await fetch(`${API_BASE}/shops/order-booker/${currentUser.id}?approved_only=true`, {
                     headers: { 'Authorization': `Bearer ${currentToken}` }
                 });
-                if (shopsResponse.ok) {
-                    const shops = await shopsResponse.json();
-                    if (shops.length === 0) {
-                        visitShopSelect.innerHTML = '<option value="">No approved shops available</option>';
-                    } else {
-                        visitShopSelect.innerHTML = '<option value="">Select Shop (Optional)</option>' +
-                            shops.map(shop => `<option value="${shop.id}">${shop.name}${shop.owner_name ? ' - ' + shop.owner_name : ''}</option>`).join('');
-                    }
-                } else {
+                
+                if (!shopsResponse.ok) {
                     const errorData = await shopsResponse.json();
                     console.error('Error loading shops for visit registration:', errorData);
                     visitShopSelect.innerHTML = '<option value="">Error loading shops</option>';
+                    return;
+                }
+                
+                const allShops = await shopsResponse.json();
+                
+                // Get schedule info element for display
+                const scheduleInfoEl = document.getElementById('scheduleInfo');
+                const dayName = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][dayOfWeek];
+                
+                // Step 4: Filter shops by scheduled routes for today
+                // IMPORTANT: Only show shops that belong to routes scheduled for today
+                let filteredShops = [];
+                
+                if (scheduledRouteIds.length === 0) {
+                    // If no schedule for today, show message and don't show any shops
+                    visitShopSelect.innerHTML = `<option value="">⚠️ No routes scheduled for today (${dayName}). Contact your distributor.</option>`;
+                    if (scheduleInfoEl) {
+                        scheduleInfoEl.textContent = `No routes scheduled for today (${dayName}). Contact your distributor.`;
+                    }
+                    return;
+                }
+                
+                // Convert scheduledRouteIds to numbers for proper comparison
+                const scheduledRouteIdsNumeric = scheduledRouteIds.map(id => parseInt(id)).filter(id => !isNaN(id));
+                
+                // Debug logging (can be removed in production)
+                console.log('Scheduled Route IDs for today:', scheduledRouteIdsNumeric);
+                console.log('Total shops fetched:', allShops.length);
+                
+                // Strict filtering: Only show shops that have a route_id matching today's scheduled routes
+                filteredShops = allShops.filter(shop => {
+                    let matches = false;
+                    
+                    // First check: shop.route_id directly (most common case)
+                    if (shop.route_id !== null && shop.route_id !== undefined) {
+                        const shopRouteId = parseInt(shop.route_id);
+                        if (!isNaN(shopRouteId) && scheduledRouteIdsNumeric.includes(shopRouteId)) {
+                            matches = true;
+                        }
+                    }
+                    
+                    // Second check: shop.routes array (for shops that might be on multiple routes)
+                    if (!matches && shop.routes && Array.isArray(shop.routes) && shop.routes.length > 0) {
+                        matches = shop.routes.some(route => {
+                            if (route.route_id !== null && route.route_id !== undefined) {
+                                const routeId = parseInt(route.route_id);
+                                return !isNaN(routeId) && scheduledRouteIdsNumeric.includes(routeId);
+                            }
+                            return false;
+                        });
+                    }
+                    
+                    return matches;
+                });
+                
+                // Debug logging
+                console.log('Filtered shops (from scheduled routes):', filteredShops.length);
+                
+                // Step 5: Display filtered shops
+                if (filteredShops.length === 0) {
+                    if (scheduledRouteIds.length > 0) {
+                        visitShopSelect.innerHTML = `<option value="">No shops available in today's scheduled routes (${dayName})</option>`;
+                        if (scheduleInfoEl) {
+                            scheduleInfoEl.textContent = `Today (${dayName}): ${scheduledRouteIds.length} route(s) scheduled, but no shops found.`;
+                        }
+                    } else {
+                        visitShopSelect.innerHTML = `<option value="">No routes scheduled for today (${dayName})</option>`;
+                        if (scheduleInfoEl) {
+                            scheduleInfoEl.textContent = `No routes scheduled for today (${dayName}). Contact your distributor.`;
+                        }
+                    }
+                } else {
+                    // Get route name for display
+                    const getRouteDisplay = (shop) => {
+                        if (shop.route_id) {
+                            // Try to get route name from routes array
+                            if (shop.routes && Array.isArray(shop.routes) && shop.routes.length > 0) {
+                                const route = shop.routes.find(r => r.route_id === shop.route_id);
+                                if (route && route.route_name) {
+                                    return ` (${route.route_name})`;
+                                }
+                            }
+                            return ` (Route #${shop.route_id})`;
+                        }
+                        if (shop.routes && Array.isArray(shop.routes) && shop.routes.length > 0) {
+                            const routeName = shop.routes[0].route_name || `Route #${shop.routes[0].route_id}`;
+                            return ` (${routeName})`;
+                        }
+                        return '';
+                    };
+                    
+                    visitShopSelect.innerHTML = `<option value="">Select Shop - Today: ${dayName}</option>` +
+                        filteredShops.map(shop => 
+                            `<option value="${shop.id}">${shop.name}${shop.owner_name ? ' - ' + shop.owner_name : ''}${getRouteDisplay(shop)}</option>`
+                        ).join('');
+                    if (scheduleInfoEl) {
+                        scheduleInfoEl.textContent = `Today (${dayName}): ${filteredShops.length} shop(s) from ${scheduledRouteIds.length} scheduled route(s) available.`;
+                    }
                 }
             } catch (error) {
                 console.error('Error loading shops for visit registration:', error);
@@ -2953,6 +3092,75 @@
             } catch (error) {
                 resultDiv.className = 'result error';
                 resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // ==================== SCHEDULE VIEW FUNCTIONS ====================
+
+        // Load my schedule
+        async function loadMySchedule() {
+            if (!currentUser || !currentUser.id) return;
+            
+            const listDiv = document.getElementById('scheduleList');
+            listDiv.innerHTML = '<p>Loading schedule...</p>';
+
+            try {
+                const response = await fetch(`${API_BASE}/weekly-route-schedules/order-booker/${currentUser.id}`, {
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to load schedule');
+                }
+
+                const schedules = await response.json();
+
+                if (schedules.length === 0) {
+                    listDiv.innerHTML = '<p style="color: #666;">No schedule assigned yet. Contact your distributor to set up your weekly schedule.</p>';
+                    return;
+                }
+
+                const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+                let html = '<div style="display: grid; gap: 15px;">';
+                
+                // Group by day
+                const byDay = {};
+                schedules.forEach(schedule => {
+                    if (!byDay[schedule.day_of_week]) {
+                        byDay[schedule.day_of_week] = [];
+                    }
+                    byDay[schedule.day_of_week].push(schedule);
+                });
+
+                // Display by day
+                for (let day = 0; day <= 6; day++) {
+                    if (byDay[day]) {
+                        html += `
+                            <div style="background: white; padding: 20px; border-radius: 8px; border-left: 4px solid #667eea;">
+                                <h3 style="margin-bottom: 15px; color: #667eea;">📅 ${days[day]}</h3>
+                                <div style="display: grid; gap: 10px;">
+                        `;
+                        
+                        byDay[day].forEach(schedule => {
+                            html += `
+                                <div style="padding: 12px; background: #f8f9fa; border-radius: 5px;">
+                                    <strong>${schedule.route_name || 'Route #' + schedule.route_id}</strong>
+                                    ${!schedule.is_active ? '<span style="color: #e74c3c; margin-left: 10px;">(Inactive)</span>' : ''}
+                                </div>
+                            `;
+                        });
+                        
+                        html += `
+                                </div>
+                            </div>
+                        `;
+                    }
+                }
+
+                html += '</div>';
+                listDiv.innerHTML = html;
+            } catch (error) {
+                listDiv.innerHTML = `<p style="color: red;">Error loading schedule: ${error.message}</p>`;
             }
         }
     </script>

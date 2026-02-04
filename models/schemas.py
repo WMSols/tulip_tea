@@ -635,3 +635,67 @@ class WalletTransferRequest(BaseModel):
     initiated_by_type: Optional[str] = None  # 'distributor', 'order_booker', 'delivery_man', 'system'
     initiated_by_id: Optional[int] = None
     metadata: Optional[Dict[str, Any]] = None
+
+
+# Weekly Route Schedule Schemas
+class WeeklyRouteScheduleCreate(BaseModel):
+    assignee_type: str  # 'order_booker' or 'delivery_man'
+    assignee_id: int
+    route_id: int
+    day_of_week: int  # 0=Monday, 6=Sunday
+
+
+class WeeklyRouteScheduleUpdate(BaseModel):
+    route_id: Optional[int] = None
+    day_of_week: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class WeeklyRouteScheduleResponse(BaseModel):
+    id: int
+    assignee_type: str
+    assignee_id: int
+    assignee_name: Optional[str] = None
+    route_id: int
+    route_name: Optional[str] = None
+    day_of_week: int
+    is_active: bool
+    created_by_distributor: int
+    created_at: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+# Visit Task Schemas
+class VisitTaskResponse(BaseModel):
+    id: int
+    shop_id: int
+    shop_name: Optional[str] = None
+    shop_owner: Optional[str] = None
+    shop_phone: Optional[str] = None
+    shop_gps_lat: Optional[float] = None
+    shop_gps_lng: Optional[float] = None
+    route_id: int
+    route_name: Optional[str] = None
+    scheduled_date: str
+    day_of_week: int
+    status: str
+    shop_visit_id: Optional[int] = None
+    completed_at: Optional[str] = None
+    notes: Optional[str] = None
+    created_at: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class VisitTaskStatusUpdate(BaseModel):
+    status: str  # 'pending', 'in_progress', 'completed', 'skipped', 'cancelled'
+    shop_visit_id: Optional[int] = None
+    notes: Optional[str] = None
+
+
+class TaskGenerationRequest(BaseModel):
+    weeks_ahead: Optional[int] = 4
+    assignee_type: Optional[str] = None  # 'order_booker' or 'delivery_man'

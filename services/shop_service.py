@@ -316,8 +316,38 @@ class ShopService:
         order_booker = OrderBookerRepository.get_by_id(db, order_booker_id)
         order_booker_name = order_booker.name if order_booker else None
         
-        return [
-            {
+        result = []
+        for shop in shops:
+            # Get route information for this shop
+            routes_info = []
+            route_id = None
+            if shop.route_id:
+                route_id = shop.route_id
+                route = RouteRepository.get_by_id(db, shop.route_id)
+                if route:
+                    route_order_booker = None
+                    route_order_booker_name = None
+                    if route.order_booker_id:
+                        route_order_booker = OrderBookerRepository.get_by_id(db, route.order_booker_id)
+                        route_order_booker_name = route_order_booker.name if route_order_booker else None
+                    
+                    # Get zone name for route
+                    route_zone_name = None
+                    if route.zone_id:
+                        route_zone = ZoneRepository.get_by_id(db, route.zone_id)
+                        route_zone_name = route_zone.name if route_zone else None
+                    
+                    routes_info.append({
+                        "route_id": route.id,
+                        "route_name": route.name,
+                        "route_zone_id": route.zone_id,
+                        "route_zone_name": route_zone_name,
+                        "order_booker_id": route.order_booker_id,
+                        "order_booker_name": route_order_booker_name,
+                        "sequence": shop.route_sequence
+                    })
+            
+            result.append({
                 "id": shop.id,
                 "name": shop.name,
                 "owner_name": shop.owner_name,
@@ -332,14 +362,16 @@ class ShopService:
                 "verified_by_distributor": shop.verified_by_distributor,
                 "verified_at": shop.verified_at.isoformat() if shop.verified_at else None,
                 "zone_id": shop.zone_id,
+                "route_id": route_id,  # Include route_id directly for easy filtering
                 "created_by_order_booker": shop.created_by_order_booker,
                 "created_by_order_booker_name": order_booker_name,
                 "assigned_to_order_booker": shop.assigned_to_order_booker,
                 "assigned_to_order_booker_name": OrderBookerRepository.get_by_id(db, shop.assigned_to_order_booker).name if shop.assigned_to_order_booker else None,
+                "routes": routes_info,  # Include routes array for detailed route info
                 "created_at": shop.created_at.isoformat() if shop.created_at else None
-            }
-            for shop in shops
-        ]
+            })
+        
+        return result
     
     @staticmethod
     def get_shops_assigned_to_order_booker(db: Session, order_booker_id: int, approved_only: bool = False) -> List[Dict]:

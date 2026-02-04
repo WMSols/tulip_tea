@@ -100,3 +100,4 @@ class Wallet(Base):
         {'extend_existing': True}
     )
 
+

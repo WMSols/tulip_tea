@@ -34,7 +34,8 @@ async def create_product(
             db=db,
             code=product.code,
             name=product.name,
-            unit=product.unit
+            unit=product.unit,
+            distributor_id=distributor['user_id']
         )
         
         # Log activity (with error handling - don't fail if logging fails)
@@ -42,8 +43,8 @@ async def create_product(
             current_user = distributor
             ActivityLogService.log_activity(
                 db=db,
-                user_id=current_user['id'],
-                user_role=current_user['role'],
+                user_id=current_user['user_id'],
+                user_role=current_user['user_role'],
                 action_type='CREATE',
                 entity_type='product',
                 entity_id=result['id'],
@@ -73,13 +74,14 @@ async def create_product(
 
 @router.get("/", response_model=List[ProductResponse])
 async def list_products(
+    distributor_id: int = Query(None, description="Optional distributor ID to filter products"),
     include_inactive: bool = Query(False, description="Include inactive products"),
     current_user: Dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """List all products. Requires authentication."""
+    """List all products. Requires authentication. Filter by distributor_id if provided."""
     try:
-        products = ProductService.get_all_products(db, include_inactive=include_inactive)
+        products = ProductService.get_all_products(db, distributor_id=distributor_id, include_inactive=include_inactive)
         return products
     except Exception as e:
         raise HTTPException(
@@ -90,12 +92,18 @@ async def list_products(
 
 @router.get("/active", response_model=List[ProductResponse])
 async def list_active_products(
+    distributor_id: int = Query(None, description="Optional distributor ID to filter products"),
     current_user: Dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """List all active products (for order bookers). Requires authentication."""
+    """List all active products (for order bookers). Requires authentication. Filter by distributor_id if provided."""
     try:
-        products = ProductService.get_active_products(db)
+        if distributor_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="distributor_id is required"
+            )
+        products = ProductService.get_active_products(db, distributor_id=distributor_id)
         return products
     except Exception as e:
         raise HTTPException(

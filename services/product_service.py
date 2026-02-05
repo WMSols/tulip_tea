@@ -10,14 +10,19 @@ class ProductService:
     """Service for Product business logic."""
     
     @staticmethod
-    def create_product(db: Session, code: str, name: str, unit: str = None) -> Dict:
+    def create_product(db: Session, code: str, name: str, unit: str = None, distributor_id: int = None) -> Dict:
         """Create a new product."""
-        # Check if code already exists
+        if distributor_id is None:
+            raise ValueError("distributor_id is required to create a product")
+        
+        # Check if code already exists for this distributor
         existing = ProductRepository.get_by_code(db, code, include_deleted=True)
         if existing:
-            raise ValueError(f"Product with code '{code}' already exists")
+            # Check if it belongs to the same distributor
+            if existing.distributor_id != distributor_id:
+                raise ValueError(f"Product with code '{code}' already exists for another distributor")
         
-        product = ProductRepository.create(db, code, name, unit)
+        product = ProductRepository.create(db, code, name, unit, distributor_id)
         
         # Safely format datetime fields
         created_at_str = None
@@ -45,15 +50,21 @@ class ProductService:
             "code": product.code,
             "name": product.name,
             "unit": product.unit,
+            "distributor_id": product.distributor_id,
             "is_active": product.is_active,
             "created_at": created_at_str,
             "updated_at": updated_at_str
         }
     
     @staticmethod
-    def get_all_products(db: Session, include_inactive: bool = False) -> List[Dict]:
-        """Get all products."""
-        products = ProductRepository.get_all(db, include_inactive=include_inactive)
+    def get_all_products(db: Session, distributor_id: int = None, include_inactive: bool = False) -> List[Dict]:
+        """
+        Get all products. Filter by distributor_id if provided.
+        """
+        if distributor_id is None:
+            raise ValueError("distributor_id is required to get products")
+        
+        products = ProductRepository.get_all(db, include_inactive=include_inactive, distributor_id=distributor_id)
         result = []
         for p in products:
             # Safely format datetime fields
@@ -98,9 +109,12 @@ class ProductService:
         return result
     
     @staticmethod
-    def get_active_products(db: Session) -> List[Dict]:
-        """Get all active products."""
-        products = ProductRepository.get_active(db)
+    def get_active_products(db: Session, distributor_id: int = None) -> List[Dict]:
+        """Get all active products. Filter by distributor_id if provided."""
+        if distributor_id is None:
+            raise ValueError("distributor_id is required to get products")
+        
+        products = ProductRepository.get_active(db, distributor_id=distributor_id)
         result = []
         for p in products:
             # Safely format datetime fields
@@ -138,6 +152,7 @@ class ProductService:
                 "name": p.name,
                 "unit": p.unit,
                 "price": price_value,
+                "distributor_id": p.distributor_id,
                 "is_active": p.is_active,
                 "created_at": created_at_str,
                 "updated_at": updated_at_str
@@ -195,6 +210,7 @@ class ProductService:
             "name": product.name,
             "unit": product.unit,
             "price": price_value,
+            "distributor_id": product.distributor_id,
             "is_active": product.is_active,
             "created_at": created_at_str,
             "updated_at": updated_at_str
@@ -249,6 +265,7 @@ class ProductService:
             "name": product.name,
             "unit": product.unit,
             "price": price_value,
+            "distributor_id": product.distributor_id,
             "is_active": product.is_active,
             "created_at": created_at_str,
             "updated_at": updated_at_str

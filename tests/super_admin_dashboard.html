@@ -179,11 +179,45 @@
             border-radius: 5px;
             margin-bottom: 20px;
         }
+        .result {
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+        }
+        .result.success {
+            color: #155724;
+            background: #d4edda;
+        }
+        .result.error {
+            color: #721c24;
+            background: #f8d7da;
+        }
         .user-info {
             background: rgba(255,255,255,0.1);
             padding: 15px;
             border-radius: 5px;
             margin-top: 20px;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.4);
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 5% auto;
+            padding: 30px;
+            border: 1px solid #888;
+            width: 90%;
+            max-width: 600px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
     </style>
 </head>
@@ -222,13 +256,80 @@
                 <button class="tab" onclick="switchTab('shops')">Shops</button>
                 <button class="tab" onclick="switchTab('zones')">Zones</button>
                 <button class="tab" onclick="switchTab('routes')">Routes</button>
+                <button class="tab" onclick="switchTab('wallets')">💵 Wallets</button>
             </div>
 
             <div id="message" style="display: none;"></div>
 
             <div id="distributors" class="tab-content active">
                 <h2>Distributors</h2>
+                
+                <!-- Create Distributor Form -->
+                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                    <h3 style="margin-bottom: 15px;">➕ Create New Distributor</h3>
+                    <form id="createDistributorForm" onsubmit="createDistributor(event)" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                        <div class="form-group" style="grid-column: 1 / -1;">
+                            <label>Name *</label>
+                            <input type="text" id="distributorName" required placeholder="Distributor Name">
+                        </div>
+                        <div class="form-group">
+                            <label>Email</label>
+                            <input type="email" id="distributorEmail" placeholder="distributor@example.com">
+                        </div>
+                        <div class="form-group">
+                            <label>Phone *</label>
+                            <input type="text" id="distributorPhone" required placeholder="03001234567">
+                        </div>
+                        <div class="form-group" style="grid-column: 1 / -1;">
+                            <label>Password *</label>
+                            <input type="password" id="distributorPassword" required placeholder="Enter password">
+                        </div>
+                        <div style="grid-column: 1 / -1;">
+                            <button type="submit" class="btn btn-primary">Create Distributor</button>
+                            <div id="createDistributorResult" class="result" style="margin-top: 10px;"></div>
+                        </div>
+                    </form>
+                    <p style="color: #666; font-size: 12px; margin-top: 10px;">
+                        <strong>Note:</strong> A warehouse will be automatically created and assigned to the new distributor.
+                    </p>
+                </div>
+                
                 <div class="entity-list" id="distributorsList">Loading...</div>
+            </div>
+            
+            <!-- Edit Distributor Modal -->
+            <div id="editDistributorModal" class="modal" style="display: none;">
+                <div class="modal-content">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h2 style="margin: 0;">✏️ Edit Distributor</h2>
+                        <span onclick="closeEditDistributorModal()" style="color: #aaa; font-size: 28px; font-weight: bold; cursor: pointer;">&times;</span>
+                    </div>
+                    <form id="editDistributorForm" onsubmit="updateDistributor(event)">
+                        <input type="hidden" id="editDistributorId">
+                        <div class="form-group">
+                            <label>Name *</label>
+                            <input type="text" id="editDistributorName" required placeholder="Distributor Name">
+                        </div>
+                        <div class="form-group">
+                            <label>Email</label>
+                            <input type="email" id="editDistributorEmail" placeholder="distributor@example.com">
+                        </div>
+                        <div class="form-group">
+                            <label>Phone *</label>
+                            <input type="text" id="editDistributorPhone" required placeholder="03001234567">
+                        </div>
+                        <div class="form-group">
+                            <label>New Password (leave blank to keep current password)</label>
+                            <input type="password" id="editDistributorPassword" placeholder="Enter new password">
+                            <small style="color: #666; display: block; margin-top: 5px;">Leave blank if you don't want to change the password</small>
+                        </div>
+                        <div style="display: flex; gap: 10px; margin-top: 20px;">
+                            <button type="submit" class="btn btn-primary" style="flex: 1;">Update Distributor</button>
+                            <button type="button" class="btn btn-danger" onclick="closeEditDistributorModal()" style="flex: 1;">Cancel</button>
+                        </div>
+                        <div id="editDistributorResult" class="result" style="margin-top: 10px;"></div>
+                    </form>
+                </div>
             </div>
 
             <div id="order_bookers" class="tab-content">
@@ -254,6 +355,13 @@
             <div id="routes" class="tab-content">
                 <h2>Routes</h2>
                 <div class="entity-list" id="routesList">Loading...</div>
+            </div>
+
+            <div id="wallets" class="tab-content">
+                <h2>💵 Wallet Management</h2>
+                <p style="color: #666; margin-bottom: 20px;">Manage wallet activation/deactivation for all users.</p>
+                <button class="btn btn-success" onclick="loadAllWallets()" style="margin-bottom: 20px;">🔄 Refresh Wallets</button>
+                <div class="entity-list" id="walletsList">Click "Refresh Wallets" to load wallet data.</div>
             </div>
         </div>
     </div>
@@ -357,7 +465,9 @@
             document.getElementById(tabName).classList.add('active');
             
             // Load data if not already loaded
-            if (entitiesData) {
+            if (tabName === 'wallets') {
+                loadAllWallets();
+            } else if (entitiesData) {
                 renderEntities(tabName);
             }
         }
@@ -499,6 +609,13 @@
                     </div>
                     <div>
                         <span class="status-badge ${statusClass}">${statusText}</span>
+                        ${entityType === 'distributors' && !isDeleted ? `
+                            <button class="btn btn-sm btn-primary" 
+                                    onclick="editDistributor(${entity.id}, '${(entity.name || '').replace(/'/g, "\\'")}', '${(entity.email || '').replace(/'/g, "\\'")}', '${(entity.phone || '').replace(/'/g, "\\'")}')"
+                                    style="margin-right: 5px;">
+                                Edit
+                            </button>
+                        ` : ''}
                         ${isDeleted ? `
                             <button class="btn btn-sm btn-success" 
                                     onclick="reactivateEntity('${entityType}', ${entity.id})">
@@ -770,6 +887,350 @@
             setTimeout(() => {
                 messageDiv.style.display = 'none';
             }, 3000);
+        }
+
+        // Create Distributor
+        async function createDistributor(event) {
+            event.preventDefault();
+            const resultDiv = document.getElementById('createDistributorResult');
+            resultDiv.className = 'result';
+            resultDiv.textContent = '';
+            
+            const name = document.getElementById('distributorName').value;
+            const email = document.getElementById('distributorEmail').value;
+            const phone = document.getElementById('distributorPhone').value;
+            const password = document.getElementById('distributorPassword').value;
+            
+            if (!name || !phone || !password) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Please fill in all required fields (Name, Phone, Password).';
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/super-admin/distributors`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify({
+                        name: name,
+                        email: email || null,
+                        phone: phone,
+                        password: password
+                    })
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                resultDiv.className = 'result success';
+                resultDiv.textContent = `✅ Distributor "${data.name}" created successfully! Warehouse automatically created.`;
+                
+                // Clear form
+                document.getElementById('createDistributorForm').reset();
+                
+                // Reload entities
+                await loadAllEntities();
+                
+                // Switch to distributors tab and refresh
+                switchTab('distributors');
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // Load All Wallets
+        async function loadAllWallets() {
+            const walletsList = document.getElementById('walletsList');
+            walletsList.innerHTML = '<p>Loading wallets...</p>';
+            
+            try {
+                // Get all distributors, order bookers, and delivery men
+                const response = await fetch(`${API_BASE}/super-admin/entities`, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const entities = await response.json();
+                
+                // Fetch wallet for each user
+                const wallets = [];
+                
+                // Distributors
+                for (const dist of entities.distributors || []) {
+                    try {
+                        const walletResponse = await fetch(`${API_BASE}/wallets/distributor/${dist.id}/balance`);
+                        if (walletResponse.ok) {
+                            const wallet = await walletResponse.json();
+                            wallets.push({
+                                ...wallet,
+                                user_name: dist.name,
+                                user_phone: dist.phone,
+                                user_email: dist.email
+                            });
+                        }
+                    } catch (e) {
+                        console.error(`Error fetching wallet for distributor ${dist.id}:`, e);
+                    }
+                }
+                
+                // Order Bookers
+                for (const ob of entities.order_bookers || []) {
+                    try {
+                        const walletResponse = await fetch(`${API_BASE}/wallets/order_booker/${ob.id}/balance`);
+                        if (walletResponse.ok) {
+                            const wallet = await walletResponse.json();
+                            wallets.push({
+                                ...wallet,
+                                user_name: ob.name,
+                                user_phone: ob.phone,
+                                user_email: ob.email
+                            });
+                        }
+                    } catch (e) {
+                        console.error(`Error fetching wallet for order booker ${ob.id}:`, e);
+                    }
+                }
+                
+                // Delivery Men
+                for (const dm of entities.delivery_men || []) {
+                    try {
+                        const walletResponse = await fetch(`${API_BASE}/wallets/delivery_man/${dm.id}/balance`);
+                        if (walletResponse.ok) {
+                            const wallet = await walletResponse.json();
+                            wallets.push({
+                                ...wallet,
+                                user_name: dm.name,
+                                user_phone: dm.phone
+                            });
+                        }
+                    } catch (e) {
+                        console.error(`Error fetching wallet for delivery man ${dm.id}:`, e);
+                    }
+                }
+                
+                if (wallets.length === 0) {
+                    walletsList.innerHTML = '<p style="color: #666;">No wallets found.</p>';
+                    return;
+                }
+                
+                // Group by user type
+                const distributorWallets = wallets.filter(w => w.user_type === 'distributor');
+                const orderBookerWallets = wallets.filter(w => w.user_type === 'order_booker');
+                const deliveryManWallets = wallets.filter(w => w.user_type === 'delivery_man');
+                
+                let html = '';
+                
+                // Distributors
+                if (distributorWallets.length > 0) {
+                    html += '<h4 style="color: #667eea; margin-top: 20px; margin-bottom: 15px;">👔 Distributors</h4>';
+                    html += distributorWallets.map(wallet => {
+                        const statusClass = wallet.is_active ? 'status-active' : 'status-inactive';
+                        const statusText = wallet.is_active ? 'Active' : 'Inactive';
+                        return `
+                            <div class="entity-item">
+                                <div class="entity-info">
+                                    <strong>${wallet.user_name || `Distributor #${wallet.user_id}`}</strong>
+                                    <p>Phone: ${wallet.user_phone || 'N/A'} | Email: ${wallet.user_email || 'N/A'}</p>
+                                    <p>Balance: <strong style="color: #28a745;">Rs. ${wallet.current_balance.toFixed(2)}</strong> | Wallet ID: ${wallet.wallet_id}</p>
+                                </div>
+                                <div>
+                                    <span class="status-badge ${statusClass}">${statusText}</span>
+                                    <button class="btn btn-sm ${wallet.is_active ? 'btn-danger' : 'btn-success'}" 
+                                            onclick="toggleWalletActive('${wallet.user_type}', ${wallet.user_id}, ${wallet.is_active})">
+                                        ${wallet.is_active ? 'Deactivate' : 'Activate'}
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+                }
+                
+                // Order Bookers
+                if (orderBookerWallets.length > 0) {
+                    html += '<h4 style="color: #667eea; margin-top: 20px; margin-bottom: 15px;">📋 Order Bookers</h4>';
+                    html += orderBookerWallets.map(wallet => {
+                        const statusClass = wallet.is_active ? 'status-active' : 'status-inactive';
+                        const statusText = wallet.is_active ? 'Active' : 'Inactive';
+                        return `
+                            <div class="entity-item">
+                                <div class="entity-info">
+                                    <strong>${wallet.user_name || `Order Booker #${wallet.user_id}`}</strong>
+                                    <p>Phone: ${wallet.user_phone || 'N/A'} | Email: ${wallet.user_email || 'N/A'}</p>
+                                    <p>Balance: <strong style="color: #28a745;">Rs. ${wallet.current_balance.toFixed(2)}</strong> | Wallet ID: ${wallet.wallet_id}</p>
+                                </div>
+                                <div>
+                                    <span class="status-badge ${statusClass}">${statusText}</span>
+                                    <button class="btn btn-sm ${wallet.is_active ? 'btn-danger' : 'btn-success'}" 
+                                            onclick="toggleWalletActive('${wallet.user_type}', ${wallet.user_id}, ${wallet.is_active})">
+                                        ${wallet.is_active ? 'Deactivate' : 'Activate'}
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+                }
+                
+                // Delivery Men
+                if (deliveryManWallets.length > 0) {
+                    html += '<h4 style="color: #f5576c; margin-top: 20px; margin-bottom: 15px;">🚚 Delivery Men</h4>';
+                    html += deliveryManWallets.map(wallet => {
+                        const statusClass = wallet.is_active ? 'status-active' : 'status-inactive';
+                        const statusText = wallet.is_active ? 'Active' : 'Inactive';
+                        return `
+                            <div class="entity-item">
+                                <div class="entity-info">
+                                    <strong>${wallet.user_name || `Delivery Man #${wallet.user_id}`}</strong>
+                                    <p>Phone: ${wallet.user_phone || 'N/A'}</p>
+                                    <p>Balance: <strong style="color: #28a745;">Rs. ${wallet.current_balance.toFixed(2)}</strong> | Wallet ID: ${wallet.wallet_id}</p>
+                                </div>
+                                <div>
+                                    <span class="status-badge ${statusClass}">${statusText}</span>
+                                    <button class="btn btn-sm ${wallet.is_active ? 'btn-danger' : 'btn-success'}" 
+                                            onclick="toggleWalletActive('${wallet.user_type}', ${wallet.user_id}, ${wallet.is_active})">
+                                        ${wallet.is_active ? 'Deactivate' : 'Activate'}
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+                }
+                
+                walletsList.innerHTML = html;
+            } catch (error) {
+                console.error('Error loading wallets:', error);
+                walletsList.innerHTML = `<p style="color: #dc3545;">Error loading wallets: ${error.message}</p>`;
+            }
+        }
+
+        // Edit Distributor
+        function editDistributor(id, name, email, phone) {
+            document.getElementById('editDistributorId').value = id;
+            document.getElementById('editDistributorName').value = name;
+            document.getElementById('editDistributorEmail').value = email || '';
+            document.getElementById('editDistributorPhone').value = phone || '';
+            document.getElementById('editDistributorPassword').value = '';
+            document.getElementById('editDistributorResult').textContent = '';
+            document.getElementById('editDistributorResult').className = 'result';
+            document.getElementById('editDistributorModal').style.display = 'block';
+        }
+        
+        function closeEditDistributorModal() {
+            document.getElementById('editDistributorModal').style.display = 'none';
+            document.getElementById('editDistributorForm').reset();
+            document.getElementById('editDistributorResult').textContent = '';
+            document.getElementById('editDistributorResult').className = 'result';
+        }
+        
+        // Update Distributor
+        async function updateDistributor(event) {
+            event.preventDefault();
+            const resultDiv = document.getElementById('editDistributorResult');
+            resultDiv.className = 'result';
+            resultDiv.textContent = '';
+            
+            const distributorId = parseInt(document.getElementById('editDistributorId').value);
+            const name = document.getElementById('editDistributorName').value;
+            const email = document.getElementById('editDistributorEmail').value;
+            const phone = document.getElementById('editDistributorPhone').value;
+            const password = document.getElementById('editDistributorPassword').value;
+            
+            if (!name || !phone) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Please fill in all required fields (Name, Phone).';
+                return;
+            }
+            
+            try {
+                const updateData = {
+                    name: name,
+                    email: email || null,
+                    phone: phone
+                };
+                
+                // Only include password if provided
+                if (password) {
+                    updateData.password = password;
+                }
+                
+                const response = await fetch(`${API_BASE}/super-admin/distributors/${distributorId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify(updateData)
+                });
+                
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        logout();
+                        showMessage('Your session has expired. Please log in again.', 'error');
+                        return;
+                    }
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                resultDiv.className = 'result success';
+                resultDiv.textContent = `✅ Distributor "${data.name}" updated successfully!`;
+                
+                // Close modal after 1.5 seconds
+                setTimeout(() => {
+                    closeEditDistributorModal();
+                    // Reload entities
+                    loadAllEntities();
+                }, 1500);
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+        
+        // Toggle Wallet Active
+        async function toggleWalletActive(userType, userId, currentStatus) {
+            if (!confirm(`Are you sure you want to ${currentStatus ? 'deactivate' : 'activate'} this wallet?`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/super-admin/wallets/${userType}/${userId}/toggle-active`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+                
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        logout();
+                        showMessage('Your session has expired. Please log in again.', 'error');
+                        return;
+                    }
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                showMessage(data.message || 'Wallet status updated successfully', 'success');
+                
+                // Reload wallets
+                await loadAllWallets();
+            } catch (error) {
+                showMessage('Error: ' + error.message, 'error');
+            }
         }
     </script>
 </body>

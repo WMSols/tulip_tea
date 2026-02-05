@@ -12,10 +12,11 @@ class WarehouseRepository:
     """Repository for Warehouse database operations."""
     
     @staticmethod
-    def create(db: Session, name: str, zone_id: int, address: str = None) -> Warehouse:
-        """Create a new warehouse."""
+    def create(db: Session, name: str, distributor_id: int, zone_id: int = None, address: str = None) -> Warehouse:
+        """Create a new warehouse. One warehouse per distributor."""
         warehouse = Warehouse(
             name=name,
+            distributor_id=distributor_id,
             zone_id=zone_id,
             address=address,
             is_active=True
@@ -40,6 +41,14 @@ class WarehouseRepository:
         if not include_deleted:
             query = query.filter(Warehouse.deleted_at.is_(None), Warehouse.is_active == True)
         return query.all()
+    
+    @staticmethod
+    def get_by_distributor(db: Session, distributor_id: int, include_deleted: bool = False) -> Optional[Warehouse]:
+        """Get warehouse by distributor (one warehouse per distributor)."""
+        query = db.query(Warehouse).filter(Warehouse.distributor_id == distributor_id)
+        if not include_deleted:
+            query = query.filter(Warehouse.deleted_at.is_(None), Warehouse.is_active == True)
+        return query.first()
     
     @staticmethod
     def get_by_zone(db: Session, zone_id: int, include_deleted: bool = False) -> List[Warehouse]:

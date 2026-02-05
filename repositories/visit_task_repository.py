@@ -180,3 +180,5 @@ class VisitTaskRepository:
             VisitTask.deleted_at.is_(None)
         ).first()
 
+
+

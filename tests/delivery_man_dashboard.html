@@ -370,27 +370,17 @@
                         <button class="btn btn-success" onclick="loadWalletBalance()" style="margin-top: 10px;">Refresh Balance</button>
                     </div>
 
-                    <!-- Transfer to Distributor -->
-                    <div class="info-card" style="margin-bottom: 30px;">
-                        <h3>💸 Transfer to Distributor</h3>
-                        <p style="color: #666; margin-bottom: 15px; font-size: 14px;">Transfer money to your assigned distributor. The distributor ID is automatically filled from your account.</p>
-                        <form id="transferForm" onsubmit="transferToDistributor(event)">
-                            <div class="form-group">
-                                <label>Distributor ID *</label>
-                                <input type="number" id="transferDistributorId" required readonly style="background: #f0f0f0; cursor: not-allowed;" placeholder="Your distributor ID will appear here">
-                                <small style="color: #666;">This is automatically set from your account</small>
-                            </div>
-                            <div class="form-group">
-                                <label>Amount (Rs.) *</label>
-                                <input type="number" id="transferAmount" required step="0.01" min="0.01" placeholder="Enter amount to transfer">
-                            </div>
-                            <div class="form-group">
-                                <label>Description (Optional)</label>
-                                <textarea id="transferDescription" rows="3" placeholder="Optional description"></textarea>
-                            </div>
-                            <button type="submit" class="btn btn-primary">Transfer Money</button>
-                        </form>
-                        <div id="transferResult" class="result" style="margin-top: 15px;"></div>
+                    <!-- Collection Notice -->
+                    <div class="info-card" style="margin-bottom: 30px; background: #fff3cd; border-left: 4px solid #ffc107;">
+                        <h3>💰 Wallet Collection</h3>
+                        <p style="color: #856404; margin-bottom: 15px; font-size: 14px;">
+                            <strong>Note:</strong> You cannot transfer money to your distributor directly. 
+                            Your distributor will collect money from your wallet when needed. 
+                            All collections will be recorded in your transaction history.
+                        </p>
+                        <p style="color: #856404; font-size: 13px;">
+                            Your current balance will be visible to your distributor, and they will collect funds as needed.
+                        </p>
                     </div>
 
                     <!-- Transaction History -->
@@ -735,13 +725,7 @@
                 document.getElementById('userName').textContent = data.user.name;
                 document.getElementById('userPhone').textContent = data.user.phone;
                 
-                // Auto-fill distributor ID in transfer form
-                if (data.user.distributor_id) {
-                    const distributorIdInput = document.getElementById('transferDistributorId');
-                    if (distributorIdInput) {
-                        distributorIdInput.value = data.user.distributor_id;
-                    }
-                }
+                // Note: Transfer functionality removed - distributor collects money instead
                 
                 // Load wallet balance
                 loadWalletBalance();
@@ -2190,7 +2174,8 @@
                                 ${order.order_items.map(item => `
                                     <tr id="pickup_row_${item.id}" 
                                         data-product-id="${item.product_id || ''}" 
-                                        data-product-name="${(item.product_name || '').toLowerCase().trim()}">
+                                        data-product-name="${(item.product_name || '').toLowerCase().trim()}"
+                                        data-product-code="${(item.product_code || '').toLowerCase().trim()}">
                                         <td style="padding: 10px;">${item.product_name || 'N/A'}</td>
                                         <td style="padding: 10px; text-align: right;">${item.quantity || 0}</td>
                                         <td style="padding: 10px; text-align: right;">
@@ -2258,15 +2243,35 @@
                 const warehouse = warehouses.find(w => w.id == warehouseId);
                 
                 if (warehouse && warehouse.inventory) {
-                    // Create maps for both product_id and product_name matching
+                    // Create maps for product_id, product_name, and product_code matching
                     const inventoryMapById = {};
                     const inventoryMapByName = {};
+                    const inventoryMapByCode = {};
+                    const inventoryItems = []; // Store full inventory items for fuzzy matching
+                    
                     warehouse.inventory.forEach(inv => {
-                        const qty = inv.quantity || 0;
+                        // Convert quantity to number (handle string quantities like "100")
+                        const qty = parseInt(inv.quantity) || 0;
+                        
+                        // Store full item for fuzzy matching
+                        inventoryItems.push({
+                            ...inv,
+                            quantity: qty,
+                            normalizedName: (inv.product_name || inv.item_name || '').toLowerCase().trim(),
+                            normalizedCode: (inv.product_code || inv.item_code || '').toLowerCase().trim()
+                        });
+                        
                         // Map by product_id if available
                         if (inv.product_id) {
-                            inventoryMapById[inv.product_id] = qty;
+                            const pid = parseInt(inv.product_id);
+                            if (!isNaN(pid)) {
+                                // If multiple items have same product_id, use the maximum quantity
+                                if (!inventoryMapById[pid] || qty > inventoryMapById[pid]) {
+                                    inventoryMapById[pid] = qty;
+                                }
+                            }
                         }
+                        
                         // Map by product_name or item_name (case-insensitive)
                         const invName = (inv.product_name || inv.item_name || '').toLowerCase().trim();
                         if (invName) {
@@ -2275,37 +2280,118 @@
                                 inventoryMapByName[invName] = qty;
                             }
                         }
+                        
+                        // Map by product_code or item_code (case-insensitive)
+                        const invCode = (inv.product_code || inv.item_code || '').toLowerCase().trim();
+                        if (invCode) {
+                            // If multiple items have same code, use the maximum quantity
+                            if (!inventoryMapByCode[invCode] || qty > inventoryMapByCode[invCode]) {
+                                inventoryMapByCode[invCode] = qty;
+                            }
+                        }
                     });
                     
                     console.log('[loadWarehouseInventoryForPickup] Inventory maps:', {
                         byId: inventoryMapById,
                         byName: inventoryMapByName,
-                        totalItems: warehouse.inventory.length
+                        byCode: inventoryMapByCode,
+                        totalItems: warehouse.inventory.length,
+                        rawInventory: warehouse.inventory.map(inv => ({
+                            id: inv.id,
+                            product_id: inv.product_id,
+                            product_name: inv.product_name,
+                            product_code: inv.product_code,
+                            item_name: inv.item_name,
+                            item_code: inv.item_code,
+                            quantity: inv.quantity,
+                            quantityType: typeof inv.quantity
+                        }))
                     });
                     
                     // Update available quantities and max values for each order item
                     document.querySelectorAll('[id^="pickup_row_"]').forEach(row => {
-                        const productId = row.getAttribute('data-product-id');
-                        const productName = row.getAttribute('data-product-name');
+                        const productIdAttr = row.getAttribute('data-product-id');
+                        const productNameAttr = row.getAttribute('data-product-name');
+                        const productCodeAttr = row.getAttribute('data-product-code');
                         const orderItemId = row.id.replace('pickup_row_', '');
                         const availableQtyEl = document.getElementById(`available_qty_${orderItemId}`);
                         const pickupQtyInput = document.getElementById(`pickup_qty_${orderItemId}`);
                         const errorDiv = document.getElementById(`pickup_error_${orderItemId}`);
                         
-                        // Try to find inventory by product_id first, then by name
+                        // Parse product_id (handle string "null" or empty string)
+                        const productId = productIdAttr && productIdAttr !== 'null' && productIdAttr !== '' ? parseInt(productIdAttr) : null;
+                        // Normalize product name (handle empty strings and null)
+                        const productName = productNameAttr && productNameAttr !== 'null' && productNameAttr !== '' ? productNameAttr.toLowerCase().trim() : null;
+                        // Normalize product code (handle empty strings and null)
+                        const productCode = productCodeAttr && productCodeAttr !== 'null' && productCodeAttr !== '' ? productCodeAttr.toLowerCase().trim() : null;
+                        
+                        console.log(`[loadWarehouseInventoryForPickup] Order item ${orderItemId}: product_id=${productId}, product_name="${productName}", product_code="${productCode}"`);
+                        
+                        // Try to find inventory by product_id first, then by name, then by code, then fuzzy matching
                         let availableQty = null;
-                        if (productId && inventoryMapById[productId] !== undefined) {
-                            availableQty = inventoryMapById[productId];
+                        let matchMethod = null;
+                        
+                        // Method 1: Match by product_id
+                        if (productId && !isNaN(productId) && inventoryMapById[productId] !== undefined) {
+                            availableQty = parseInt(inventoryMapById[productId]) || 0;
+                            matchMethod = `product_id ${productId}`;
                             console.log(`[loadWarehouseInventoryForPickup] Found by product_id ${productId}: ${availableQty}`);
-                        } else if (productName && inventoryMapByName[productName] !== undefined) {
-                            availableQty = inventoryMapByName[productName];
+                        } 
+                        // Method 2: Match by product_code (exact) - if order item has code
+                        else if (productCode && inventoryMapByCode[productCode] !== undefined) {
+                            availableQty = parseInt(inventoryMapByCode[productCode]) || 0;
+                            matchMethod = `product_code "${productCode}"`;
+                            console.log(`[loadWarehouseInventoryForPickup] Found by product_code "${productCode}": ${availableQty}`);
+                        }
+                        // Method 3: Match by product_name (exact)
+                        else if (productName && inventoryMapByName[productName] !== undefined) {
+                            availableQty = parseInt(inventoryMapByName[productName]) || 0;
+                            matchMethod = `product_name "${productName}"`;
                             console.log(`[loadWarehouseInventoryForPickup] Found by product_name "${productName}": ${availableQty}`);
+                        }
+                        // Method 4: Try fuzzy matching with product codes and names
+                        else if (productName || productCode) {
+                            // Check if order item name/code matches the beginning of any product code
+                            // (e.g., "t1" matches "t1d2")
+                            for (const item of inventoryItems) {
+                                // Priority 1: Check if order item name is a prefix of product code
+                                // (e.g., order item "t1" matches warehouse code "t1d2")
+                                if (productName && item.normalizedCode && item.normalizedCode.startsWith(productName)) {
+                                    availableQty = item.quantity;
+                                    matchMethod = `product_code prefix match: order name "${productName}" matches warehouse code "${item.normalizedCode}"`;
+                                    console.log(`[loadWarehouseInventoryForPickup] Found by code prefix: "${productName}" matches "${item.normalizedCode}": ${availableQty}`);
+                                    break;
+                                }
+                                // Priority 2: Check if order item code matches warehouse code prefix
+                                if (productCode && item.normalizedCode && item.normalizedCode.startsWith(productCode)) {
+                                    availableQty = item.quantity;
+                                    matchMethod = `product_code prefix match: order code "${productCode}" matches warehouse code "${item.normalizedCode}"`;
+                                    console.log(`[loadWarehouseInventoryForPickup] Found by code prefix: "${productCode}" matches "${item.normalizedCode}": ${availableQty}`);
+                                    break;
+                                }
+                                // Priority 3: Check if warehouse code is a prefix of order item name
+                                if (productName && item.normalizedCode && productName.startsWith(item.normalizedCode)) {
+                                    availableQty = item.quantity;
+                                    matchMethod = `product_name prefix match: order name "${productName}" contains warehouse code "${item.normalizedCode}"`;
+                                    console.log(`[loadWarehouseInventoryForPickup] Found by name prefix: "${productName}" contains "${item.normalizedCode}": ${availableQty}`);
+                                    break;
+                                }
+                                // Priority 4: Check if product name contains order item name or vice versa
+                                if (productName && item.normalizedName && (item.normalizedName.includes(productName) || productName.includes(item.normalizedName))) {
+                                    availableQty = item.quantity;
+                                    matchMethod = `fuzzy name match: order name "${productName}" matches warehouse name "${item.normalizedName}"`;
+                                    console.log(`[loadWarehouseInventoryForPickup] Found by fuzzy name: "${productName}" matches "${item.normalizedName}": ${availableQty}`);
+                                    break;
+                                }
+                            }
                         }
                         
                         if (availableQty !== null) {
-                            availableQtyEl.textContent = availableQty;
+                            // Ensure availableQty is a number
+                            const availableQtyNum = parseInt(availableQty) || 0;
+                            availableQtyEl.textContent = availableQtyNum;
                             
-                            if (availableQty === 0) {
+                            if (availableQtyNum === 0) {
                                 availableQtyEl.style.color = '#e74c3c';
                                 pickupQtyInput.disabled = true;
                                 pickupQtyInput.value = 0;
@@ -2313,12 +2399,12 @@
                                 errorDiv.textContent = 'Out of stock';
                                 errorDiv.style.display = 'block';
                             } else {
-                                availableQtyEl.style.color = availableQty > 0 ? '#27ae60' : '#e74c3c';
+                                availableQtyEl.style.color = availableQtyNum > 0 ? '#27ae60' : '#e74c3c';
                                 pickupQtyInput.disabled = false;
                                 
                                 // Set max to minimum of ordered quantity and available quantity
                                 const orderedQty = parseInt(pickupQtyInput.getAttribute('data-ordered-qty') || pickupQtyInput.max) || 0;
-                                const maxQty = Math.min(orderedQty, availableQty);
+                                const maxQty = Math.min(orderedQty, availableQtyNum);
                                 pickupQtyInput.max = maxQty;
                                 
                                 // If current value exceeds available, reduce it
@@ -3296,9 +3382,36 @@
                         detailsHtml += `</div>`;
                     }
                     
-                    // Transfer details
+                    // Transfer details (especially for distributor collections)
                     if (t.transaction_type === 'transfer_in' || t.transaction_type === 'transfer_out') {
-                        if (t.related_user_name) {
+                        // Check if this is a distributor collection
+                        const isCollection = t.transaction_type === 'transfer_out' && t.initiated_by_type === 'distributor';
+                        
+                        if (isCollection) {
+                            // Enhanced display for distributor collections
+                            detailsHtml += `<div style="margin-top: 8px; padding: 10px; background: #fff3cd; border-radius: 5px; border-left: 4px solid #ffc107;">`;
+                            detailsHtml += `<strong style="color: #856404;">💰 Money Collected by Distributor</strong><br>`;
+                            if (t.initiated_by_name) {
+                                detailsHtml += `Collected by: <strong>${t.initiated_by_name}</strong> (Distributor)<br>`;
+                            } else if (t.initiated_by_id) {
+                                detailsHtml += `Collected by: Distributor (ID: ${t.initiated_by_id})<br>`;
+                            }
+                            if (t.metadata && typeof t.metadata === 'object') {
+                                if (t.metadata.collection_timestamp) {
+                                    const collectionDate = new Date(t.metadata.collection_timestamp);
+                                    detailsHtml += `Collection Date & Time: <strong>${collectionDate.toLocaleString()}</strong><br>`;
+                                }
+                                if (t.metadata.collected_by_distributor_name) {
+                                    detailsHtml += `Distributor: <strong>${t.metadata.collected_by_distributor_name}</strong><br>`;
+                                }
+                            }
+                            if (t.created_at) {
+                                const transactionDate = new Date(t.created_at);
+                                detailsHtml += `Transaction Recorded: <strong>${transactionDate.toLocaleString()}</strong><br>`;
+                            }
+                            detailsHtml += `</div>`;
+                        } else if (t.related_user_name) {
+                            // Regular transfer display
                             detailsHtml += `<div style="margin-top: 8px; padding: 8px; background: #fff3cd; border-radius: 5px; border-left: 3px solid #ffc107;">`;
                             detailsHtml += `<strong style="color: #856404;">💸 Transfer ${t.transaction_type === 'transfer_in' ? 'From' : 'To'}:</strong><br>`;
                             detailsHtml += `${t.related_user_name} (${t.related_user_type || 'N/A'})<br>`;
@@ -3337,73 +3450,7 @@
             }
         }
 
-        async function transferToDistributor(event) {
-            event.preventDefault();
-            if (!currentDeliveryManId || !currentUser) return;
-            
-            // Get distributor ID from current user (auto-filled)
-            const distributorId = currentUser.distributor_id;
-            if (!distributorId) {
-                const resultDiv = document.getElementById('transferResult');
-                resultDiv.className = 'result error';
-                resultDiv.textContent = 'Error: No distributor assigned to your account. Please contact support.';
-                return;
-            }
-            
-            const amount = parseFloat(document.getElementById('transferAmount').value);
-            const description = document.getElementById('transferDescription').value;
-            const resultDiv = document.getElementById('transferResult');
-            
-            if (!amount || amount <= 0) {
-                resultDiv.className = 'result error';
-                resultDiv.textContent = 'Please enter a valid amount.';
-                return;
-            }
-            
-            try {
-                const endpoint = `${API_BASE}/wallets/transfer`;
-                const response = await fetch(endpoint, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        from_user_type: 'delivery_man',
-                        from_user_id: currentDeliveryManId,
-                        to_user_type: 'distributor',
-                        to_user_id: parseInt(distributorId),
-                        amount: amount,
-                        description: description || `Transfer from delivery man ${currentDeliveryManId} to distributor ${distributorId}`,
-                        initiated_by_type: 'delivery_man',
-                        initiated_by_id: currentDeliveryManId
-                    })
-                });
-                
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
-                }
-                
-                const data = await response.json();
-                resultDiv.className = 'result success';
-                resultDiv.textContent = `Transfer successful! Rs. ${amount.toFixed(2)} transferred to distributor ${distributorId}.`;
-                
-                // Clear form (but preserve distributor ID)
-                const distributorIdInput = document.getElementById('transferDistributorId');
-                const savedDistributorId = distributorIdInput ? distributorIdInput.value : null;
-                document.getElementById('transferForm').reset();
-                if (distributorIdInput && savedDistributorId) {
-                    distributorIdInput.value = savedDistributorId;
-                }
-                
-                // Reload balance and transactions
-                loadWalletBalance();
-                loadWalletTransactions();
-            } catch (error) {
-                resultDiv.className = 'result error';
-                resultDiv.textContent = `Error: ${error.message}`;
-            }
-        }
+        // Transfer functionality removed - distributor collects money instead
     </script>
 </body>
 </html>

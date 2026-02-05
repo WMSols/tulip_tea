@@ -202,22 +202,48 @@ async def get_shop_credit_info(shop_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/pending", response_model=List[ShopResponse])
-async def list_pending_shops(db: Session = Depends(get_db)):
+async def list_pending_shops(
+    distributor_id: int = Query(None, description="Optional distributor ID to filter pending shops"),
+    request: Request = None,
+    db: Session = Depends(get_db)
+):
     """
     List all shops with pending registration status.
     
-    API: GET /shops/pending
+    API: GET /shops/pending?distributor_id={id}
     
     FLOW:
     1. Distributor views pending shop registrations
     2. Service gets all shops with registration_status="pending"
-    3. Returns list for review
+    3. If distributor_id is provided, filters to shops created by order bookers belonging to this distributor
+    4. Returns list for review
+    
+    Query Parameters:
+        distributor_id: Optional - Filter pending shops by distributor (shops created by their order bookers)
     
     Response (200):
         List of pending shops awaiting verification
     """
     try:
-        shops = ShopRepository.get_by_registration_status(db=db, status="pending")
+        from models.order_booker import OrderBooker
+        
+        if distributor_id:
+            # Filter pending shops by distributor: get shops created by order bookers belonging to this distributor
+            order_booker_ids = db.query(OrderBooker.id).filter(
+                OrderBooker.distributor_id == distributor_id,
+                OrderBooker.deleted_at.is_(None),
+                OrderBooker.is_active == True
+            ).subquery()
+            
+            from models.shop import Shop
+            shops = db.query(Shop).filter(
+                Shop.registration_status == "pending",
+                Shop.deleted_at.is_(None),
+                Shop.is_active == True,
+                Shop.created_by_order_booker.in_(db.query(order_booker_ids.c.id))
+            ).all()
+        else:
+            shops = ShopRepository.get_by_registration_status(db=db, status="pending")
         result = []
         for shop in shops:
             # Get order booker name who created the shop (historical)

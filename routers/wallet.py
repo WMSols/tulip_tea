@@ -6,15 +6,18 @@ Handles wallet operations for distributors, order bookers, and delivery men.
 API ENDPOINTS:
 - GET /wallets/{user_type}/{user_id}/balance - Get wallet balance
 - GET /wallets/{user_type}/{user_id}/transactions - Get transaction history
-- POST /wallets/transfer - Transfer money between wallets
+- POST /wallets/transfer - Transfer money between wallets (RESTRICTED: Only distributors can collect from order_bookers/delivery_men)
+- GET /wallets/distributor/{distributor_id}/all-wallets - List all wallets of order bookers and delivery men (Distributor only)
+- POST /wallets/distributor/{distributor_id}/collect - Collect money from order booker or delivery man (Distributor only)
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
-from typing import Dict
+from typing import Dict, List
 from config.database import get_db
-from models.schemas import WalletTransferRequest
+from models.schemas import WalletTransferRequest, WalletCollectionRequest
 from services.wallet_service import WalletService
 from utils.auth_helpers import get_current_user_from_request
+from utils.dependencies import get_current_distributor
 
 router = APIRouter(prefix="/wallets", tags=["Wallets"])
 
@@ -130,6 +133,9 @@ async def transfer_between_wallets(
     """
     Transfer money from one wallet to another.
     
+    ⚠️ RESTRICTED: Only distributors can collect money from order bookers/delivery men.
+    Order bookers and delivery men CANNOT initiate transfers to distributors.
+    
     API: POST /wallets/transfer
     
     Request Body:
@@ -139,44 +145,74 @@ async def transfer_between_wallets(
             "to_user_type": "distributor",
             "to_user_id": 1,
             "amount": 5000.00,
-            "description": "Transfer collected money to distributor"
+            "description": "Collection by distributor",
+            "initiated_by_type": "distributor",
+            "initiated_by_id": 1
         }
     
     Response:
         {
             "transfer_id": 123,
-            "from_wallet": {
-                "wallet_id": 1,
-                "user_type": "order_booker",
-                "user_id": 1,
-                "balance_before": 10000.00,
-                "balance_after": 5000.00,
-                "transaction_id": 456
-            },
-            "to_wallet": {
-                "wallet_id": 2,
-                "user_type": "distributor",
-                "user_id": 1,
-                "balance_before": 0.00,
-                "balance_after": 5000.00,
-                "transaction_id": 457
-            },
+            "from_wallet": {...},
+            "to_wallet": {...},
             "amount": 5000.00,
-            "description": "Transfer collected money to distributor",
+            "description": "Collection by distributor",
             "created_at": "2026-01-28T10:30:00"
         }
     """
-    if transfer.from_user_type not in ['distributor', 'order_booker', 'delivery_man']:
+    # Get current user from request to check authorization
+    current_user = await get_current_user_from_request(request)
+    if not current_user:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid from_user_type. Must be 'distributor', 'order_booker', or 'delivery_man'"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required"
         )
     
-    if transfer.to_user_type not in ['distributor', 'order_booker', 'delivery_man']:
+    # RESTRICTION: Only allow transfers FROM order_booker/delivery_man TO distributor
+    # AND only if initiated by a distributor
+    if transfer.from_user_type not in ['order_booker', 'delivery_man']:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid to_user_type. Must be 'distributor', 'order_booker', or 'delivery_man'"
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Transfers can only be initiated FROM order_booker or delivery_man wallets"
         )
+    
+    if transfer.to_user_type != 'distributor':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Transfers can only be made TO distributor wallets"
+        )
+    
+    # Verify that the current user is a distributor and is the one receiving the money
+    if current_user.get('user_role') != 'distributor':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only distributors can collect money from order bookers and delivery men"
+        )
+    
+    # Verify the distributor is collecting to their own wallet
+    if current_user.get('user_id') != transfer.to_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only collect money to your own wallet"
+        )
+    
+    # Verify the order booker/delivery man belongs to this distributor
+    if transfer.from_user_type == 'order_booker':
+        from repositories.order_booker_repository import OrderBookerRepository
+        order_booker = OrderBookerRepository.get_by_id(db, transfer.from_user_id)
+        if not order_booker or order_booker.distributor_id != current_user.get('user_id'):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This order booker does not belong to your distributor account"
+            )
+    elif transfer.from_user_type == 'delivery_man':
+        from repositories.delivery_man_repository import DeliveryManRepository
+        delivery_man = DeliveryManRepository.get_by_id(db, transfer.from_user_id)
+        if not delivery_man or delivery_man.distributor_id != current_user.get('user_id'):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This delivery man does not belong to your distributor account"
+            )
     
     if transfer.amount <= 0:
         raise HTTPException(
@@ -186,6 +222,7 @@ async def transfer_between_wallets(
     
     try:
         from decimal import Decimal
+        # Override initiated_by to ensure it's the distributor
         result = WalletService.transfer_between_wallets(
             db=db,
             from_user_type=transfer.from_user_type,
@@ -193,9 +230,9 @@ async def transfer_between_wallets(
             to_user_type=transfer.to_user_type,
             to_user_id=transfer.to_user_id,
             amount=Decimal(str(transfer.amount)),
-            description=transfer.description,
-            initiated_by_type=transfer.initiated_by_type,
-            initiated_by_id=transfer.initiated_by_id,
+            description=transfer.description or f"Collection by distributor from {transfer.from_user_type}",
+            initiated_by_type='distributor',
+            initiated_by_id=current_user.get('user_id'),
             transaction_metadata=transfer.metadata
         )
         return result
@@ -208,5 +245,146 @@ async def transfer_between_wallets(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error processing transfer: {str(e)}"
+        )
+
+
+@router.get("/distributor/{distributor_id}/all-wallets")
+async def list_all_wallets_for_distributor(
+    distributor_id: int,
+    current_distributor: Dict = Depends(get_current_distributor),
+    db: Session = Depends(get_db)
+):
+    """
+    List all wallets of order bookers and delivery men under a distributor.
+    
+    ⚠️ RESTRICTED: Only the distributor can view their order bookers' and delivery men's wallets.
+    
+    API: GET /wallets/distributor/{distributor_id}/all-wallets
+    
+    Response:
+        [
+            {
+                "wallet_id": 1,
+                "user_type": "order_booker",
+                "user_id": 1,
+                "user_name": "John Doe",
+                "current_balance": 5000.00,
+                "is_active": true
+            },
+            ...
+        ]
+    """
+    # Verify the distributor is viewing their own data
+    if current_distributor.get('user_id') != distributor_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only view wallets for your own distributor account"
+        )
+    
+    try:
+        wallets = WalletService.get_all_wallets_for_distributor(db, distributor_id)
+        return wallets
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching wallets: {str(e)}"
+        )
+
+
+@router.post("/distributor/{distributor_id}/collect")
+async def collect_money_from_user(
+    distributor_id: int,
+    collection: WalletCollectionRequest,
+    current_distributor: Dict = Depends(get_current_distributor),
+    db: Session = Depends(get_db)
+):
+    """
+    Collect money from an order booker or delivery man.
+    
+    ⚠️ RESTRICTED: Only distributors can collect money from their order bookers/delivery men.
+    
+    API: POST /wallets/distributor/{distributor_id}/collect
+    
+    Request Body:
+        {
+            "from_user_type": "order_booker",
+            "from_user_id": 1,
+            "amount": 5000.00,
+            "description": "Collection from order booker",
+            "metadata": {}
+        }
+    
+    Response:
+        {
+            "transfer_id": 123,
+            "from_wallet": {...},
+            "to_wallet": {...},
+            "amount": 5000.00,
+            "description": "Collection from order booker",
+            "created_at": "2026-01-28T10:30:00"
+        }
+    """
+    # Verify the distributor is collecting to their own wallet
+    if current_distributor.get('user_id') != distributor_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only collect money to your own distributor account"
+        )
+    
+    # Verify from_user_type is order_booker or delivery_man
+    if collection.from_user_type not in ['order_booker', 'delivery_man']:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Can only collect from order_booker or delivery_man"
+        )
+    
+    # Verify the order booker/delivery man belongs to this distributor
+    if collection.from_user_type == 'order_booker':
+        from repositories.order_booker_repository import OrderBookerRepository
+        order_booker = OrderBookerRepository.get_by_id(db, collection.from_user_id)
+        if not order_booker or order_booker.distributor_id != distributor_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This order booker does not belong to your distributor account"
+            )
+    elif collection.from_user_type == 'delivery_man':
+        from repositories.delivery_man_repository import DeliveryManRepository
+        delivery_man = DeliveryManRepository.get_by_id(db, collection.from_user_id)
+        if not delivery_man or delivery_man.distributor_id != distributor_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This delivery man does not belong to your distributor account"
+            )
+    
+    if collection.amount <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Collection amount must be positive"
+        )
+    
+    try:
+        from decimal import Decimal
+        result = WalletService.transfer_between_wallets(
+            db=db,
+            from_user_type=collection.from_user_type,
+            from_user_id=collection.from_user_id,
+            to_user_type='distributor',
+            to_user_id=distributor_id,
+            amount=Decimal(str(collection.amount)),
+            description=collection.description or f"Collection by distributor from {collection.from_user_type}",
+            initiated_by_type='distributor',
+            initiated_by_id=distributor_id,
+            transaction_metadata=collection.metadata
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error processing collection: {str(e)}"
         )
 

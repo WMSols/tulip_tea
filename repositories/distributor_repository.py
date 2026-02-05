@@ -173,4 +173,44 @@ class DistributorRepository:
         """
         # SQL: SELECT * FROM distributors OFFSET skip LIMIT limit
         return db.query(Distributor).offset(skip).limit(limit).all()
+    
+    @staticmethod
+    def update(db: Session, distributor_id: int, name: str = None, email: str = None,
+               phone: str = None, password_hash: str = None) -> Optional[Distributor]:
+        """
+        Update distributor information.
+        
+        FLOW:
+        1. Gets distributor by ID
+        2. Updates provided fields
+        3. Commits changes
+        4. Returns updated distributor
+        
+        Args:
+            db: SQLAlchemy database session
+            distributor_id: Distributor ID to update
+            name: New name (optional)
+            email: New email (optional)
+            phone: New phone (optional)
+            password_hash: New password hash (optional, should be hashed before calling)
+        
+        Returns:
+            Optional[Distributor]: Updated distributor instance or None if not found
+        """
+        distributor = DistributorRepository.get_by_id(db, distributor_id, include_deleted=True)
+        if not distributor:
+            return None
+        
+        if name is not None:
+            distributor.name = name
+        if email is not None:
+            distributor.email = email
+        if phone is not None:
+            distributor.phone = phone
+        if password_hash is not None:
+            distributor.password_hash = password_hash
+        
+        db.commit()
+        db.refresh(distributor)
+        return distributor
 

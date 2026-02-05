@@ -37,8 +37,11 @@ class Warehouse(Base):
     name = Column(String, nullable=False)
     """Warehouse name (e.g., 'Islamabad Main Warehouse')."""
 
-    zone_id = Column(BigInteger, ForeignKey("zones.id"), nullable=False)
-    """Foreign key to zones table. Warehouse belongs to a zone."""
+    distributor_id = Column(BigInteger, ForeignKey("distributors.id"), nullable=False)
+    """Foreign key to distributors table. One warehouse per distributor."""
+
+    zone_id = Column(BigInteger, ForeignKey("zones.id"), nullable=True)
+    """Foreign key to zones table. Warehouse can optionally belong to a zone (for backward compatibility)."""
 
     address = Column(Text, nullable=True)
     """Physical address of the warehouse."""

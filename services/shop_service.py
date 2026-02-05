@@ -433,7 +433,7 @@ class ShopService:
         Get all shops with their associated order_booker and route information.
         
         FLOW:
-        1. Gets all shops (optionally filtered by zone_id or route_id)
+        1. Gets all shops (optionally filtered by distributor_id, zone_id, or route_id)
         2. For each shop, finds associated order_booker (via created_by_order_booker)
         3. For each shop, finds associated route (via shop.route_id)
         4. For each route, finds assigned order_booker and zone info
@@ -441,30 +441,63 @@ class ShopService:
         
         Args:
             db: Database session
-            distributor_id: Optional distributor ID (currently not used for filtering)
+            distributor_id: Optional distributor ID - filters shops by order bookers belonging to this distributor
             zone_id: Optional zone ID to filter shops
             route_id: Optional route ID to filter shops
         
         Returns:
             List[Dict]: List of shops with order_booker and route info
         
-        Note: Distributors are not assigned to zones, so distributor_id is not used for filtering.
-        Use zone_id or route_id for filtering instead.
+        Note: When distributor_id is provided, returns shops where:
+            - Shop was created by an order booker belonging to this distributor, OR
+            - Shop is assigned to an order booker belonging to this distributor, OR
+            - Shop was verified/approved by this distributor
         """
 # RouteShop model removed - shops now use route_id directly
         from models.route import Route
+        from models.order_booker import OrderBooker
         
         # Get all shops
         from models.shop import Shop
         
         # Apply filters - prioritize explicit zone_id and route_id over distributor_id
-        # distributor_id is kept for potential future use but doesn't filter by default
         if route_id:
             # Filter by route
             shops = ShopRepository.get_by_route(db, route_id)
         elif zone_id:
             # Filter by zone
             shops = ShopRepository.get_by_zone(db, zone_id)
+        elif distributor_id:
+            # Filter by distributor: get shops where order booker belongs to this distributor
+            # OR shops verified by this distributor
+            from sqlalchemy import or_
+            
+            # Get all order booker IDs for this distributor
+            order_booker_ids_query = db.query(OrderBooker.id).filter(
+                OrderBooker.distributor_id == distributor_id,
+                OrderBooker.deleted_at.is_(None),
+                OrderBooker.is_active == True
+            )
+            order_booker_id_list = [row[0] for row in order_booker_ids_query.all()]
+            
+            # Build filter conditions
+            conditions = []
+            
+            # Shop created by order booker belonging to this distributor
+            if order_booker_id_list:
+                conditions.append(Shop.created_by_order_booker.in_(order_booker_id_list))
+                # Shop assigned to order booker belonging to this distributor
+                conditions.append(Shop.assigned_to_order_booker.in_(order_booker_id_list))
+            
+            # Shop verified by this distributor
+            conditions.append(Shop.verified_by_distributor == distributor_id)
+            
+            shops = db.query(Shop).filter(
+                Shop.deleted_at.is_(None),
+                Shop.is_active == True
+            ).filter(
+                or_(*conditions) if conditions else False
+            ).all()
         else:
             # Return all active shops (exclude soft-deleted and inactive) - let UI filters handle zone/route filtering
             try:

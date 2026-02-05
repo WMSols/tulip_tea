@@ -218,3 +218,5 @@ class WeeklyRouteScheduleService:
         
         return WeeklyRouteScheduleRepository.delete(db, schedule_id)
 
+
+

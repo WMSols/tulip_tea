@@ -242,6 +242,7 @@ async def list_visits_by_shop(
 
 @router.get("/all", response_model=List[ShopVisitResponse])
 async def list_all_visits(
+    distributor_id: int = Query(None, description="Optional distributor ID to filter visits"),
     skip: int = Query(0, ge=0, description="Number of records to skip"),
     limit: int = Query(1000, ge=1, le=5000, description="Maximum number of records to return"),
     db: Session = Depends(get_db)
@@ -249,14 +250,16 @@ async def list_all_visits(
     """
     List all shop visits (for distributor view).
     
-    API: GET /shop-visits/all?skip=0&limit=1000
+    API: GET /shop-visits/all?distributor_id={id}&skip=0&limit=1000
     
     FLOW:
     1. Distributor views all visits across all shops
-    2. Service gets all visits with shop and visitor information
-    3. Returns list categorized by zone (frontend handles grouping)
+    2. If distributor_id is provided, filters to visits by order bookers/delivery men belonging to this distributor
+    3. Service gets all visits with shop and visitor information
+    4. Returns list categorized by zone (frontend handles grouping)
     
     Query Parameters:
+        distributor_id: Optional - Filter visits by distributor (visits by their order bookers/delivery men)
         skip: Number of records to skip (for pagination, default: 0)
         limit: Maximum number of records to return (default: 1000, max: 5000)
     
@@ -266,6 +269,7 @@ async def list_all_visits(
     try:
         visits = ShopVisitService.get_all_visits(
             db=db,
+            distributor_id=distributor_id,
             skip=skip,
             limit=limit
         )

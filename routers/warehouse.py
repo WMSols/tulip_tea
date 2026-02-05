@@ -2,7 +2,7 @@
 Warehouse router.
 Handles warehouse CRUD operations, inventory management, and delivery man assignments.
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import List, Dict
 from config.database import get_db
@@ -16,36 +16,22 @@ from utils.dependencies import get_current_user, get_current_distributor
 router = APIRouter(prefix="/warehouses", tags=["Warehouses"])
 
 
-@router.post("/", response_model=WarehouseResponse, status_code=status.HTTP_201_CREATED)
-async def create_warehouse(
-    warehouse: WarehouseCreate,
-    distributor: Dict = Depends(get_current_distributor),
-    db: Session = Depends(get_db)
-):
-    """Create a new warehouse. Only distributors can create warehouses."""
-    try:
-        result = WarehouseService.create_warehouse(
-            db=db,
-            name=warehouse.name,
-            zone_id=warehouse.zone_id,
-            address=warehouse.address
-        )
-        return result
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+# Warehouse creation endpoint removed - warehouses are automatically created when distributors are created
+# One warehouse per distributor is automatically assigned
 
 
 @router.get("/", response_model=List[WarehouseResponse])
 async def list_warehouses(
+    distributor_id: int = Query(None, description="Optional distributor ID to filter warehouses"),
     current_user: Dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """List all warehouses. Requires authentication."""
+    """List all warehouses. Requires authentication. Filter by distributor_id if provided."""
     try:
-        warehouses = WarehouseService.get_all_warehouses(db)
+        if distributor_id:
+            warehouses = WarehouseService.get_warehouses_by_distributor(db, distributor_id)
+        else:
+            warehouses = WarehouseService.get_all_warehouses(db)
         return warehouses
     except Exception as e:
         raise HTTPException(
@@ -218,24 +204,7 @@ async def unassign_delivery_man(
         )
 
 
-@router.delete("/{warehouse_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_warehouse(
-    warehouse_id: int,
-    distributor: Dict = Depends(get_current_distributor),
-    db: Session = Depends(get_db)
-):
-    """Soft delete warehouse. Only distributors can delete warehouses."""
-    try:
-        success = WarehouseService.delete_warehouse(db, warehouse_id)
-        if not success:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Warehouse not found"
-            )
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+# Warehouse deletion endpoint removed - warehouses cannot be deleted
+# They are automatically managed with distributors (one warehouse per distributor)
 
 

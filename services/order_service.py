@@ -203,7 +203,7 @@ class OrderService:
             unit_price = item.get('unit_price')
             product_name = item.get('product_name', '')
             
-            # If product_id is provided, fetch product and use its price
+            # If product_id is provided, fetch product and use its price and name
             if product_id:
                 product = ProductRepository.get_by_id(db, product_id)
                 if not product:
@@ -219,9 +219,9 @@ class OrderService:
                 elif not unit_price or unit_price <= 0:
                     raise ValueError(f"Product '{product.name}' (ID: {product_id}) does not have a price set. Please set the price in the product table.")
                 
-                # Use product name if not provided
-                if not product_name:
-                    product_name = product.name
+                # Always use product name from database when product_id is provided
+                # This ensures consistency and prevents incorrect names (e.g., product code) from being stored
+                product_name = product.name
             elif not unit_price or unit_price <= 0:
                 # No product_id and no valid unit_price
                 raise ValueError("Either product_id must be provided (to fetch price from product table) or unit_price must be provided")

@@ -11,12 +11,13 @@ class ProductRepository:
     """Repository for Product database operations."""
     
     @staticmethod
-    def create(db: Session, code: str, name: str, unit: str = None) -> Product:
+    def create(db: Session, code: str, name: str, unit: str = None, distributor_id: int = None) -> Product:
         """Create a new product."""
         product = Product(
             code=code,
             name=name,
             unit=unit,
+            distributor_id=distributor_id,
             is_active=True
         )
         db.add(product)
@@ -50,9 +51,11 @@ class ProductRepository:
         return query.first()
     
     @staticmethod
-    def get_all(db: Session, include_inactive: bool = False, include_deleted: bool = False) -> List[Product]:
-        """Get all products."""
+    def get_all(db: Session, include_inactive: bool = False, include_deleted: bool = False, distributor_id: int = None) -> List[Product]:
+        """Get all products. Filter by distributor_id if provided."""
         query = db.query(Product)
+        if distributor_id is not None:
+            query = query.filter(Product.distributor_id == distributor_id)
         if not include_deleted:
             query = query.filter(Product.deleted_at.is_(None))
         if not include_inactive:
@@ -60,12 +63,15 @@ class ProductRepository:
         return query.order_by(Product.name).all()
     
     @staticmethod
-    def get_active(db: Session) -> List[Product]:
-        """Get all active products (not deleted, is_active=True)."""
-        return db.query(Product).filter(
+    def get_active(db: Session, distributor_id: int = None) -> List[Product]:
+        """Get all active products (not deleted, is_active=True). Filter by distributor_id if provided."""
+        query = db.query(Product).filter(
             Product.deleted_at.is_(None),
             Product.is_active == True
-        ).order_by(Product.name).all()
+        )
+        if distributor_id is not None:
+            query = query.filter(Product.distributor_id == distributor_id)
+        return query.order_by(Product.name).all()
     
     @staticmethod
     def update(db: Session, product_id: int, code: str = None, name: str = None, 

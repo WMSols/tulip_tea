@@ -329,7 +329,31 @@ class WalletService:
         if not updated_from_wallet or not updated_to_wallet:
             raise ValueError("Failed to update wallet balances")
         
-        # Create transfer_out transaction
+        # Enhance metadata with collection details if this is a distributor collection
+        collection_description = description
+        if initiated_by_type == 'distributor' and to_user_type == 'distributor':
+            # Add collection metadata
+            enhanced_metadata['collection_timestamp'] = datetime.utcnow().isoformat()
+            enhanced_metadata['collected_by_distributor_id'] = initiated_by_id
+            enhanced_metadata['collection_type'] = 'distributor_collection'
+            # Get distributor name for better display
+            try:
+                from repositories.distributor_repository import DistributorRepository
+                distributor = DistributorRepository.get_by_id(db, initiated_by_id)
+                if distributor:
+                    enhanced_metadata['collected_by_distributor_name'] = distributor.name
+            except Exception as e:
+                print(f"Warning: Could not fetch distributor name: {str(e)}")
+            
+            # Enhanced description for distributor collections
+            collection_timestamp_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+            if not collection_description:
+                collection_description = f"💰 Money collected by distributor on {collection_timestamp_str} UTC"
+            else:
+                collection_description = f"💰 {collection_description} (Collected on {collection_timestamp_str} UTC)"
+        else:
+            collection_description = description or f"Transfer to {to_user_type} {to_user_id}"
+        
         transfer_out = WalletRepository.create_transaction(
             db=db,
             wallet_id=from_wallet.id,
@@ -337,7 +361,7 @@ class WalletService:
             amount=amount,
             balance_before=from_balance_before,
             balance_after=from_balance_after,
-            description=description or f"Transfer to {to_user_type} {to_user_id}",
+            description=collection_description,
             reference_type="transfer",
             reference_id=None,  # Will be set to transfer_in transaction ID after creation
             initiated_by_type=initiated_by_type,
@@ -366,6 +390,46 @@ class WalletService:
         # Update transfer_out reference_id to link to transfer_in
         transfer_out.reference_id = transfer_in.id
         db.commit()
+        
+        # Log wallet transaction activity
+        try:
+            from services.activity_log_service import ActivityLogService
+            action_type = 'WALLET_COLLECT' if (initiated_by_type == 'distributor' and to_user_type == 'distributor') else 'WALLET_TRANSFER'
+            changes_summary = f"Wallet transaction: Rs. {float(amount)} from {from_user_type} {from_user_id} to {to_user_type} {to_user_id}"
+            if initiated_by_type == 'distributor' and to_user_type == 'distributor':
+                changes_summary = f"Money collected: Rs. {float(amount)} from {from_user_type} {from_user_id} by distributor {initiated_by_id}"
+            
+            ActivityLogService.log_activity(
+                db=db,
+                user_id=initiated_by_id,
+                user_role=initiated_by_type or 'system',
+                action_type=action_type,
+                entity_type='wallet_transaction',
+                entity_id=transfer_in.id,
+                new_values={
+                    'from_user_type': from_user_type,
+                    'from_user_id': from_user_id,
+                    'to_user_type': to_user_type,
+                    'to_user_id': to_user_id,
+                    'amount': str(amount),
+                    'from_balance_before': str(from_balance_before),
+                    'from_balance_after': str(from_balance_after),
+                    'to_balance_before': str(to_balance_before),
+                    'to_balance_after': str(to_balance_after)
+                },
+                changes_summary=changes_summary,
+                metadata={
+                    'transfer_out_id': transfer_out.id,
+                    'transfer_in_id': transfer_in.id,
+                    'description': collection_description,
+                    'collection_type': enhanced_metadata.get('collection_type'),
+                    'collection_timestamp': enhanced_metadata.get('collection_timestamp')
+                },
+                status='success'
+            )
+        except Exception as e:
+            # Don't fail transaction if logging fails
+            print(f"Warning: Failed to log wallet transaction activity: {str(e)}")
         
         return {
             "transfer_id": transfer_in.id,
@@ -780,4 +844,81 @@ class WalletService:
             import traceback
             traceback.print_exc()
             return {}
+    
+    @staticmethod
+    def get_all_wallets_for_distributor(db: Session, distributor_id: int) -> List[Dict]:
+        """
+        Get all wallets of order bookers and delivery men under a distributor.
+        
+        Args:
+            db: Database session
+            distributor_id: ID of the distributor
+        
+        Returns:
+            List of wallet dictionaries with user information
+        """
+        from repositories.order_booker_repository import OrderBookerRepository
+        from repositories.delivery_man_repository import DeliveryManRepository
+        
+        result = []
+        
+        # Get all order bookers for this distributor
+        order_bookers = OrderBookerRepository.get_by_distributor(db, distributor_id)
+        for ob in order_bookers:
+            wallet = WalletRepository.get_by_user(db, 'order_booker', ob.id)
+            if wallet:
+                result.append({
+                    "wallet_id": wallet.id,
+                    "user_type": "order_booker",
+                    "user_id": ob.id,
+                    "user_name": ob.name,
+                    "user_phone": ob.phone,
+                    "current_balance": float(wallet.current_balance) if wallet.current_balance else 0.0,
+                    "is_active": wallet.is_active,
+                    "created_at": wallet.created_at.isoformat() if wallet.created_at else None
+                })
+            else:
+                # Create wallet if it doesn't exist
+                wallet = WalletRepository.create(db, 'order_booker', ob.id)
+                result.append({
+                    "wallet_id": wallet.id,
+                    "user_type": "order_booker",
+                    "user_id": ob.id,
+                    "user_name": ob.name,
+                    "user_phone": ob.phone,
+                    "current_balance": 0.0,
+                    "is_active": wallet.is_active,
+                    "created_at": wallet.created_at.isoformat() if wallet.created_at else None
+                })
+        
+        # Get all delivery men for this distributor
+        delivery_men = DeliveryManRepository.get_by_distributor(db, distributor_id)
+        for dm in delivery_men:
+            wallet = WalletRepository.get_by_user(db, 'delivery_man', dm.id)
+            if wallet:
+                result.append({
+                    "wallet_id": wallet.id,
+                    "user_type": "delivery_man",
+                    "user_id": dm.id,
+                    "user_name": dm.name,
+                    "user_phone": dm.phone,
+                    "current_balance": float(wallet.current_balance) if wallet.current_balance else 0.0,
+                    "is_active": wallet.is_active,
+                    "created_at": wallet.created_at.isoformat() if wallet.created_at else None
+                })
+            else:
+                # Create wallet if it doesn't exist
+                wallet = WalletRepository.create(db, 'delivery_man', dm.id)
+                result.append({
+                    "wallet_id": wallet.id,
+                    "user_type": "delivery_man",
+                    "user_id": dm.id,
+                    "user_name": dm.name,
+                    "user_phone": dm.phone,
+                    "current_balance": 0.0,
+                    "is_active": wallet.is_active,
+                    "created_at": wallet.created_at.isoformat() if wallet.created_at else None
+                })
+        
+        return result
 

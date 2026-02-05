@@ -5,8 +5,8 @@ Interactive script to permanently delete entities and all related data from the 
 
 This script handles cascading deletes for:
 - Shops (and related: credit_limit_requests, orders, payments, daily_collections, shop_visits)
-- Order Bookers (and related: routes, orders, shop_visits, shop assignments)
-- Delivery Men (and related: orders, daily_collections, shop_visits, delivery_man_routes)
+- Order Bookers (and related: routes, orders, shop_visits, shop assignments - FKs set to NULL)
+- Delivery Men (and related: orders, daily_collections, shop_visits, delivery_man_routes - FKs set to NULL)
 - Routes (and related: shops.route_id set to NULL, delivery_man_routes)
 - Products (and related: order_items.product_id set to NULL, inventory.product_id set to NULL)
 - Inventory (individual inventory items)
@@ -15,6 +15,9 @@ This script handles cascading deletes for:
 - Shop Visits (Order Booker visits from shop_visits table)
 - Deliveries (Delivery Man visits from deliveries table - shown in distributor's visits tab)
 - Orders (and related: order_items deleted, deliveries.order_id set to NULL, payments.order_id set to NULL, daily_collections.order_id set to NULL)
+- Weekly Route Schedules (and related: visit_tasks.weekly_schedule_id set to NULL)
+- Wallets (and related: wallet_transactions deleted, related_wallet_transactions.related_wallet_id set to NULL)
+- Wallet Transactions (individual transaction records)
 
 Additional Features:
 - Image Bucket Cleanup: Delete all images from Supabase storage buckets
@@ -58,6 +61,10 @@ from models.subsidy import Subsidy
 from models.activity_log import ActivityLog
 from models.super_admin import SuperAdmin
 from models.visit_type import VisitType
+from models.wallet import Wallet
+from models.wallet_transaction import WalletTransaction
+from models.weekly_route_schedule import WeeklyRouteSchedule
+from models.visit_task import VisitTask
 
 
 class EntityDeleter:
@@ -86,15 +93,18 @@ class EntityDeleter:
         print("9. Shop Visit (Order Booker Visits from shop_visits table)")
         print("10. Delivery (Delivery Man Visits from deliveries table)")
         print("11. Order")
+        print("12. Weekly Route Schedule")
+        print("13. Wallet")
+        print("14. Wallet Transaction")
         print("\n--- Image Bucket Cleanup ---")
-        print("12. Clean Shop Registrations Bucket")
-        print("13. Clean Daily Collections Bucket")
-        print("14. Clean Deliveries Bucket")
-        print("15. Clean Shop Visits Bucket")
+        print("15. Clean Shop Registrations Bucket")
+        print("16. Clean Daily Collections Bucket")
+        print("17. Clean Deliveries Bucket")
+        print("18. Clean Shop Visits Bucket")
         print("\n--- Sequence Reset ---")
-        print("16. Reset Primary Key Sequences")
+        print("19. Reset Primary Key Sequences")
         print("\n--- DANGER ZONE ---")
-        print("17. ⚠️  DELETE ALL DATA FROM ALL TABLES ⚠️")
+        print("20. ⚠️  DELETE ALL DATA FROM ALL TABLES ⚠️")
         print("\n0. Exit")
         print("-"*60)
     
@@ -142,6 +152,18 @@ class EntityDeleter:
     def list_orders(self) -> List[Order]:
         """List all orders."""
         return self.db.query(Order).order_by(Order.id).all()
+    
+    def list_weekly_route_schedules(self) -> List[WeeklyRouteSchedule]:
+        """List all weekly route schedules."""
+        return self.db.query(WeeklyRouteSchedule).order_by(WeeklyRouteSchedule.id).all()
+    
+    def list_wallets(self) -> List[Wallet]:
+        """List all wallets."""
+        return self.db.query(Wallet).order_by(Wallet.id).all()
+    
+    def list_wallet_transactions(self) -> List[WalletTransaction]:
+        """List all wallet transactions."""
+        return self.db.query(WalletTransaction).order_by(WalletTransaction.id).all()
     
     def get_order_related_data(self, order_id: int) -> Dict:
         """Get all data related to an order."""
@@ -913,6 +935,212 @@ class EntityDeleter:
             traceback.print_exc()
             return False
     
+    def get_weekly_route_schedule_related_data(self, schedule_id: int) -> Dict:
+        """Get all data related to a weekly route schedule."""
+        return {
+            'visit_tasks': self.db.query(VisitTask).filter(VisitTask.weekly_schedule_id == schedule_id).all(),
+        }
+    
+    def get_wallet_related_data(self, wallet_id: int) -> Dict:
+        """Get all data related to a wallet."""
+        return {
+            'wallet_transactions': self.db.query(WalletTransaction).filter(WalletTransaction.wallet_id == wallet_id).all(),
+            'related_wallet_transactions': self.db.query(WalletTransaction).filter(WalletTransaction.related_wallet_id == wallet_id).all(),
+        }
+    
+    def delete_weekly_route_schedule(self, schedule_id: int) -> bool:
+        """Delete a weekly route schedule and handle related data."""
+        schedule = self.db.query(WeeklyRouteSchedule).filter(WeeklyRouteSchedule.id == schedule_id).first()
+        if not schedule:
+            print(f"❌ Weekly Route Schedule with ID {schedule_id} not found!")
+            return False
+        
+        related = self.get_weekly_route_schedule_related_data(schedule_id)
+        
+        # Get route and assignee info for display
+        route = self.db.query(Route).filter(Route.id == schedule.route_id).first()
+        route_name = route.name if route else f"Route #{schedule.route_id}"
+        
+        assignee_name = "N/A"
+        if schedule.assignee_type == 'order_booker':
+            order_booker = self.db.query(OrderBooker).filter(OrderBooker.id == schedule.assignee_id).first()
+            assignee_name = order_booker.name if order_booker else f"OB#{schedule.assignee_id}"
+        elif schedule.assignee_type == 'delivery_man':
+            delivery_man = self.db.query(DeliveryMan).filter(DeliveryMan.id == schedule.assignee_id).first()
+            assignee_name = delivery_man.name if delivery_man else f"DM#{schedule.assignee_id}"
+        
+        days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        day_name = days[schedule.day_of_week] if 0 <= schedule.day_of_week <= 6 else f"Day {schedule.day_of_week}"
+        
+        # Show what will be affected
+        print(f"\n📋 Weekly Route Schedule to delete:")
+        print(f"   - Schedule ID: {schedule_id}")
+        print(f"   - Route: {route_name} (ID: {schedule.route_id})")
+        print(f"   - Assignee: {assignee_name} ({schedule.assignee_type}, ID: {schedule.assignee_id})")
+        print(f"   - Day of Week: {day_name} ({schedule.day_of_week})")
+        print(f"   - Active: {schedule.is_active}")
+        
+        print(f"\n📊 Related data that will be affected:")
+        print(f"   - Visit Tasks: {len(related['visit_tasks'])} (weekly_schedule_id will be set to NULL)")
+        
+        confirm = input(f"\n⚠️  Are you SURE you want to delete this schedule? (type 'del' to confirm): ")
+        if confirm != 'del':
+            print("❌ Deletion cancelled.")
+            return False
+        
+        try:
+            # Set foreign keys to NULL in visit_tasks
+            for task in related['visit_tasks']:
+                task.weekly_schedule_id = None
+            self.deleted_summary['visit_tasks_updated'] = self.deleted_summary.get('visit_tasks_updated', 0) + len(related['visit_tasks'])
+            
+            # Flush to ensure foreign keys are updated before deleting schedule
+            if related['visit_tasks']:
+                self.db.flush()
+            
+            # Delete the schedule
+            self.db.delete(schedule)
+            self.deleted_summary['weekly_route_schedules'] = self.deleted_summary.get('weekly_route_schedules', 0) + 1
+            
+            self.db.commit()
+            print(f"✅ Weekly Route Schedule (ID: {schedule_id}) deleted successfully!")
+            if related['visit_tasks']:
+                print(f"   - {len(related['visit_tasks'])} visit task(s) unlinked (weekly_schedule_id set to NULL)")
+            return True
+            
+        except Exception as e:
+            self.db.rollback()
+            print(f"❌ Error deleting weekly route schedule: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def delete_wallet(self, wallet_id: int) -> bool:
+        """Delete a wallet and handle related data."""
+        wallet = self.db.query(Wallet).filter(Wallet.id == wallet_id).first()
+        if not wallet:
+            print(f"❌ Wallet with ID {wallet_id} not found!")
+            return False
+        
+        related = self.get_wallet_related_data(wallet_id)
+        
+        # Get user info for display
+        user_name = "N/A"
+        if wallet.user_type == 'distributor':
+            distributor = self.db.query(Distributor).filter(Distributor.id == wallet.user_id).first()
+            user_name = distributor.name if distributor else f"Distributor #{wallet.user_id}"
+        elif wallet.user_type == 'order_booker':
+            order_booker = self.db.query(OrderBooker).filter(OrderBooker.id == wallet.user_id).first()
+            user_name = order_booker.name if order_booker else f"OB#{wallet.user_id}"
+        elif wallet.user_type == 'delivery_man':
+            delivery_man = self.db.query(DeliveryMan).filter(DeliveryMan.id == wallet.user_id).first()
+            user_name = delivery_man.name if delivery_man else f"DM#{wallet.user_id}"
+        
+        # Show what will be affected
+        print(f"\n📋 Wallet to delete:")
+        print(f"   - Wallet ID: {wallet_id}")
+        print(f"   - User: {user_name} ({wallet.user_type}, ID: {wallet.user_id})")
+        print(f"   - Current Balance: Rs. {wallet.current_balance}")
+        print(f"   - Active: {wallet.is_active}")
+        
+        print(f"\n📊 Related data that will be deleted:")
+        print(f"   - Wallet Transactions: {len(related['wallet_transactions'])} (will be deleted)")
+        print(f"   - Related Wallet Transactions: {len(related['related_wallet_transactions'])} (related_wallet_id will be set to NULL)")
+        
+        confirm = input(f"\n⚠️  Are you SURE you want to delete this wallet and ALL its transactions? (type 'del' to confirm): ")
+        if confirm != 'del':
+            print("❌ Deletion cancelled.")
+            return False
+        
+        try:
+            # Delete wallet transactions (they have RESTRICT, so must delete first)
+            for transaction in related['wallet_transactions']:
+                self.db.delete(transaction)
+            self.deleted_summary['wallet_transactions'] = self.deleted_summary.get('wallet_transactions', 0) + len(related['wallet_transactions'])
+            
+            # Set related_wallet_id to NULL in related transactions
+            for transaction in related['related_wallet_transactions']:
+                transaction.related_wallet_id = None
+            self.deleted_summary['wallet_transactions_updated'] = self.deleted_summary.get('wallet_transactions_updated', 0) + len(related['related_wallet_transactions'])
+            
+            # Flush to ensure transactions are deleted/updated before deleting wallet
+            if related['wallet_transactions'] or related['related_wallet_transactions']:
+                self.db.flush()
+            
+            # Delete the wallet
+            self.db.delete(wallet)
+            self.deleted_summary['wallets'] = self.deleted_summary.get('wallets', 0) + 1
+            
+            self.db.commit()
+            print(f"✅ Wallet (ID: {wallet_id}) deleted successfully!")
+            if related['wallet_transactions']:
+                print(f"   - {len(related['wallet_transactions'])} wallet transaction(s) deleted")
+            if related['related_wallet_transactions']:
+                print(f"   - {len(related['related_wallet_transactions'])} related transaction(s) unlinked (related_wallet_id set to NULL)")
+            return True
+            
+        except Exception as e:
+            self.db.rollback()
+            print(f"❌ Error deleting wallet: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def delete_wallet_transaction(self, transaction_id: int) -> bool:
+        """Delete a wallet transaction."""
+        transaction = self.db.query(WalletTransaction).filter(WalletTransaction.id == transaction_id).first()
+        if not transaction:
+            print(f"❌ Wallet Transaction with ID {transaction_id} not found!")
+            return False
+        
+        # Get wallet info for display
+        wallet = self.db.query(Wallet).filter(Wallet.id == transaction.wallet_id).first()
+        wallet_info = f"Wallet #{transaction.wallet_id}"
+        if wallet:
+            if wallet.user_type == 'distributor':
+                distributor = self.db.query(Distributor).filter(Distributor.id == wallet.user_id).first()
+                wallet_info = f"{distributor.name if distributor else 'Distributor'}#{wallet.user_id}"
+            elif wallet.user_type == 'order_booker':
+                order_booker = self.db.query(OrderBooker).filter(OrderBooker.id == wallet.user_id).first()
+                wallet_info = f"{order_booker.name if order_booker else 'OB'}#{wallet.user_id}"
+            elif wallet.user_type == 'delivery_man':
+                delivery_man = self.db.query(DeliveryMan).filter(DeliveryMan.id == wallet.user_id).first()
+                wallet_info = f"{delivery_man.name if delivery_man else 'DM'}#{wallet.user_id}"
+        
+        # Show what will be deleted
+        print(f"\n📋 Wallet Transaction to delete:")
+        print(f"   - Transaction ID: {transaction_id}")
+        print(f"   - Wallet: {wallet_info} (ID: {transaction.wallet_id})")
+        print(f"   - Type: {transaction.transaction_type}")
+        print(f"   - Amount: Rs. {transaction.amount}")
+        print(f"   - Balance: Rs. {transaction.balance_before} → Rs. {transaction.balance_after}")
+        print(f"   - Description: {transaction.description or 'N/A'}")
+        if transaction.reference_type:
+            print(f"   - Reference: {transaction.reference_type} (ID: {transaction.reference_id})")
+        if transaction.created_at:
+            print(f"   - Created: {transaction.created_at}")
+        
+        confirm = input(f"\n⚠️  Are you SURE you want to delete this transaction? (type 'del' to confirm): ")
+        if confirm != 'del':
+            print("❌ Deletion cancelled.")
+            return False
+        
+        try:
+            # Delete the transaction
+            self.db.delete(transaction)
+            self.deleted_summary['wallet_transactions'] = self.deleted_summary.get('wallet_transactions', 0) + 1
+            
+            self.db.commit()
+            print(f"✅ Wallet Transaction (ID: {transaction_id}) deleted successfully!")
+            return True
+            
+        except Exception as e:
+            self.db.rollback()
+            print(f"❌ Error deleting wallet transaction: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
     def parse_ids(self, ids_input: str) -> List[int]:
         """Parse comma or space separated IDs from user input."""
         if not ids_input:
@@ -1115,7 +1343,8 @@ class EntityDeleter:
             'inventory', 'delivery_man_warehouses', 'warehouses', 'zones',
             'distributors', 'orders', 'order_items', 'payments', 'daily_collections',
             'shop_visits', 'credit_limit_requests', 'delivery_man_routes',
-            'activity_logs', 'super_admins', 'visit_types'
+            'activity_logs', 'super_admins', 'visit_types', 'wallets',
+            'wallet_transactions', 'weekly_route_schedules', 'visit_tasks'
         ]
         
         print(f"📊 Tables to reset: {len(tables)}")
@@ -1406,6 +1635,46 @@ class EntityDeleter:
             self.deleted_summary['super_admins'] = len(super_admins)
             print(f"   ✅ Deleted {len(super_admins)} super admins")
             
+            self.db.flush()
+            
+            # Step 7: Delete wallet and schedule entities
+            print("\n📋 Step 7: Deleting wallet and schedule entities...")
+            
+            # Visit Tasks (set weekly_schedule_id to NULL first)
+            visit_tasks = self.db.query(VisitTask).all()
+            for task in visit_tasks:
+                task.weekly_schedule_id = None
+            if visit_tasks:
+                self.db.flush()
+                print(f"   ✅ Unlinked {len(visit_tasks)} visit tasks from schedules")
+            
+            # Wallet Transactions (must delete before wallets due to RESTRICT)
+            wallet_transactions = self.db.query(WalletTransaction).all()
+            for transaction in wallet_transactions:
+                self.db.delete(transaction)
+            self.deleted_summary['wallet_transactions'] = len(wallet_transactions)
+            print(f"   ✅ Deleted {len(wallet_transactions)} wallet transactions")
+            
+            # Wallets
+            wallets = self.db.query(Wallet).all()
+            for wallet in wallets:
+                self.db.delete(wallet)
+            self.deleted_summary['wallets'] = len(wallets)
+            print(f"   ✅ Deleted {len(wallets)} wallets")
+            
+            # Weekly Route Schedules
+            weekly_schedules = self.db.query(WeeklyRouteSchedule).all()
+            for schedule in weekly_schedules:
+                self.db.delete(schedule)
+            self.deleted_summary['weekly_route_schedules'] = len(weekly_schedules)
+            print(f"   ✅ Deleted {len(weekly_schedules)} weekly route schedules")
+            
+            # Visit Tasks (now safe to delete - weekly_schedule_id already NULL)
+            for task in visit_tasks:
+                self.db.delete(task)
+            self.deleted_summary['visit_tasks'] = len(visit_tasks)
+            print(f"   ✅ Deleted {len(visit_tasks)} visit tasks")
+            
             # Commit all deletions
             self.db.commit()
             
@@ -1430,7 +1699,7 @@ def main():
     try:
         while True:
             deleter.show_menu()
-            choice = input("\nEnter your choice (0-17): ").strip()
+            choice = input("\nEnter your choice (0-20): ").strip()
             
             if choice == '0':
                 print("\n👋 Exiting...")
@@ -1909,32 +2178,182 @@ def main():
                 except KeyboardInterrupt:
                     print("\n\n❌ Operation cancelled by user.")
             
-            elif choice == '12':  # Clean Shop Registrations Bucket
+            elif choice == '12':  # Weekly Route Schedule
+                schedules = deleter.list_weekly_route_schedules()
+                if not schedules:
+                    print("\n❌ No weekly route schedules found in database.")
+                    continue
+                
+                print(f"\n📋 Available Weekly Route Schedules ({len(schedules)} total):")
+                days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+                for schedule in schedules:
+                    route = deleter.db.query(Route).filter(Route.id == schedule.route_id).first()
+                    route_name = route.name if route else f"Route #{schedule.route_id}"
+                    
+                    assignee_name = "N/A"
+                    if schedule.assignee_type == 'order_booker':
+                        order_booker = deleter.db.query(OrderBooker).filter(OrderBooker.id == schedule.assignee_id).first()
+                        assignee_name = order_booker.name if order_booker else f"OB#{schedule.assignee_id}"
+                    elif schedule.assignee_type == 'delivery_man':
+                        delivery_man = deleter.db.query(DeliveryMan).filter(DeliveryMan.id == schedule.assignee_id).first()
+                        assignee_name = delivery_man.name if delivery_man else f"DM#{schedule.assignee_id}"
+                    
+                    day_name = days[schedule.day_of_week] if 0 <= schedule.day_of_week <= 6 else f"Day {schedule.day_of_week}"
+                    status = "Active" if schedule.is_active else "Inactive"
+                    print(f"   {schedule.id}. {route_name} | {assignee_name} ({schedule.assignee_type}) | {day_name} | {status}")
+                print(f"\n📌 Available Schedule IDs: {', '.join(str(s.id) for s in schedules)}")
+                
+                try:
+                    ids_input = input("\nEnter Schedule ID(s) to delete (comma or space separated for multiple): ").strip()
+                    schedule_ids = deleter.parse_ids(ids_input)
+                    if not schedule_ids:
+                        print("❌ No valid IDs provided!")
+                        continue
+                    
+                    if len(schedule_ids) == 1:
+                        deleter.delete_weekly_route_schedule(schedule_ids[0])
+                    else:
+                        print(f"\n⚠️  You are about to delete {len(schedule_ids)} schedules!")
+                        confirm = input("Type 'del' to confirm bulk deletion: ")
+                        if confirm == 'del':
+                            success_count = 0
+                            for schedule_id in schedule_ids:
+                                if deleter.delete_weekly_route_schedule(schedule_id):
+                                    success_count += 1
+                            print(f"\n✅ Successfully deleted {success_count} out of {len(schedule_ids)} schedules.")
+                        else:
+                            print("❌ Bulk deletion cancelled.")
+                except ValueError:
+                    print("❌ Invalid Schedule ID(s)!")
+                except KeyboardInterrupt:
+                    print("\n\n❌ Operation cancelled by user.")
+            
+            elif choice == '13':  # Wallet
+                wallets = deleter.list_wallets()
+                if not wallets:
+                    print("\n❌ No wallets found in database.")
+                    continue
+                
+                print(f"\n📋 Available Wallets ({len(wallets)} total):")
+                for wallet in wallets:
+                    user_name = "N/A"
+                    if wallet.user_type == 'distributor':
+                        distributor = deleter.db.query(Distributor).filter(Distributor.id == wallet.user_id).first()
+                        user_name = distributor.name if distributor else f"Distributor #{wallet.user_id}"
+                    elif wallet.user_type == 'order_booker':
+                        order_booker = deleter.db.query(OrderBooker).filter(OrderBooker.id == wallet.user_id).first()
+                        user_name = order_booker.name if order_booker else f"OB#{wallet.user_id}"
+                    elif wallet.user_type == 'delivery_man':
+                        delivery_man = deleter.db.query(DeliveryMan).filter(DeliveryMan.id == wallet.user_id).first()
+                        user_name = delivery_man.name if delivery_man else f"DM#{wallet.user_id}"
+                    
+                    status = "Active" if wallet.is_active else "Inactive"
+                    print(f"   {wallet.id}. {user_name} ({wallet.user_type}) | Balance: Rs. {wallet.current_balance} | {status}")
+                print(f"\n📌 Available Wallet IDs: {', '.join(str(w.id) for w in wallets)}")
+                
+                try:
+                    ids_input = input("\nEnter Wallet ID(s) to delete (comma or space separated for multiple): ").strip()
+                    wallet_ids = deleter.parse_ids(ids_input)
+                    if not wallet_ids:
+                        print("❌ No valid IDs provided!")
+                        continue
+                    
+                    if len(wallet_ids) == 1:
+                        deleter.delete_wallet(wallet_ids[0])
+                    else:
+                        print(f"\n⚠️  You are about to delete {len(wallet_ids)} wallets!")
+                        confirm = input("Type 'del' to confirm bulk deletion: ")
+                        if confirm == 'del':
+                            success_count = 0
+                            for wallet_id in wallet_ids:
+                                if deleter.delete_wallet(wallet_id):
+                                    success_count += 1
+                            print(f"\n✅ Successfully deleted {success_count} out of {len(wallet_ids)} wallets.")
+                        else:
+                            print("❌ Bulk deletion cancelled.")
+                except ValueError:
+                    print("❌ Invalid Wallet ID(s)!")
+                except KeyboardInterrupt:
+                    print("\n\n❌ Operation cancelled by user.")
+            
+            elif choice == '14':  # Wallet Transaction
+                transactions = deleter.list_wallet_transactions()
+                if not transactions:
+                    print("\n❌ No wallet transactions found in database.")
+                    continue
+                
+                print(f"\n📋 Available Wallet Transactions ({len(transactions)} total):")
+                print("   (Showing first 50 transactions, use ID to delete specific ones)")
+                for transaction in transactions[:50]:
+                    wallet = deleter.db.query(Wallet).filter(Wallet.id == transaction.wallet_id).first()
+                    wallet_info = f"Wallet #{transaction.wallet_id}"
+                    if wallet:
+                        if wallet.user_type == 'distributor':
+                            distributor = deleter.db.query(Distributor).filter(Distributor.id == wallet.user_id).first()
+                            wallet_info = f"{distributor.name if distributor else 'Distributor'}#{wallet.user_id}"
+                        elif wallet.user_type == 'order_booker':
+                            order_booker = deleter.db.query(OrderBooker).filter(OrderBooker.id == wallet.user_id).first()
+                            wallet_info = f"{order_booker.name if order_booker else 'OB'}#{wallet.user_id}"
+                        elif wallet.user_type == 'delivery_man':
+                            delivery_man = deleter.db.query(DeliveryMan).filter(DeliveryMan.id == wallet.user_id).first()
+                            wallet_info = f"{delivery_man.name if delivery_man else 'DM'}#{wallet.user_id}"
+                    
+                    print(f"   {transaction.id}. {wallet_info} | {transaction.transaction_type} | Rs. {transaction.amount} | {transaction.created_at}")
+                if len(transactions) > 50:
+                    print(f"   ... and {len(transactions) - 50} more transactions")
+                print(f"\n📌 Available Transaction IDs: {', '.join(str(t.id) for t in transactions[:20])}{'...' if len(transactions) > 20 else ''}")
+                
+                try:
+                    ids_input = input("\nEnter Transaction ID(s) to delete (comma or space separated for multiple): ").strip()
+                    transaction_ids = deleter.parse_ids(ids_input)
+                    if not transaction_ids:
+                        print("❌ No valid IDs provided!")
+                        continue
+                    
+                    if len(transaction_ids) == 1:
+                        deleter.delete_wallet_transaction(transaction_ids[0])
+                    else:
+                        print(f"\n⚠️  You are about to delete {len(transaction_ids)} transactions!")
+                        confirm = input("Type 'del' to confirm bulk deletion: ")
+                        if confirm == 'del':
+                            success_count = 0
+                            for transaction_id in transaction_ids:
+                                if deleter.delete_wallet_transaction(transaction_id):
+                                    success_count += 1
+                            print(f"\n✅ Successfully deleted {success_count} out of {len(transaction_ids)} transactions.")
+                        else:
+                            print("❌ Bulk deletion cancelled.")
+                except ValueError:
+                    print("❌ Invalid Transaction ID(s)!")
+                except KeyboardInterrupt:
+                    print("\n\n❌ Operation cancelled by user.")
+            
+            elif choice == '15':  # Clean Shop Registrations Bucket
                 deleter.clean_bucket('shop-registrations')
             
-            elif choice == '13':  # Clean Daily Collections Bucket
+            elif choice == '16':  # Clean Daily Collections Bucket
                 deleter.clean_bucket('daily-collections')
             
-            elif choice == '14':  # Clean Deliveries Bucket
+            elif choice == '17':  # Clean Deliveries Bucket
                 deleter.clean_bucket('deliveries')
             
-            elif choice == '15':  # Clean Shop Visits Bucket
+            elif choice == '18':  # Clean Shop Visits Bucket
                 deleter.clean_bucket('shop-visits')
             
-            elif choice == '16':  # Reset Sequences
+            elif choice == '19':  # Reset Sequences
                 deleter.reset_all_sequences()
             
-            elif choice == '17':  # Delete All Data
+            elif choice == '20':  # Delete All Data
                 deleter.delete_all_data()
             
             else:
-                print("❌ Invalid choice! Please enter 0-17.")
+                print("❌ Invalid choice! Please enter 0-20.")
             
             # Show summary
             deleter.show_summary()
             
             # Ask if user wants to continue
-            if choice in ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17']:
+            if choice in ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20']:
                 continue_choice = input("\nContinue? (y/n): ").strip().lower()
                 if continue_choice != 'y':
                     break

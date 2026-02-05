@@ -503,25 +503,65 @@ class ShopVisitService:
         return result
     
     @staticmethod
-    def get_all_visits(db: Session, skip: int = 0, limit: int = 1000) -> List[Dict]:
+    def get_all_visits(db: Session, distributor_id: int = None, skip: int = 0, limit: int = 1000) -> List[Dict]:
         """
         Get all shop visits with shop and visitor information.
         OPTIMIZED: Uses batch loading to avoid N+1 queries.
         
         FLOW:
         1. Gets all visits from repository (1 query)
-        2. Batch loads all related data (shops, routes, order bookers, delivery men, visit types, orders, collections)
-        3. Formats visits using pre-loaded data (no additional queries)
+        2. If distributor_id is provided, filters to visits by order bookers/delivery men belonging to this distributor
+        3. Batch loads all related data (shops, routes, order bookers, delivery men, visit types, orders, collections)
+        4. Formats visits using pre-loaded data (no additional queries)
         
         Args:
             db: Database session
+            distributor_id: Optional distributor ID to filter visits
             skip: Number of records to skip (for pagination)
             limit: Maximum number of records to return
         
         Returns:
             List[Dict]: List of visits with shop, visitor, zone info, and linked order/collection IDs
         """
-        visits = ShopVisitRepository.get_all(db, skip, limit)
+        if distributor_id:
+            # Filter visits by distributor: get visits by order bookers/delivery men belonging to this distributor
+            from models.order_booker import OrderBooker
+            from models.delivery_man import DeliveryMan
+            from models.shop_visit import ShopVisit
+            from sqlalchemy import or_
+            
+            # Get order booker IDs for this distributor
+            order_booker_ids = db.query(OrderBooker.id).filter(
+                OrderBooker.distributor_id == distributor_id,
+                OrderBooker.deleted_at.is_(None),
+                OrderBooker.is_active == True
+            ).subquery()
+            
+            # Get delivery man IDs for this distributor
+            delivery_man_ids = db.query(DeliveryMan.id).filter(
+                DeliveryMan.distributor_id == distributor_id,
+                DeliveryMan.deleted_at.is_(None),
+                DeliveryMan.is_active == True
+            ).subquery()
+            
+            order_booker_id_list = [row[0] for row in db.query(order_booker_ids.c.id).all()]
+            delivery_man_id_list = [row[0] for row in db.query(delivery_man_ids.c.id).all()]
+            
+            # Filter visits by order booker or delivery man belonging to this distributor
+            conditions = []
+            if order_booker_id_list:
+                conditions.append(ShopVisit.order_booker_id.in_(order_booker_id_list))
+            if delivery_man_id_list:
+                conditions.append(ShopVisit.delivery_man_id.in_(delivery_man_id_list))
+            
+            if conditions:
+                visits = db.query(ShopVisit).filter(
+                    or_(*conditions)
+                ).offset(skip).limit(limit).all()
+            else:
+                visits = []
+        else:
+            visits = ShopVisitRepository.get_all(db, skip, limit)
         
         if not visits:
             return []

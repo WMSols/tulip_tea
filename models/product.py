@@ -16,7 +16,7 @@ USAGE:
 3. Order Items reference products via product_id
 4. Product name is also stored in order_items.product_name for backward compatibility
 """
-from sqlalchemy import Column, BigInteger, String, Boolean, DateTime, Numeric
+from sqlalchemy import Column, BigInteger, String, Boolean, DateTime, Numeric, ForeignKey
 from sqlalchemy.sql import func
 from config.database import Base
 
@@ -104,6 +104,14 @@ class Product(Base):
     - When set, product is considered deleted but data is preserved
     - NULL = active record
     - Used for soft delete functionality
+    """
+    
+    # Distributor Relationship
+    distributor_id = Column(BigInteger, ForeignKey("distributors.id"), nullable=False)
+    """
+    Foreign key to distributors table.
+    - Each product belongs to a distributor
+    - Distributors can only see and manage their own products
     """
 
 

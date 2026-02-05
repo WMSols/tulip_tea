@@ -828,6 +828,16 @@
                         <button class="btn btn-success" onclick="loadWalletBalance()" style="margin-top: 10px;">Refresh Balance</button>
                     </div>
 
+                    <!-- Collect Money from Order Bookers and Delivery Men -->
+                    <div class="info-card" style="margin-bottom: 30px;">
+                        <h3>💰 Collect Money from Order Bookers & Delivery Men</h3>
+                        <p style="color: #666; margin-bottom: 15px; font-size: 14px;">
+                            View all wallets of your order bookers and delivery men, and collect money from them.
+                        </p>
+                        <button class="btn btn-primary" onclick="loadAllWallets()" style="margin-bottom: 15px;">🔄 Load All Wallets</button>
+                        <div id="allWalletsList" style="margin-top: 20px;"></div>
+                    </div>
+
                     <!-- Transaction History -->
                     <h3 style="margin-top: 30px;">📊 Transaction History</h3>
                     <button class="btn btn-success" onclick="loadWalletTransactions()" style="margin-bottom: 20px;">Refresh Transactions</button>
@@ -1092,7 +1102,19 @@
                 }
                 
                 // Load data when switching to these tabs
-                if (tabName === 'warehouses') {
+                if (tabName === 'orderBookers') {
+                    // Ensure zones are loaded for the zone dropdown
+                    if (!allZones || allZones.length === 0) {
+                        loadZones();
+                    }
+                    loadOrderBookers();
+                } else if (tabName === 'deliveryMen') {
+                    // Ensure zones are loaded for the zone dropdown
+                    if (!allZones || allZones.length === 0) {
+                        loadZones();
+                    }
+                    loadDeliveryMen();
+                } else if (tabName === 'warehouses') {
                     loadWarehouses();
                 } else if (tabName === 'products') {
                     loadProducts();
@@ -2181,7 +2203,7 @@
             const editPhone = document.getElementById('editPhone');
             const editEmail = document.getElementById('editEmail');
             const editEmailGroup = document.getElementById('editEmailGroup');
-            const editZoneId = document.getElementById('editZoneId');
+            const editUserZoneId = document.getElementById('editUserZoneId');
             const editPassword = document.getElementById('editPassword');
             
             // Set title
@@ -2203,9 +2225,9 @@
             
             // Set zone AFTER zones are loaded
             if (zoneId && zoneId !== 'null' && zoneId !== null) {
-                editZoneId.value = zoneId;
+                editUserZoneId.value = zoneId;
             } else {
-                editZoneId.value = '';
+                editUserZoneId.value = '';
             }
             
             // Show modal
@@ -2222,7 +2244,7 @@
         }
 
         async function loadZonesForModal() {
-            const zoneSelect = document.getElementById('editZoneId');
+            const zoneSelect = document.getElementById('editUserZoneId');
             if (!zoneSelect) return;
             
             // Preserve current value before rebuilding dropdown
@@ -2270,13 +2292,13 @@
             const editName = document.getElementById('editName').value;
             const editPhone = document.getElementById('editPhone').value;
             const editEmail = document.getElementById('editEmail').value;
-            const editZoneId = document.getElementById('editZoneId').value;
+            const editUserZoneId = document.getElementById('editUserZoneId').value;
             const editPassword = document.getElementById('editPassword').value;
             
             const updateData = {
                 name: editName,
                 phone: editPhone,
-                zone_id: editZoneId ? parseInt(editZoneId) : null
+                zone_id: editUserZoneId ? parseInt(editUserZoneId) : null
             };
             
             if (currentEditType === 'order_booker') {
@@ -2329,7 +2351,7 @@
                 return;
             }
 
-            const endpoint = `${API_BASE}/shops/pending`;
+            const endpoint = `${API_BASE}/shops/pending?distributor_id=${currentDistributorId}`;
             showApiCall('GET', endpoint, 'Load Pending Shops', 'loading');
 
             try {
@@ -3512,7 +3534,7 @@
             try {
                 // Fetch both shop visits and deliveries in parallel
                 const [visitsResponse, deliveriesResponse] = await Promise.all([
-                    fetch(`${API_BASE}/shop-visits/all?limit=1000`, {
+                    fetch(`${API_BASE}/shop-visits/all?distributor_id=${currentDistributorId}&limit=1000`, {
                         headers: { 'Authorization': `Bearer ${currentToken}` }
                     }),
                     fetch(`${API_BASE}/deliveries/distributor/${currentDistributorId}?limit=1000`, {
@@ -4887,7 +4909,7 @@
                 return;
             }
 
-            const endpoint = `${API_BASE}/warehouses/`;
+            const endpoint = `${API_BASE}/warehouses/?distributor_id=${currentDistributorId}`;
             showApiCall('GET', endpoint, 'Load Warehouses', 'loading');
 
             try {
@@ -5063,7 +5085,7 @@
             if (!productSelect) return;
             
             try {
-                const response = await fetch(`${API_BASE}/products/active`, {
+                const response = await fetch(`${API_BASE}/products/active?distributor_id=${currentDistributorId}`, {
                     headers: { 'Authorization': `Bearer ${currentToken}` }
                 });
                 
@@ -5167,7 +5189,7 @@
             if (!productSelect) return;
             
             try {
-                const response = await fetch(`${API_BASE}/products/active`, {
+                const response = await fetch(`${API_BASE}/products/active?distributor_id=${currentDistributorId}`, {
                     headers: { 'Authorization': `Bearer ${currentToken}` }
                 });
                 
@@ -5475,7 +5497,7 @@
             }
 
             const includeInactive = document.getElementById('includeInactiveProducts')?.checked || false;
-            const endpoint = `${API_BASE}/products/?include_inactive=${includeInactive}`;
+            const endpoint = `${API_BASE}/products/?distributor_id=${currentDistributorId}&include_inactive=${includeInactive}`;
             showApiCall('GET', endpoint, 'Load Products', 'loading');
 
             try {
@@ -5762,6 +5784,195 @@
                 if (transactionsList) {
                     transactionsList.innerHTML = `<p style="color: #dc3545;">Error loading transactions: ${error.message}</p>`;
                 }
+            }
+        }
+
+        // Load all wallets for order bookers and delivery men
+        async function loadAllWallets() {
+            if (!currentDistributorId) return;
+            
+            const walletsList = document.getElementById('allWalletsList');
+            walletsList.innerHTML = '<p>Loading wallets...</p>';
+            
+            try {
+                const endpoint = `${API_BASE}/wallets/distributor/${currentDistributorId}/all-wallets`;
+                showApiCall('GET', endpoint, 'Load All Wallets', 'loading');
+                
+                const response = await fetch(endpoint, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    showApiCall('GET', endpoint, 'Load All Wallets', 'error');
+                    throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+                }
+                
+                const wallets = await response.json();
+                showApiCall('GET', endpoint, 'Load All Wallets', 'success');
+                
+                if (wallets.length === 0) {
+                    walletsList.innerHTML = '<p style="color: #666;">No order bookers or delivery men found.</p>';
+                    return;
+                }
+                
+                // Group by user type
+                const orderBookerWallets = wallets.filter(w => w.user_type === 'order_booker');
+                const deliveryManWallets = wallets.filter(w => w.user_type === 'delivery_man');
+                
+                let html = '';
+                
+                // Order Bookers Section
+                if (orderBookerWallets.length > 0) {
+                    html += '<h4 style="color: #667eea; margin-top: 20px; margin-bottom: 15px;">📋 Order Bookers</h4>';
+                    html += orderBookerWallets.map(wallet => `
+                        <div class="list-item" style="margin-bottom: 15px;">
+                            <div class="list-item-info">
+                                <strong>${wallet.user_name || `Order Booker #${wallet.user_id}`}</strong>
+                                <span style="color: #666; margin-left: 10px;">(${wallet.user_phone || 'N/A'})</span><br>
+                                <div style="margin-top: 10px; display: flex; justify-content: space-between; align-items: center;">
+                                    <div>
+                                        <strong style="color: ${wallet.current_balance > 0 ? '#28a745' : '#666'}; font-size: 1.2em;">
+                                            Balance: Rs. ${wallet.current_balance.toFixed(2)}
+                                        </strong>
+                                    </div>
+                                    <div>
+                                        <button class="btn btn-primary" onclick="openCollectMoneyModal('order_booker', ${wallet.user_id}, '${(wallet.user_name || '').replace(/'/g, "\\'")}', ${wallet.current_balance})" 
+                                                ${wallet.current_balance <= 0 ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : ''}>
+                                            💰 Collect Money
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+                
+                // Delivery Men Section
+                if (deliveryManWallets.length > 0) {
+                    html += '<h4 style="color: #f5576c; margin-top: 20px; margin-bottom: 15px;">🚚 Delivery Men</h4>';
+                    html += deliveryManWallets.map(wallet => `
+                        <div class="list-item" style="margin-bottom: 15px;">
+                            <div class="list-item-info">
+                                <strong>${wallet.user_name || `Delivery Man #${wallet.user_id}`}</strong>
+                                <span style="color: #666; margin-left: 10px;">(${wallet.user_phone || 'N/A'})</span><br>
+                                <div style="margin-top: 10px; display: flex; justify-content: space-between; align-items: center;">
+                                    <div>
+                                        <strong style="color: ${wallet.current_balance > 0 ? '#28a745' : '#666'}; font-size: 1.2em;">
+                                            Balance: Rs. ${wallet.current_balance.toFixed(2)}
+                                        </strong>
+                                    </div>
+                                    <div>
+                                        <button class="btn btn-primary" onclick="openCollectMoneyModal('delivery_man', ${wallet.user_id}, '${(wallet.user_name || '').replace(/'/g, "\\'")}', ${wallet.current_balance})" 
+                                                ${wallet.current_balance <= 0 ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : ''}>
+                                            💰 Collect Money
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+                
+                walletsList.innerHTML = html;
+            } catch (error) {
+                console.error('Error loading all wallets:', error);
+                walletsList.innerHTML = `<p style="color: #dc3545;">Error loading wallets: ${error.message}</p>`;
+            }
+        }
+
+        // Open collect money modal
+        function openCollectMoneyModal(userType, userId, userName, currentBalance) {
+            const modal = document.getElementById('collectMoneyModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('active');
+            
+            document.getElementById('collectUserType').value = userType;
+            document.getElementById('collectUserId').value = userId;
+            document.getElementById('collectUserName').textContent = userName;
+            document.getElementById('collectCurrentBalance').textContent = `Rs. ${currentBalance.toFixed(2)}`;
+            document.getElementById('collectMaxAmount').textContent = currentBalance.toFixed(2);
+            document.getElementById('collectAmount').max = currentBalance;
+            document.getElementById('collectAmount').value = '';
+            document.getElementById('collectDescription').value = '';
+            document.getElementById('collectResult').className = 'result';
+            document.getElementById('collectResult').textContent = '';
+        }
+
+        // Close collect money modal
+        function closeCollectMoneyModal() {
+            const modal = document.getElementById('collectMoneyModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('active');
+        }
+
+        // Collect money from order booker or delivery man
+        async function collectMoney(event) {
+            event.preventDefault();
+            if (!currentDistributorId) return;
+            
+            const userType = document.getElementById('collectUserType').value;
+            const userId = parseInt(document.getElementById('collectUserId').value);
+            const amount = parseFloat(document.getElementById('collectAmount').value);
+            const description = document.getElementById('collectDescription').value;
+            const resultDiv = document.getElementById('collectResult');
+            
+            if (!amount || amount <= 0) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Please enter a valid amount.';
+                return;
+            }
+            
+            const maxAmount = parseFloat(document.getElementById('collectMaxAmount').textContent);
+            if (amount > maxAmount) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Amount cannot exceed available balance (Rs. ${maxAmount.toFixed(2)}).`;
+                return;
+            }
+            
+            try {
+                const endpoint = `${API_BASE}/wallets/distributor/${currentDistributorId}/collect`;
+                showApiCall('POST', endpoint, 'Collect Money', 'loading');
+                
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify({
+                        from_user_type: userType,
+                        from_user_id: userId,
+                        amount: amount,
+                        description: description || `Collection by distributor from ${userType}`,
+                        metadata: {}
+                    })
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    showApiCall('POST', endpoint, 'Collect Money', 'error');
+                    throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                showApiCall('POST', endpoint, 'Collect Money', 'success');
+                
+                resultDiv.className = 'result success';
+                resultDiv.textContent = `✅ Successfully collected Rs. ${amount.toFixed(2)} from ${document.getElementById('collectUserName').textContent}!`;
+                
+                // Reload wallets and transactions
+                setTimeout(() => {
+                    loadAllWallets();
+                    loadWalletBalance();
+                    loadWalletTransactions();
+                    closeCollectMoneyModal();
+                }, 1500);
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
             }
         }
 
@@ -6092,6 +6303,10 @@
             if (event.target === transactionModal) {
                 closeTransactionDetailsModal();
             }
+            const collectModal = document.getElementById('collectMoneyModal');
+            if (event.target === collectModal) {
+                closeCollectMoneyModal();
+            }
         }
 
         // ==================== SCHEDULE MANAGEMENT FUNCTIONS ====================
@@ -6400,7 +6615,7 @@
             </div>
             <div class="form-group">
                 <label>Zone (Optional)</label>
-                <select id="editZoneId">
+                <select id="editUserZoneId">
                     <option value="">Select Zone (Optional)</option>
                 </select>
             </div>
@@ -6547,6 +6762,44 @@
             <div id="transactionDetailsContent">
                 <!-- Transaction details will be populated here -->
             </div>
+        </div>
+    </div>
+
+    <!-- Collect Money Modal -->
+    <div id="collectMoneyModal" class="modal hidden">
+        <div class="modal-content" style="max-width: 600px;">
+            <span class="close-button" onclick="closeCollectMoneyModal()">&times;</span>
+            <h2>💰 Collect Money</h2>
+            <form id="collectMoneyForm" onsubmit="collectMoney(event)">
+                <input type="hidden" id="collectUserType" value="">
+                <input type="hidden" id="collectUserId" value="">
+                
+                <div class="info-card" style="margin-bottom: 20px; background: #e8f4f8; border-left: 4px solid #3498db;">
+                    <div class="info-row">
+                        <span class="info-label">Collecting From:</span>
+                        <span class="info-value"><strong id="collectUserName"></strong></span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Current Balance:</span>
+                        <span class="info-value" style="font-size: 1.2em; font-weight: bold; color: #28a745;" id="collectCurrentBalance">Rs. 0.00</span>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label>Amount to Collect (Rs.) *</label>
+                    <input type="number" id="collectAmount" required step="0.01" min="0.01" placeholder="Enter amount to collect">
+                    <small style="color: #666;">Maximum: Rs. <span id="collectMaxAmount">0.00</span></small>
+                </div>
+                
+                <div class="form-group">
+                    <label>Description (Optional)</label>
+                    <textarea id="collectDescription" rows="3" placeholder="Optional description for this collection"></textarea>
+                </div>
+                
+                <button type="submit" class="btn btn-primary">💰 Collect Money</button>
+                <button type="button" class="btn btn-secondary" onclick="closeCollectMoneyModal()" style="margin-left: 10px;">Cancel</button>
+            </form>
+            <div id="collectResult" class="result" style="margin-top: 15px;"></div>
         </div>
     </div>
 </body>

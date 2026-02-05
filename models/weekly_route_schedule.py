@@ -136,3 +136,5 @@ class WeeklyRouteSchedule(Base):
         CheckConstraint("day_of_week BETWEEN 0 AND 6", name="chk_day_of_week"),
     )
 
+
+

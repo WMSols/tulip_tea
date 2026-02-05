@@ -370,11 +370,24 @@
                         <option value="REJECT">REJECT</option>
                         <option value="LOGIN">LOGIN</option>
                         <option value="LOGOUT">LOGOUT</option>
+                        <option value="WALLET_TRANSFER">Wallet Transfer</option>
+                        <option value="WALLET_COLLECT">Wallet Collection</option>
                     </select>
                 </div>
                 <div class="filter-group">
                     <label>Entity Type</label>
-                    <input type="text" id="entityTypeFilter" placeholder="e.g., shop, order" onchange="loadLogs()">
+                    <select id="entityTypeFilter" onchange="loadLogs()">
+                        <option value="">All Entities</option>
+                        <option value="shop">Shop</option>
+                        <option value="shop_visit">Shop Visit</option>
+                        <option value="daily_collection">Daily Collection</option>
+                        <option value="wallet_transaction">Wallet Transaction</option>
+                        <option value="distributor">Distributor</option>
+                        <option value="order_booker">Order Booker</option>
+                        <option value="delivery_man">Delivery Man</option>
+                        <option value="order">Order</option>
+                        <option value="payment">Payment</option>
+                    </select>
                 </div>
                 <div class="filter-group">
                     <label>Status</label>
@@ -529,13 +542,31 @@
                 const userInfo = log.user_name ? `${log.user_name} (${log.user_id || 'N/A'})` : (log.user_id ? `ID: ${log.user_id}` : 'System');
                 const entityInfo = log.entity_id ? `${log.entity_type} #${log.entity_id}` : log.entity_type;
                 
+                // Format action type for display
+                let actionDisplay = log.action_type;
+                if (log.action_type === 'WALLET_TRANSFER') {
+                    actionDisplay = '💰 Transfer';
+                } else if (log.action_type === 'WALLET_COLLECT') {
+                    actionDisplay = '💸 Collect';
+                }
+                
+                // Format entity type for display
+                let entityDisplay = entityInfo;
+                if (log.entity_type === 'shop_visit') {
+                    entityDisplay = `📍 Visit #${log.entity_id || 'N/A'}`;
+                } else if (log.entity_type === 'daily_collection') {
+                    entityDisplay = `💵 Collection #${log.entity_id || 'N/A'}`;
+                } else if (log.entity_type === 'wallet_transaction') {
+                    entityDisplay = `💳 Transaction #${log.entity_id || 'N/A'}`;
+                }
+                
                 row.innerHTML = `
                     <td>${log.id}</td>
                     <td>${timestamp}</td>
                     <td>${userInfo}</td>
                     <td><span class="badge badge-role">${log.user_role || 'N/A'}</span></td>
-                    <td><span class="badge badge-action">${log.action_type}</span></td>
-                    <td>${entityInfo}</td>
+                    <td><span class="badge badge-action">${actionDisplay}</span></td>
+                    <td>${entityDisplay}</td>
                     <td><span class="badge badge-${log.status}">${log.status}</span></td>
                     <td>${log.changes_summary || log.reason || '-'}</td>
                     <td><button class="btn btn-secondary" onclick="showDetails(${log.id})" style="padding: 5px 10px; font-size: 12px;">View</button></td>
@@ -594,8 +625,72 @@
                     
                     ${log.changes_summary ? `
                     <div class="detail-section">
-                        <h3>Changes Summary</h3>
+                        <h3>Summary</h3>
                         <p>${log.changes_summary}</p>
+                    </div>
+                    ` : ''}
+                    
+                    ${log.action_type === 'WALLET_TRANSFER' || log.action_type === 'WALLET_COLLECT' ? `
+                    <div class="detail-section">
+                        <h3>💰 Wallet Transaction Details</h3>
+                        ${log.new_values ? `
+                            <p><strong>From:</strong> ${log.new_values.from_user_type || 'N/A'} (ID: ${log.new_values.from_user_id || 'N/A'})</p>
+                            <p><strong>To:</strong> ${log.new_values.to_user_type || 'N/A'} (ID: ${log.new_values.to_user_id || 'N/A'})</p>
+                            <p><strong>Amount:</strong> Rs. ${log.new_values.amount || '0.00'}</p>
+                            <p><strong>From Balance:</strong> Rs. ${log.new_values.from_balance_before || '0.00'} → Rs. ${log.new_values.from_balance_after || '0.00'}</p>
+                            <p><strong>To Balance:</strong> Rs. ${log.new_values.to_balance_before || '0.00'} → Rs. ${log.new_values.to_balance_after || '0.00'}</p>
+                        ` : ''}
+                    </div>
+                    ` : ''}
+                    
+                    ${log.entity_type === 'shop_visit' ? `
+                    <div class="detail-section">
+                        <h3>📍 Visit Details</h3>
+                        ${log.new_values ? `
+                            <p><strong>Shop ID:</strong> ${log.new_values.shop_id || 'N/A'}</p>
+                            <p><strong>Shop Name:</strong> ${log.new_values.shop_name || 'N/A'}</p>
+                            <p><strong>Visit Types:</strong> ${Array.isArray(log.new_values.visit_types) ? log.new_values.visit_types.join(', ') : log.new_values.visit_types || 'N/A'}</p>
+                        ` : ''}
+                        ${log.metadata ? `
+                            <p><strong>GPS:</strong> ${log.metadata.gps_lat && log.metadata.gps_lng ? `${log.metadata.gps_lat}, ${log.metadata.gps_lng}` : 'N/A'}</p>
+                            <p><strong>Has Photo:</strong> ${log.metadata.has_photo ? 'Yes' : 'No'}</p>
+                            ${log.metadata.order_id ? `<p><strong>Order ID:</strong> ${log.metadata.order_id}</p>` : ''}
+                            ${log.metadata.collection_id ? `<p><strong>Collection ID:</strong> ${log.metadata.collection_id}</p>` : ''}
+                        ` : ''}
+                    </div>
+                    ` : ''}
+                    
+                    ${log.entity_type === 'daily_collection' ? `
+                    <div class="detail-section">
+                        <h3>💵 Collection Details</h3>
+                        ${log.new_values ? `
+                            <p><strong>Shop:</strong> ${log.new_values.shop_name || 'N/A'} (ID: ${log.new_values.shop_id || 'N/A'})</p>
+                            <p><strong>Amount:</strong> Rs. ${log.new_values.amount || '0.00'}</p>
+                            <p><strong>Status:</strong> <span class="badge badge-${log.new_values.status === 'verified' ? 'success' : log.new_values.status === 'pending' ? 'pending' : 'failure'}">${log.new_values.status || 'N/A'}</span></p>
+                        ` : ''}
+                        ${log.metadata ? `
+                            ${log.metadata.visit_id ? `<p><strong>Visit ID:</strong> ${log.metadata.visit_id}</p>` : ''}
+                            ${log.metadata.order_id ? `<p><strong>Order ID:</strong> ${log.metadata.order_id}</p>` : ''}
+                            ${log.metadata.remarks ? `<p><strong>Remarks:</strong> ${log.metadata.remarks}</p>` : ''}
+                            ${log.metadata.summary ? `<p><strong>Summary:</strong> ${log.metadata.summary}</p>` : ''}
+                        ` : ''}
+                    </div>
+                    ` : ''}
+                    
+                    ${log.action_type === 'UPDATE' && (log.entity_type === 'distributor' || log.entity_type === 'order_booker' || log.entity_type === 'delivery_man' || log.entity_type === 'shop') && log.old_values && log.old_values.is_active !== undefined ? `
+                    <div class="detail-section">
+                        <h3>🔄 Status Change</h3>
+                        <p><strong>Previous Status:</strong> <span class="badge badge-${log.old_values.is_active ? 'success' : 'failure'}">${log.old_values.is_active ? 'Active' : 'Inactive'}</span></p>
+                        <p><strong>New Status:</strong> <span class="badge badge-${log.new_values && log.new_values.is_active ? 'success' : 'failure'}">${log.new_values && log.new_values.is_active ? 'Active' : 'Inactive'}</span></p>
+                        ${log.user_role === 'super_admin' ? `<p><strong>Action:</strong> ${log.changes_summary || 'Status changed by Super Admin'}</p>` : ''}
+                    </div>
+                    ` : ''}
+                    
+                    ${log.action_type === 'DELETE' && log.entity_type === 'shop' ? `
+                    <div class="detail-section">
+                        <h3>🗑️ Soft Deletion</h3>
+                        <p><strong>Action:</strong> Shop soft deleted by ${log.user_role || 'distributor'}</p>
+                        <p><strong>Note:</strong> Shop data is preserved for audit purposes. Can be restored by setting deleted_at to NULL.</p>
                     </div>
                     ` : ''}
                     

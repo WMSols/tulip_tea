@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from typing import Dict, List, Any
 from config.database import get_db
-from models.schemas import SuperAdminLogin, TokenResponse
+from models.schemas import SuperAdminLogin, TokenResponse, DistributorUpdate
 from services.super_admin_service import SuperAdminService
 from services.activity_log_service import ActivityLogService
 from utils.auth_helpers import get_current_user_from_request
@@ -858,5 +858,283 @@ async def reactivate_entity(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error reactivating entity: {str(e)}"
+        )
+
+
+@router.post("/distributors", status_code=status.HTTP_201_CREATED)
+async def create_distributor(
+    distributor_data: Dict[str, Any],
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Create a new distributor. Only super admins can create distributors.
+    
+    API: POST /super-admin/distributors
+    
+    Request Body:
+        {
+            "name": "Distributor Name",
+            "email": "distributor@example.com",
+            "phone": "03001234567",
+            "password": "password123"
+        }
+    
+    Response (201):
+        {
+            "id": 1,
+            "name": "Distributor Name",
+            "email": "distributor@example.com",
+            "phone": "03001234567",
+            "created_at": "2026-01-28T10:30:00"
+        }
+    """
+    # Verify super admin
+    user_info = get_current_user_from_request(request)
+    if user_info['user_role'] != 'super_admin':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only super admins can create distributors"
+        )
+    
+    try:
+        from services.distributor_service import DistributorService
+        
+        result = DistributorService.create_distributor(
+            db=db,
+            name=distributor_data.get('name'),
+            email=distributor_data.get('email'),
+            phone=distributor_data.get('phone'),
+            password=distributor_data.get('password')
+        )
+        
+        # Log the action
+        try:
+            ActivityLogService.log_create(
+                db=db,
+                user_id=user_info['user_id'],
+                user_role='super_admin',
+                entity_type='distributor',
+                entity_id=result['id'],
+                changes_summary=f"Super Admin {user_info['user_name']} created distributor {result['name']}",
+                request=request
+            )
+        except Exception as log_error:
+            print(f"Warning: Failed to log activity: {log_error}")
+        
+        return result
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error creating distributor: {str(e)}"
+        )
+
+
+@router.put("/distributors/{distributor_id}", response_model=Dict)
+async def update_distributor(
+    distributor_id: int,
+    distributor_update: DistributorUpdate,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Update distributor information. Only super admins can update distributors.
+    
+    API: PUT /super-admin/distributors/{distributor_id}
+    
+    Request Body (all fields optional):
+        {
+            "name": "Updated Name",
+            "email": "updated@example.com",
+            "phone": "03001234567",
+            "password": "newpassword123"
+        }
+    
+    Response (200):
+        {
+            "id": 1,
+            "name": "Updated Name",
+            "email": "updated@example.com",
+            "phone": "03001234567",
+            "created_at": "2026-01-28T10:30:00"
+        }
+    """
+    # Verify super admin
+    user_info = get_current_user_from_request(request)
+    if user_info['user_role'] != 'super_admin':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only super admins can update distributors"
+        )
+    
+    try:
+        from services.distributor_service import DistributorService
+        
+        # Get old values for logging
+        old_distributor = DistributorRepository.get_by_id(db, distributor_id, include_deleted=True)
+        if not old_distributor:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Distributor not found"
+            )
+        
+        old_values = {
+            'name': old_distributor.name,
+            'email': old_distributor.email,
+            'phone': old_distributor.phone
+        }
+        
+        # Update distributor
+        result = DistributorService.update_distributor(
+            db=db,
+            distributor_id=distributor_id,
+            name=distributor_update.name,
+            email=distributor_update.email,
+            phone=distributor_update.phone,
+            password=distributor_update.password
+        )
+        
+        # Build changes summary
+        changes = []
+        if distributor_update.name and distributor_update.name != old_values['name']:
+            changes.append(f"name: '{old_values['name']}' → '{result['name']}'")
+        if distributor_update.email is not None and distributor_update.email != old_values['email']:
+            changes.append(f"email: '{old_values['email']}' → '{result['email']}'")
+        if distributor_update.phone and distributor_update.phone != old_values['phone']:
+            changes.append(f"phone: '{old_values['phone']}' → '{result['phone']}'")
+        if distributor_update.password:
+            changes.append("password: [updated]")
+        
+        changes_summary = f"Super Admin {user_info['user_name']} updated distributor {result['name']}: {', '.join(changes)}" if changes else f"Super Admin {user_info['user_name']} updated distributor {result['name']}"
+        
+        # Log the action
+        try:
+            ActivityLogService.log_update(
+                db=db,
+                user_id=user_info['user_id'],
+                user_role='super_admin',
+                entity_type='distributor',
+                entity_id=distributor_id,
+                old_values=old_values,
+                new_values={
+                    'name': result['name'],
+                    'email': result['email'],
+                    'phone': result['phone']
+                },
+                changes_summary=changes_summary,
+                request=request
+            )
+        except Exception as log_error:
+            print(f"Warning: Failed to log activity: {log_error}")
+        
+        return result
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error updating distributor: {str(e)}"
+        )
+
+
+@router.put("/wallets/{user_type}/{user_id}/toggle-active")
+async def toggle_wallet_active(
+    user_type: str,
+    user_id: int,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Toggle wallet active status for a user.
+    
+    API: PUT /super-admin/wallets/{user_type}/{user_id}/toggle-active
+    
+    Path Parameters:
+        user_type: One of: "distributor", "order_booker", "delivery_man"
+        user_id: ID of the user
+    
+    Response (200):
+        {
+            "wallet_id": 1,
+            "user_type": "order_booker",
+            "user_id": 1,
+            "is_active": false,
+            "message": "Wallet status updated successfully"
+        }
+    """
+    # Verify super admin
+    user_info = get_current_user_from_request(request)
+    if user_info['user_role'] != 'super_admin':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only super admins can manage wallets"
+        )
+    
+    if user_type not in ['distributor', 'order_booker', 'delivery_man']:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid user_type. Must be 'distributor', 'order_booker', or 'delivery_man'"
+        )
+    
+    try:
+        from repositories.wallet_repository import WalletRepository
+        
+        wallet = WalletRepository.get_by_user(db, user_type, user_id)
+        if not wallet:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Wallet not found for {user_type} {user_id}"
+            )
+        
+        old_is_active = wallet.is_active
+        wallet.is_active = not wallet.is_active
+        db.commit()
+        db.refresh(wallet)
+        
+        # Log the action
+        try:
+            ActivityLogService.log_update(
+                db=db,
+                user_id=user_info['user_id'],
+                user_role='super_admin',
+                entity_type='wallet',
+                entity_id=wallet.id,
+                old_values={"is_active": old_is_active},
+                new_values={"is_active": wallet.is_active},
+                changes_summary=f"Super Admin {user_info['user_name']} toggled wallet {wallet.id} active status from {old_is_active} to {wallet.is_active}",
+                request=request
+            )
+        except Exception as log_error:
+            print(f"Warning: Failed to log activity: {log_error}")
+        
+        return {
+            "wallet_id": wallet.id,
+            "user_type": wallet.user_type,
+            "user_id": wallet.user_id,
+            "is_active": wallet.is_active,
+            "message": "Wallet status updated successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error toggling wallet status: {str(e)}"
         )
 

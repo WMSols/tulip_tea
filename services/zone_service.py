@@ -28,8 +28,8 @@ class ZoneService:
         return {
             "id": zone.id,
             "name": zone.name,
-            "route_count": len(route_count) if route_count else 0,
-            "shop_count": len(shop_count) if shop_count else 0,
+            "route_count": len(routes) if routes else 0,
+            "shop_count": len(shops) if shops else 0,
             "created_at": zone.created_at.isoformat() if zone.created_at else None
         }
     

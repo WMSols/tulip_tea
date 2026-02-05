@@ -150,24 +150,29 @@ class DeliveryService:
                 
                 # Deduct from inventory
                 inventory = None
+                order_item = None
+                inventory_items = []
                 if delivery_item.inventory_item_id:
                     # Use stored inventory_item_id
                     inventory = InventoryRepository.get_by_id(db, delivery_item.inventory_item_id)
                 else:
-                    # Try to find inventory by product_id or product_name
+                    # Try to find inventory by product_id, product_name, or product_code
                     from models.order_item import OrderItem
+                    from repositories.product_repository import ProductRepository
                     order_item = db.query(OrderItem).filter(OrderItem.id == order_item_id).first()
                     if order_item:
                         inventory_items = InventoryRepository.get_by_warehouse(db, delivery.warehouse_id)
                         
-                        # Try by product_id first
+                        # Method 1: Try by product_id first (most reliable)
                         if order_item.product_id:
                             inventory = next(
                                 (inv for inv in inventory_items if inv.product_id == order_item.product_id),
                                 None
                             )
+                            if inventory:
+                                print(f"[pickup_from_warehouse] Matched inventory by product_id: {order_item.product_id} -> inventory_id {inventory.id}")
                         
-                        # If not found, try by product_name
+                        # Method 2: Try by product_name matching item_name
                         if not inventory and order_item.product_name:
                             product_name_lower = order_item.product_name.lower().strip()
                             inventory = next(
@@ -175,29 +180,74 @@ class DeliveryService:
                                  if inv.item_name and inv.item_name.lower().strip() == product_name_lower),
                                 None
                             )
+                            if inventory:
+                                print(f"[pickup_from_warehouse] Matched inventory by name: '{order_item.product_name}' -> inventory_id {inventory.id}")
+                        
+                        # Method 3: Try by product_code matching item_code (if order item has product_id)
+                        if not inventory and order_item.product_id:
+                            product = ProductRepository.get_by_id(db, order_item.product_id)
+                            if product and product.code:
+                                product_code_lower = product.code.lower().strip()
+                                inventory = next(
+                                    (inv for inv in inventory_items 
+                                     if inv.item_code and inv.item_code.lower().strip() == product_code_lower),
+                                    None
+                                )
+                                if inventory:
+                                    print(f"[pickup_from_warehouse] Matched inventory by code: '{product.code}' -> inventory_id {inventory.id}")
+                        
+                        # Method 4: Fuzzy matching - check if product name is a prefix of item_code or vice versa
+                        if not inventory and order_item.product_name:
+                            product_name_lower = order_item.product_name.lower().strip()
+                            for inv in inventory_items:
+                                if inv.item_code:
+                                    item_code_lower = inv.item_code.lower().strip()
+                                    # Check if product name is a prefix of item code (e.g., "t1" matches "t1d2")
+                                    if item_code_lower.startswith(product_name_lower) or product_name_lower.startswith(item_code_lower):
+                                        inventory = inv
+                                        print(f"[pickup_from_warehouse] Matched inventory by fuzzy code/name: '{order_item.product_name}' matches '{inv.item_code}' -> inventory_id {inventory.id}")
+                                        break
                         
                         # If found, update delivery_item with inventory_item_id for future operations
                         if inventory and not delivery_item.inventory_item_id:
                             delivery_item.inventory_item_id = inventory.id
                             db.commit()
-                            print(f"[pickup_from_warehouse] Found and linked inventory by name: {order_item.product_name} -> inventory_id {inventory.id}")
+                            print(f"[pickup_from_warehouse] Linked inventory_item_id {inventory.id} to delivery_item {delivery_item.id}")
                 
                 if inventory:
-                    if inventory.quantity < quantity:
+                    # Ensure quantity is an integer
+                    available_qty = int(inventory.quantity) if inventory.quantity is not None else 0
+                    requested_qty = int(quantity) if quantity is not None else 0
+                    
+                    if available_qty < requested_qty:
                         raise ValueError(
                             f"Insufficient inventory for {inventory.item_name or 'product'}. "
-                            f"Available: {inventory.quantity}, Requested: {quantity}"
+                            f"Available: {available_qty}, Requested: {requested_qty}"
                         )
-                    old_quantity = inventory.quantity
-                    new_quantity = inventory.quantity - quantity
+                    
+                    old_quantity = available_qty
+                    new_quantity = available_qty - requested_qty
+                    
                     InventoryRepository.update(
                         db=db,
                         inventory_id=inventory.id,
                         quantity=new_quantity
                     )
-                    print(f"[pickup_from_warehouse] Deducted inventory: {inventory.item_name or 'product'} - {old_quantity} -> {new_quantity}")
+                    print(f"[pickup_from_warehouse] Deducted inventory: {inventory.item_name or 'product'} (inventory_id={inventory.id}) - {old_quantity} -> {new_quantity}")
                 else:
-                    print(f"[pickup_from_warehouse] WARNING: Could not find inventory item for order_item_id {order_item_id}. Inventory not deducted.")
+                    # Log detailed information for debugging
+                    order_item_info = f"order_item_id={order_item_id}"
+                    if order_item:
+                        order_item_info += f", product_id={order_item.product_id}, product_name='{order_item.product_name}'"
+                    print(f"[pickup_from_warehouse] WARNING: Could not find inventory item for {order_item_info} in warehouse {delivery.warehouse_id}. Inventory not deducted.")
+                    if inventory_items:
+                        # Build inventory items list for logging (avoid backslash in f-string)
+                        inv_list = []
+                        for inv in inventory_items:
+                            inv_list.append(f"id={inv.id}, product_id={inv.product_id}, item_name='{inv.item_name}', item_code='{inv.item_code}'")
+                        print(f"[pickup_from_warehouse] Available inventory items in warehouse: {inv_list}")
+                    else:
+                        print(f"[pickup_from_warehouse] No inventory items found in warehouse {delivery.warehouse_id}")
         
         # Update delivery status and pickup info
         updated_delivery = DeliveryRepository.update_pickup(

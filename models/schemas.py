@@ -14,6 +14,14 @@ class DistributorCreate(BaseModel):
     # Note: Distributors are NOT assigned to zones - they create zones but are not assigned to them
 
 
+class DistributorUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
+    password: Optional[str] = None
+    # Note: All fields are optional - only provided fields will be updated
+
+
 class DistributorLogin(BaseModel):
     phone: str
     password: str
@@ -494,7 +502,8 @@ class WarehouseCreate(BaseModel):
 class WarehouseResponse(BaseModel):
     id: int
     name: str
-    zone_id: int
+    distributor_id: int
+    zone_id: Optional[int] = None
     address: Optional[str] = None
     is_active: bool
     created_at: Optional[str] = None
@@ -634,6 +643,15 @@ class WalletTransferRequest(BaseModel):
     description: Optional[str] = None
     initiated_by_type: Optional[str] = None  # 'distributor', 'order_booker', 'delivery_man', 'system'
     initiated_by_id: Optional[int] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class WalletCollectionRequest(BaseModel):
+    """Request for distributor to collect money from order booker or delivery man."""
+    from_user_type: str  # 'order_booker' or 'delivery_man'
+    from_user_id: int
+    amount: float
+    description: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 
 

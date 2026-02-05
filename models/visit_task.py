@@ -183,3 +183,5 @@ class VisitTask(Base):
         CheckConstraint("status IN ('pending', 'in_progress', 'completed', 'skipped', 'cancelled')", name="chk_visit_task_status"),
     )
 
+
+

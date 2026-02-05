@@ -14,16 +14,29 @@ class WarehouseService:
     """Service for Warehouse business logic."""
     
     @staticmethod
-    def create_warehouse(db: Session, name: str, zone_id: int, address: str = None) -> Dict:
-        """Create a new warehouse."""
-        # Verify zone exists
-        zone = ZoneRepository.get_by_id(db, zone_id)
-        if not zone:
-            raise ValueError(f"Zone with ID {zone_id} not found")
+    def create_warehouse(db: Session, name: str, distributor_id: int, zone_id: int = None, address: str = None) -> Dict:
+        """
+        Create a new warehouse for a distributor.
+        
+        Note: This is called automatically when a distributor is created.
+        One warehouse per distributor is automatically assigned.
+        """
+        # Verify distributor exists
+        from repositories.distributor_repository import DistributorRepository
+        distributor = DistributorRepository.get_by_id(db, distributor_id)
+        if not distributor:
+            raise ValueError(f"Distributor with ID {distributor_id} not found")
+        
+        # Verify zone exists if provided
+        if zone_id:
+            zone = ZoneRepository.get_by_id(db, zone_id)
+            if not zone:
+                raise ValueError(f"Zone with ID {zone_id} not found")
         
         warehouse = WarehouseRepository.create(
             db=db,
             name=name,
+            distributor_id=distributor_id,
             zone_id=zone_id,
             address=address
         )
@@ -31,6 +44,7 @@ class WarehouseService:
         return {
             "id": warehouse.id,
             "name": warehouse.name,
+            "distributor_id": warehouse.distributor_id,
             "zone_id": warehouse.zone_id,
             "address": warehouse.address,
             "is_active": warehouse.is_active,
@@ -47,6 +61,7 @@ class WarehouseService:
             result.append({
                 "id": warehouse.id,
                 "name": warehouse.name,
+                "distributor_id": warehouse.distributor_id,
                 "zone_id": warehouse.zone_id,
                 "address": warehouse.address,
                 "is_active": warehouse.is_active,
@@ -55,6 +70,25 @@ class WarehouseService:
             })
         
         return result
+    
+    @staticmethod
+    def get_warehouses_by_distributor(db: Session, distributor_id: int) -> List[Dict]:
+        """Get warehouses for a specific distributor."""
+        warehouse = WarehouseRepository.get_by_distributor(db, distributor_id)
+        
+        if not warehouse:
+            return []
+        
+        return [{
+            "id": warehouse.id,
+            "name": warehouse.name,
+            "distributor_id": warehouse.distributor_id,
+            "zone_id": warehouse.zone_id,
+            "address": warehouse.address,
+            "is_active": warehouse.is_active,
+            "created_at": warehouse.created_at.isoformat() if warehouse.created_at else None,
+            "updated_at": warehouse.updated_at.isoformat() if warehouse.updated_at else None
+        }]
     
     @staticmethod
     def get_warehouse_inventory(db: Session, warehouse_id: int) -> List[Dict]:

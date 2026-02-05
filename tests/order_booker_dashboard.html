@@ -789,27 +789,17 @@
                         <button class="btn btn-success" onclick="loadWalletBalance()" style="margin-top: 10px;">Refresh Balance</button>
                     </div>
 
-                    <!-- Transfer to Distributor -->
-                    <div class="info-card" style="margin-bottom: 30px;">
-                        <h3>💸 Transfer to Distributor</h3>
-                        <p style="color: #666; margin-bottom: 15px; font-size: 14px;">Transfer money to your assigned distributor. The distributor ID is automatically filled from your account.</p>
-                        <form id="transferForm" onsubmit="transferToDistributor(event)">
-                            <div class="form-group">
-                                <label>Distributor ID *</label>
-                                <input type="number" id="transferDistributorId" required readonly style="background: #f0f0f0; cursor: not-allowed;" placeholder="Your distributor ID will appear here">
-                                <small style="color: #666;">This is automatically set from your account</small>
-                            </div>
-                            <div class="form-group">
-                                <label>Amount (Rs.) *</label>
-                                <input type="number" id="transferAmount" required step="0.01" min="0.01" placeholder="Enter amount to transfer">
-                            </div>
-                            <div class="form-group">
-                                <label>Description (Optional)</label>
-                                <textarea id="transferDescription" rows="3" placeholder="Optional description"></textarea>
-                            </div>
-                            <button type="submit" class="btn btn-primary">Transfer Money</button>
-                        </form>
-                        <div id="transferResult" class="result" style="margin-top: 15px;"></div>
+                    <!-- Collection Notice -->
+                    <div class="info-card" style="margin-bottom: 30px; background: #fff3cd; border-left: 4px solid #ffc107;">
+                        <h3>💰 Wallet Collection</h3>
+                        <p style="color: #856404; margin-bottom: 15px; font-size: 14px;">
+                            <strong>Note:</strong> You cannot transfer money to your distributor directly. 
+                            Your distributor will collect money from your wallet when needed. 
+                            All collections will be recorded in your transaction history.
+                        </p>
+                        <p style="color: #856404; font-size: 13px;">
+                            Your current balance will be visible to your distributor, and they will collect funds as needed.
+                        </p>
                     </div>
 
                     <!-- Transaction History -->
@@ -908,13 +898,7 @@
                 document.getElementById('userZone').textContent = data.user.zone_id ? `Zone ID: ${data.user.zone_id}` : 'N/A';
                 document.getElementById('userPhone').textContent = data.user.phone;
                 
-                // Auto-fill distributor ID in transfer form
-                if (data.user.distributor_id) {
-                    const distributorIdInput = document.getElementById('transferDistributorId');
-                    if (distributorIdInput) {
-                        distributorIdInput.value = data.user.distributor_id;
-                    }
-                }
+                // Note: Transfer functionality removed - distributor collects money instead
                 
                 // Load wallet balance
                 loadWalletBalance();
@@ -1839,7 +1823,14 @@
         let availableProducts = [];
         async function loadActiveProducts() {
             try {
-                const response = await fetch(`${API_BASE}/products/active`, {
+                // Check if we have currentUser and distributor_id
+                if (!currentUser || !currentUser.distributor_id) {
+                    console.error('Cannot load products: distributor_id not available');
+                    availableProducts = [];
+                    return;
+                }
+                
+                const response = await fetch(`${API_BASE}/products/active?distributor_id=${currentUser.distributor_id}`, {
                     headers: {
                         'Authorization': `Bearer ${currentToken}`
                     }
@@ -1851,6 +1842,10 @@
                         ...p,
                         price: typeof p.price === 'string' ? parseFloat(p.price) : (p.price || 0)
                     }));
+                } else {
+                    const errorData = await response.json().catch(() => ({ detail: 'Failed to load products' }));
+                    console.error('Error loading products:', errorData.detail || 'Unknown error');
+                    availableProducts = [];
                 }
             } catch (error) {
                 console.error('Error loading products:', error);
@@ -2993,9 +2988,36 @@
                         detailsHtml += `</div>`;
                     }
                     
-                    // Transfer details
+                    // Transfer details (especially for distributor collections)
                     if (t.transaction_type === 'transfer_in' || t.transaction_type === 'transfer_out') {
-                        if (t.related_user_name) {
+                        // Check if this is a distributor collection
+                        const isCollection = t.transaction_type === 'transfer_out' && t.initiated_by_type === 'distributor';
+                        
+                        if (isCollection) {
+                            // Enhanced display for distributor collections
+                            detailsHtml += `<div style="margin-top: 8px; padding: 10px; background: #fff3cd; border-radius: 5px; border-left: 4px solid #ffc107;">`;
+                            detailsHtml += `<strong style="color: #856404;">💰 Money Collected by Distributor</strong><br>`;
+                            if (t.initiated_by_name) {
+                                detailsHtml += `Collected by: <strong>${t.initiated_by_name}</strong> (Distributor)<br>`;
+                            } else if (t.initiated_by_id) {
+                                detailsHtml += `Collected by: Distributor (ID: ${t.initiated_by_id})<br>`;
+                            }
+                            if (t.metadata && typeof t.metadata === 'object') {
+                                if (t.metadata.collection_timestamp) {
+                                    const collectionDate = new Date(t.metadata.collection_timestamp);
+                                    detailsHtml += `Collection Date & Time: <strong>${collectionDate.toLocaleString()}</strong><br>`;
+                                }
+                                if (t.metadata.collected_by_distributor_name) {
+                                    detailsHtml += `Distributor: <strong>${t.metadata.collected_by_distributor_name}</strong><br>`;
+                                }
+                            }
+                            if (t.created_at) {
+                                const transactionDate = new Date(t.created_at);
+                                detailsHtml += `Transaction Recorded: <strong>${transactionDate.toLocaleString()}</strong><br>`;
+                            }
+                            detailsHtml += `</div>`;
+                        } else if (t.related_user_name) {
+                            // Regular transfer display
                             detailsHtml += `<div style="margin-top: 8px; padding: 8px; background: #fff3cd; border-radius: 5px; border-left: 3px solid #ffc107;">`;
                             detailsHtml += `<strong style="color: #856404;">💸 Transfer ${t.transaction_type === 'transfer_in' ? 'From' : 'To'}:</strong><br>`;
                             detailsHtml += `${t.related_user_name} (${t.related_user_type || 'N/A'})<br>`;
@@ -3027,73 +3049,7 @@
             }
         }
 
-        async function transferToDistributor(event) {
-            event.preventDefault();
-            if (!currentUser || !currentUser.id) return;
-            
-            // Get distributor ID from current user (auto-filled)
-            const distributorId = currentUser.distributor_id;
-            if (!distributorId) {
-                const resultDiv = document.getElementById('transferResult');
-                resultDiv.className = 'result error';
-                resultDiv.textContent = 'Error: No distributor assigned to your account. Please contact support.';
-                return;
-            }
-            
-            const amount = parseFloat(document.getElementById('transferAmount').value);
-            const description = document.getElementById('transferDescription').value;
-            const resultDiv = document.getElementById('transferResult');
-            
-            if (!amount || amount <= 0) {
-                resultDiv.className = 'result error';
-                resultDiv.textContent = 'Please enter a valid amount.';
-                return;
-            }
-            
-            try {
-                const endpoint = `${API_BASE}/wallets/transfer`;
-                const response = await fetch(endpoint, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        from_user_type: 'order_booker',
-                        from_user_id: currentUser.id,
-                        to_user_type: 'distributor',
-                        to_user_id: parseInt(distributorId),
-                        amount: amount,
-                        description: description || `Transfer from order booker ${currentUser.id} to distributor ${distributorId}`,
-                        initiated_by_type: 'order_booker',
-                        initiated_by_id: currentUser.id
-                    })
-                });
-                
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
-                }
-                
-                const data = await response.json();
-                resultDiv.className = 'result success';
-                resultDiv.textContent = `Transfer successful! Rs. ${amount.toFixed(2)} transferred to distributor ${distributorId}.`;
-                
-                // Clear form (but preserve distributor ID)
-                const distributorIdInput = document.getElementById('transferDistributorId');
-                const savedDistributorId = distributorIdInput ? distributorIdInput.value : null;
-                document.getElementById('transferForm').reset();
-                if (distributorIdInput && savedDistributorId) {
-                    distributorIdInput.value = savedDistributorId;
-                }
-                
-                // Reload balance and transactions
-                loadWalletBalance();
-                loadWalletTransactions();
-            } catch (error) {
-                resultDiv.className = 'result error';
-                resultDiv.textContent = `Error: ${error.message}`;
-            }
-        }
+        // Transfer functionality removed - distributor collects money instead
 
         // ==================== SCHEDULE VIEW FUNCTIONS ====================
 

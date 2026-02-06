@@ -208,13 +208,58 @@ class Order(Base):
 
     original_amount = Column(Numeric(10, 2), nullable=True)
     """
-    Original order amount before subsidy was applied.
-    - Only set when order_resolution_type = "subsidy"
+    CALCULATED_TOTAL_AMOUNT: Original calculated total from sum of all order items (quantity × unit_price).
+    - Repurposed from original_amount for new subsidy approval system
     - Format: Decimal (10 digits total, 2 decimal places)
     - Example: 5000.00 (Rs. 5,000)
-    - Used to show original amount vs final amount (total_amount)
-    - For subsidy orders: original_amount = before discount, total_amount = after discount
-    - For normal orders: original_amount = NULL, total_amount = order amount
+    - Set on order creation from sum of order items
+    - Never modified after creation
+    - For new orders: This is the sum before any manual discount
+    """
+    
+    final_total_amount = Column(Numeric(10, 2), nullable=True)
+    """
+    Final order amount after order booker edits (can be <= calculated_total_amount).
+    - Format: Decimal (10 digits total, 2 decimal places)
+    - Example: 4000.00 (Rs. 4,000) - if order booker reduced from 5000
+    - Can be less than or equal to original_amount (calculated_total)
+    - If NULL, total_amount is used as final_total_amount
+    - Used for credit limit checks and outstanding balance calculation
+    """
+    
+    subsidy_status = Column(String(20), nullable=True)
+    """
+    Status of subsidy approval.
+    - Values: 'none', 'pending_approval', 'approved', 'rejected'
+    - 'none': No discount applied (normal order)
+    - 'pending_approval': Order booker reduced total, awaiting distributor approval
+    - 'approved': Distributor approved the discounted order
+    - 'rejected': Distributor rejected the discounted order
+    - NULL: Legacy orders (treated as 'none')
+    """
+    
+    subsidy_approved_by = Column(BigInteger, ForeignKey("distributors.id"), nullable=True)
+    """
+    Distributor ID who approved the subsidized order.
+    - Foreign key to distributors table
+    - NULL if not approved or not subsidized
+    - Set when distributor approves a pending_approval order
+    """
+    
+    subsidy_approved_at = Column(DateTime(timezone=True), nullable=True)
+    """
+    Timestamp when distributor approved the subsidized order.
+    - Timezone-aware (stores UTC)
+    - NULL if not approved
+    - Set when subsidy_status changes to 'approved'
+    """
+    
+    subsidy_rejection_reason = Column(Text, nullable=True)
+    """
+    Reason provided by distributor when rejecting a subsidized order.
+    - Free text field
+    - NULL if not rejected
+    - Set when distributor rejects a pending_approval order
     """
 
     payment_collected_before_delivery = Column(Boolean, default=False, nullable=False)

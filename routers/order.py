@@ -12,12 +12,13 @@ API ENDPOINTS:
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Dict
 from config.database import get_db
 from models.schemas import OrderCreate, OrderResponse, OrderDeliveryUpdate, OrderPaymentCollection
 from services.order_service import OrderService
 from services.activity_log_service import ActivityLogService
 from utils.auth_helpers import get_current_user_from_request
+from utils.dependencies import get_current_user, get_current_distributor
 
 router = APIRouter(prefix="/orders", tags=["Orders"])
 
@@ -71,6 +72,12 @@ async def create_order(
             raise ValueError("Order Booker not found")
         distributor_id = order_booker.distributor_id
         
+        # Convert final_total_amount to Decimal if provided
+        from decimal import Decimal
+        final_total_decimal = None
+        if order.final_total_amount is not None:
+            final_total_decimal = Decimal(str(order.final_total_amount))
+        
         order_data = OrderService.create_order(
             db=db,
             shop_id=order.shop_id,
@@ -78,10 +85,17 @@ async def create_order(
             order_items=[item.dict() for item in order.order_items],
             distributor_id=distributor_id,
             visit_id=order.visit_id,
-            scheduled_date=scheduled_date_obj
+            scheduled_date=scheduled_date_obj,
+            final_total_amount=final_total_decimal
         )
         
         # Log order creation
+        subsidy_status = order_data.get('subsidy_status', 'none')
+        changes_summary = f"Order created: {order_data.get('shop_name')} - Rs. {order_data.get('total_amount', 0)}"
+        if subsidy_status == 'pending_approval':
+            discount_amount = (order_data.get('calculated_total_amount', 0) or 0) - (order_data.get('final_total_amount', 0) or 0)
+            changes_summary += f" (Subsidy requested: Rs. {discount_amount:.2f} discount, awaiting distributor approval)"
+        
         ActivityLogService.log_create(
             db=db,
             user_id=order_booker_id,
@@ -92,6 +106,9 @@ async def create_order(
                 'shop_id': order_data.get('shop_id'),
                 'shop_name': order_data.get('shop_name'),
                 'total_amount': str(order_data.get('total_amount', 0)),
+                'calculated_total_amount': str(order_data.get('calculated_total_amount', 0)) if order_data.get('calculated_total_amount') else None,
+                'final_total_amount': str(order_data.get('final_total_amount', 0)) if order_data.get('final_total_amount') else None,
+                'subsidy_status': subsidy_status,
                 'status': order_data.get('status')
             },
             metadata={
@@ -99,7 +116,7 @@ async def create_order(
                 'visit_id': order_data.get('visit_id'),
                 'scheduled_date': str(order_data.get('scheduled_date', '')) if order_data.get('scheduled_date') else None
             },
-            changes_summary=f"Order created: {order_data.get('shop_name')} - Rs. {order_data.get('total_amount', 0)}",
+            changes_summary=changes_summary,
             request=request
         )
         
@@ -167,6 +184,35 @@ async def list_orders_by_delivery_man(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error fetching orders: {str(e)}"
+        )
+
+
+@router.get("/pending-subsidy-approval", response_model=List[OrderResponse])
+async def get_pending_subsidy_approvals(
+    request: Request,
+    distributor: Dict = Depends(get_current_distributor),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all orders pending subsidy approval for the authenticated distributor.
+    
+    API: GET /orders/pending-subsidy-approval
+    
+    Returns orders where:
+    - subsidy_status = 'pending_approval'
+    - distributor_id matches the authenticated distributor
+    
+    Response (200):
+        List of orders pending approval
+    """
+    try:
+        distributor_id = distributor['user_id']
+        orders = OrderService.get_pending_subsidy_approvals(db, distributor_id)
+        return orders
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching pending approvals: {str(e)}"
         )
 
 
@@ -466,6 +512,122 @@ async def deliver_order(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error delivering order: {str(e)}"
+        )
+
+
+@router.put("/{order_id}/approve-subsidy", response_model=OrderResponse)
+async def approve_subsidy(
+    order_id: int,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Approve a subsidized order (by Distributor).
+    
+    API: PUT /orders/{order_id}/approve-subsidy
+    
+    FLOW:
+    1. Distributor reviews pending subsidy approval
+    2. Approves the order
+    3. Order becomes assignable to delivery man
+    4. Shop's outstanding balance is updated
+    
+    Response (200):
+        Updated order data with subsidy_status = 'approved'
+    """
+    try:
+        distributor = get_current_distributor(request)
+        distributor_id = distributor['user_id']
+        
+        result = OrderService.approve_subsidy(db, order_id, distributor_id)
+        
+        # Log approval
+        user_info = get_current_user_from_request(request)
+        ActivityLogService.log_activity(
+            db=db,
+            user_id=user_info['user_id'] if user_info else distributor_id,
+            user_role=user_info['user_role'] if user_info else 'distributor',
+            action_type='APPROVE',
+            entity_type='order',
+            entity_id=order_id,
+            new_values={
+                'subsidy_status': 'approved',
+                'subsidy_approved_by': distributor_id
+            },
+            changes_summary=f"Subsidy approved: Order {order_id}",
+            request=request
+        )
+        
+        return result
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error approving subsidy: {str(e)}"
+        )
+
+
+@router.put("/{order_id}/reject-subsidy", response_model=OrderResponse)
+async def reject_subsidy(
+    order_id: int,
+    rejection_reason: str = Query(None, description="Optional reason for rejection"),
+    request: Request = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Reject a subsidized order (by Distributor).
+    
+    API: PUT /orders/{order_id}/reject-subsidy?rejection_reason={reason}
+    
+    FLOW:
+    1. Distributor reviews pending subsidy approval
+    2. Rejects the order with optional reason
+    3. Order cannot be assigned to delivery man
+    4. Shop's outstanding balance is NOT updated
+    
+    Query Parameters:
+        rejection_reason: Optional reason for rejection
+    
+    Response (200):
+        Updated order data with subsidy_status = 'rejected'
+    """
+    try:
+        distributor = get_current_distributor(request)
+        distributor_id = distributor['user_id']
+        
+        result = OrderService.reject_subsidy(db, order_id, distributor_id, rejection_reason)
+        
+        # Log rejection
+        user_info = get_current_user_from_request(request)
+        ActivityLogService.log_activity(
+            db=db,
+            user_id=user_info['user_id'] if user_info else distributor_id,
+            user_role=user_info['user_role'] if user_info else 'distributor',
+            action_type='REJECT',
+            entity_type='order',
+            entity_id=order_id,
+            new_values={
+                'subsidy_status': 'rejected',
+                'subsidy_rejection_reason': rejection_reason
+            },
+            changes_summary=f"Subsidy rejected: Order {order_id}" + (f" - {rejection_reason}" if rejection_reason else ""),
+            request=request
+        )
+        
+        return result
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error rejecting subsidy: {str(e)}"
         )
 
 

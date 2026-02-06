@@ -18,8 +18,10 @@ class OrderRepository:
               total_amount: Decimal, distributor_id: int = None,
               delivery_man_id: int = None, visit_id: int = None,
               status: OrderStatus = OrderStatus.PENDING, scheduled_date: date = None,
-              order_resolution_type: str = None, subsidy_id: int = None,
-              original_amount: Decimal = None) -> Order:
+              original_amount: Decimal = None, final_total_amount: Decimal = None,
+              subsidy_status: str = None, subsidy_approved_by: int = None,
+              subsidy_approved_at: datetime = None, subsidy_rejection_reason: str = None,
+              order_resolution_type: str = None, subsidy_id: int = None) -> Order:
         """
         Create a new order.
         
@@ -71,9 +73,15 @@ class OrderRepository:
             total_amount=total_amount,
             status=status_enum,
             scheduled_date=scheduled_date,
+            original_amount=original_amount,
+            final_total_amount=final_total_amount,
+            subsidy_status=subsidy_status,
+            subsidy_approved_by=subsidy_approved_by,
+            subsidy_approved_at=subsidy_approved_at,
+            subsidy_rejection_reason=subsidy_rejection_reason,
+            # Legacy fields (for backward compatibility)
             order_resolution_type=order_resolution_type,
-            subsidy_id=subsidy_id,
-            original_amount=original_amount
+            subsidy_id=subsidy_id
         )
         print(f"[DEBUG OrderRepository.create] Order created, status attribute: {order.status}, type: {type(order.status)}")
         db.add(order)

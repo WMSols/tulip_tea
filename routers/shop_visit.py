@@ -80,6 +80,12 @@ async def register_visit(
                 item_dict.pop('total_price', None)
                 order_items_dicts.append(item_dict)
         
+        # Convert final_total_amount to Decimal if provided
+        final_total_decimal = None
+        if visit.final_total_amount is not None:
+            from decimal import Decimal
+            final_total_decimal = Decimal(str(visit.final_total_amount))
+        
         result = ShopVisitService.register_visit(
             db=db,
             shop_id=visit.shop_id,
@@ -95,6 +101,7 @@ async def register_visit(
             scheduled_date=visit.scheduled_date,
             collection_amount=visit.collection_amount,
             collection_remarks=visit.collection_remarks,
+            final_total_amount=final_total_decimal,
             order_resolution_type=visit.order_resolution_type,
             subsidy_id=visit.subsidy_id
         )

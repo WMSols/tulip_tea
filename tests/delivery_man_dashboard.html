@@ -324,7 +324,12 @@
                 <!-- Orders Tab -->
                 <div id="ordersTab" class="tab-content" style="display: none;">
                     <h3>📦 Pending Orders</h3>
-                    <p style="color: #666; margin-bottom: 20px;">View and verify pending orders from shops in your assigned zone. Once confirmed or delivered, orders will move to the Deliveries tab.</p>
+                    <p style="color: #666; margin-bottom: 10px;">View and verify pending orders from shops in your assigned zone. Orders shown are from order bookers within your distributor's domain.</p>
+                    <div style="background: #e3f2fd; padding: 10px; border-radius: 5px; margin-bottom: 20px; border-left: 3px solid #3498db;">
+                        <p style="color: #0c5460; margin: 0; font-size: 13px;">
+                            <strong>ℹ️ Note:</strong> You will only see orders created by order bookers from your distributor. This ensures proper data isolation and operational boundaries.
+                        </p>
+                    </div>
                     <button class="btn btn-primary" onclick="loadMyOrders()" style="margin-bottom: 20px;">Refresh Orders</button>
                     <div id="ordersList" style="margin-top: 20px;"></div>
                 </div>
@@ -850,8 +855,8 @@
                     return;
                 }
 
-                let html = '<h4 style="color: #f5576c; margin-bottom: 15px;">📦 Active Orders (Pending Deliveries from Order Bookers in Your Zone)</h4>';
-                html += '<p style="color: #666; margin-bottom: 20px; font-size: 14px;">These are pending orders from order bookers in your assigned zone. Track your delivery process from warehouse pickup to shop delivery.</p>';
+                let html = '<h4 style="color: #f5576c; margin-bottom: 15px;">📦 Active Orders (Pending Deliveries from Your Distributor\'s Order Bookers)</h4>';
+                html += '<p style="color: #666; margin-bottom: 20px; font-size: 14px;">These are pending orders from order bookers within your distributor\'s domain in your assigned zone. Track your delivery process from warehouse pickup to shop delivery.</p>';
 
                 // Render filtered orders
                 for (const { order, delivery, deliveryStatus } of filteredOrders) {
@@ -885,14 +890,39 @@
                             ` : ''}
                             <div class="info-row">
                                 <span class="info-label">Total Amount:</span>
-                                <span class="info-value"><strong style="color: #f5576c;">Rs. ${parseFloat(order.total_amount || 0).toFixed(2)}</strong></span>
+                                <span class="info-value">
+                                    <strong style="color: #f5576c;">Rs. ${parseFloat(order.final_total_amount || order.total_amount || 0).toFixed(2)}</strong>
+                                    ${order.subsidy_status && order.subsidy_status !== 'none' ? `
+                                    <button onclick="event.stopPropagation(); openOrderDetailsModal(${order.id})" 
+                                            style="margin-left: 10px; background: ${order.subsidy_status === 'approved' ? '#27ae60' : order.subsidy_status === 'pending_approval' ? '#f39c12' : '#e74c3c'}; 
+                                                   color: white; border: none; padding: 4px 10px; border-radius: 12px; 
+                                                   font-size: 11px; cursor: pointer; font-weight: bold;">
+                                        ${order.subsidy_status === 'approved' ? '✓ Subsidy Approved' : order.subsidy_status === 'pending_approval' ? '⏳ Pending Approval' : '✗ Subsidy Rejected'}
+                                    </button>
+                                    ` : ''}
+                                </span>
                             </div>
-                            ${order.original_amount && parseFloat(order.original_amount) > parseFloat(order.total_amount || 0) ? `
-                            <div class="info-row">
-                                <span class="info-label">Original Amount:</span>
-                                <span class="info-value" style="text-decoration: line-through; color: #999;">Rs. ${parseFloat(order.original_amount).toFixed(2)}</span>
-                                <span class="info-value" style="color: #27ae60; margin-left: 10px;">(Discounted: Rs. ${parseFloat(order.total_amount || 0).toFixed(2)})</span>
+                            ${(order.calculated_total_amount || order.original_amount) && (order.final_total_amount || order.total_amount) && parseFloat(order.calculated_total_amount || order.original_amount) > parseFloat(order.final_total_amount || order.total_amount || 0) ? `
+                            <div class="info-row" style="padding: 10px; background: #e8f5e9; border-radius: 5px; margin-top: 5px;">
+                                <span class="info-label" style="font-weight: 600;">💰 Discount Applied:</span>
+                                <span class="info-value">
+                                    <span style="text-decoration: line-through; color: #666;">Rs. ${parseFloat(order.calculated_total_amount || order.original_amount).toFixed(2)}</span>
+                                    <span style="color: #27ae60; margin-left: 10px; font-weight: bold;">→ Rs. ${parseFloat(order.final_total_amount || order.total_amount || 0).toFixed(2)}</span>
+                                    <span style="color: #27ae60; margin-left: 10px; font-size: 0.9em;">
+                                        (Saved: Rs. ${(parseFloat(order.calculated_total_amount || order.original_amount) - parseFloat(order.final_total_amount || order.total_amount || 0)).toFixed(2)})
+                                    </span>
+                                </span>
                             </div>
+                            ${order.subsidy_status && order.subsidy_status !== 'none' ? `
+                            <div class="info-row" style="margin-top: 5px;">
+                                <span class="info-label">Subsidy Status:</span>
+                                <span class="info-value">
+                                    <span style="background: ${order.subsidy_status === 'approved' ? '#27ae60' : order.subsidy_status === 'pending_approval' ? '#f39c12' : '#e74c3c'}; color: white; padding: 4px 10px; border-radius: 15px; font-size: 11px; font-weight: bold;">
+                                        ${order.subsidy_status === 'approved' ? '✓ APPROVED' : order.subsidy_status === 'pending_approval' ? '⏳ PENDING' : '✗ REJECTED'}
+                                    </span>
+                                </span>
+                            </div>
+                            ` : ''}
                             ` : ''}
                             <div class="info-row">
                                 <span class="info-label">Order Type:</span>
@@ -1410,6 +1440,12 @@
             contentDiv.innerHTML = `
                     <div class="info-card" style="margin-bottom: 20px;">
                         <h3 style="color: #f5576c; margin-bottom: 15px;">Order Information</h3>
+                        ${order.distributor_id ? `
+                        <div class="info-row" style="background: #e3f2fd; padding: 8px; border-radius: 5px; margin-bottom: 10px;">
+                            <span class="info-label" style="font-weight: 600; color: #0c5460;">Distributor Domain:</span>
+                            <span class="info-value" style="color: #0c5460;">Distributor ID: ${order.distributor_id}</span>
+                        </div>
+                        ` : ''}
                         <div class="info-row">
                             <span class="info-label">Shop:</span>
                             <span class="info-value"><strong>${order.shop_name || 'N/A'}</strong></span>
@@ -1484,18 +1520,88 @@
                             </span>
                         </div>
                         ` : ''}
-                        ${order.order_resolution_type === 'subsidy' && order.subsidy_info ? `
-                        <div class="info-row" style="background: #d4edda; padding: 10px; border-radius: 5px; margin-top: 10px;">
-                            <span class="info-label" style="color: #155724; font-weight: bold;">💰 Subsidy Applied:</span>
-                            <span class="info-value" style="color: #155724;">
-                                <strong>${order.subsidy_info.name}</strong> (${order.subsidy_info.percentage}% discount)
-                                ${order.original_amount ? `
-                                <div style="margin-top: 5px;">
-                                    Original: Rs. ${parseFloat(order.original_amount).toFixed(2)} → 
-                                    Discounted: Rs. ${parseFloat(order.total_amount || 0).toFixed(2)}
-                                </div>
-                                ` : ''}
-                            </span>
+                        ${(order.subsidy_status && order.subsidy_status !== 'none') || order.calculated_total_amount || order.final_total_amount ? `
+                        <div class="info-card" style="margin-bottom: 20px; background: ${order.subsidy_status === 'approved' ? '#d4edda' : order.subsidy_status === 'pending_approval' ? '#fff3cd' : order.subsidy_status === 'rejected' ? '#f8d7da' : '#e3f2fd'}; border-left: 4px solid ${order.subsidy_status === 'approved' ? '#27ae60' : order.subsidy_status === 'pending_approval' ? '#f39c12' : order.subsidy_status === 'rejected' ? '#e74c3c' : '#3498db'};">
+                            <h3 style="color: ${order.subsidy_status === 'approved' ? '#155724' : order.subsidy_status === 'pending_approval' ? '#856404' : order.subsidy_status === 'rejected' ? '#721c24' : '#0c5460'}; margin-bottom: 15px;">
+                                💰 Subsidy & Discount Information
+                            </h3>
+                            
+                            ${order.calculated_total_amount && order.final_total_amount ? `
+                            <div class="info-row" style="margin-bottom: 10px;">
+                                <span class="info-label" style="font-weight: 600;">Calculated Total (Original):</span>
+                                <span class="info-value" style="text-decoration: line-through; color: #666;">
+                                    Rs. ${parseFloat(order.calculated_total_amount).toFixed(2)}
+                                </span>
+                            </div>
+                            <div class="info-row" style="margin-bottom: 10px;">
+                                <span class="info-label" style="font-weight: 600;">Final Total (After Discount):</span>
+                                <span class="info-value" style="color: #27ae60; font-size: 1.1em; font-weight: bold;">
+                                    Rs. ${parseFloat(order.final_total_amount).toFixed(2)}
+                                </span>
+                            </div>
+                            <div class="info-row" style="margin-bottom: 15px; padding: 10px; background: rgba(255,255,255,0.5); border-radius: 5px;">
+                                <span class="info-label" style="font-weight: 600;">Discount Amount:</span>
+                                <span class="info-value" style="color: #27ae60; font-size: 1.1em; font-weight: bold;">
+                                    Rs. ${(parseFloat(order.calculated_total_amount) - parseFloat(order.final_total_amount)).toFixed(2)}
+                                </span>
+                            </div>
+                            ` : ''}
+                            
+                            ${order.subsidy_status && order.subsidy_status !== 'none' ? `
+                            <div class="info-row" style="margin-bottom: 10px;">
+                                <span class="info-label" style="font-weight: 600;">Subsidy Status:</span>
+                                <span class="info-value">
+                                    <span style="background: ${order.subsidy_status === 'approved' ? '#27ae60' : order.subsidy_status === 'pending_approval' ? '#f39c12' : '#e74c3c'}; color: white; padding: 6px 15px; border-radius: 15px; font-size: 14px; font-weight: bold;">
+                                        ${order.subsidy_status === 'approved' ? '✓ APPROVED' : order.subsidy_status === 'pending_approval' ? '⏳ PENDING APPROVAL' : '✗ REJECTED'}
+                                    </span>
+                                </span>
+                            </div>
+                            ` : ''}
+                            
+                            ${order.subsidy_status === 'approved' && order.subsidy_approved_by ? `
+                            <div class="info-row" style="margin-bottom: 8px; padding: 8px; background: rgba(255,255,255,0.7); border-radius: 5px;">
+                                <span class="info-label" style="font-weight: 600; color: #155724;">✓ Approved By:</span>
+                                <span class="info-value" style="color: #155724;">
+                                    Distributor (ID: ${order.subsidy_approved_by})
+                                </span>
+                            </div>
+                            ${order.subsidy_approved_at ? `
+                            <div class="info-row" style="margin-bottom: 10px; padding: 8px; background: rgba(255,255,255,0.7); border-radius: 5px;">
+                                <span class="info-label" style="font-weight: 600; color: #155724;">Approved At:</span>
+                                <span class="info-value" style="color: #155724;">
+                                    ${new Date(order.subsidy_approved_at).toLocaleString()}
+                                </span>
+                            </div>
+                            ` : ''}
+                            ` : ''}
+                            
+                            ${order.subsidy_status === 'rejected' ? `
+                            <div class="info-row" style="margin-bottom: 8px; padding: 8px; background: rgba(255,255,255,0.7); border-radius: 5px;">
+                                <span class="info-label" style="font-weight: 600; color: #721c24;">✗ Rejection Reason:</span>
+                                <span class="info-value" style="color: #721c24;">
+                                    ${order.subsidy_rejection_reason || 'No reason provided'}
+                                </span>
+                            </div>
+                            ` : ''}
+                            
+                            ${order.subsidy_status === 'pending_approval' ? `
+                            <div class="info-row" style="margin-top: 10px; padding: 10px; background: rgba(255,255,255,0.8); border-radius: 5px; border-left: 3px solid #f39c12;">
+                                <span class="info-value" style="color: #856404; font-size: 13px;">
+                                    ⏳ This order requires distributor approval before it can be assigned for delivery. 
+                                    The discount amount will be applied once approved.
+                                </span>
+                            </div>
+                            ` : ''}
+                            
+                            ${order.subsidy_info ? `
+                            <div class="info-row" style="margin-top: 10px; padding: 8px; background: rgba(255,255,255,0.7); border-radius: 5px;">
+                                <span class="info-label" style="font-weight: 600;">Subsidy Program:</span>
+                                <span class="info-value">
+                                    <strong>${order.subsidy_info.name || 'N/A'}</strong>
+                                    ${order.subsidy_info.percentage ? ` (${order.subsidy_info.percentage}% discount)` : ''}
+                                </span>
+                            </div>
+                            ` : ''}
                         </div>
                         ` : ''}
                     </div>
@@ -1522,8 +1628,24 @@
                                     </tr>
                                 `).join('')}
                                 <tr style="background: #e3f2fd; font-weight: bold;">
-                                    <td colspan="3" style="padding: 12px; text-align: right; border-top: 2px solid #f5576c;">Grand Total:</td>
-                                    <td style="padding: 12px; text-align: right; border-top: 2px solid #f5576c; color: #f5576c; font-size: 1.1em;">Rs. ${parseFloat(order.total_amount || 0).toFixed(2)}</td>
+                                    <td colspan="3" style="padding: 12px; text-align: right; border-top: 2px solid #f5576c;">Subtotal:</td>
+                                    <td style="padding: 12px; text-align: right; border-top: 2px solid #f5576c; color: #f5576c; font-size: 1.1em;">
+                                        Rs. ${parseFloat(order.calculated_total_amount || order.original_amount || order.total_amount || 0).toFixed(2)}
+                                    </td>
+                                </tr>
+                                ${order.calculated_total_amount && order.final_total_amount && parseFloat(order.calculated_total_amount) > parseFloat(order.final_total_amount) ? `
+                                <tr style="background: #fff3cd; font-weight: bold;">
+                                    <td colspan="3" style="padding: 12px; text-align: right; border-top: 1px solid #f39c12;">Discount:</td>
+                                    <td style="padding: 12px; text-align: right; border-top: 1px solid #f39c12; color: #27ae60; font-size: 1em;">
+                                        - Rs. ${(parseFloat(order.calculated_total_amount) - parseFloat(order.final_total_amount)).toFixed(2)}
+                                    </td>
+                                </tr>
+                                ` : ''}
+                                <tr style="background: #d4edda; font-weight: bold;">
+                                    <td colspan="3" style="padding: 12px; text-align: right; border-top: 2px solid #27ae60;">Final Total:</td>
+                                    <td style="padding: 12px; text-align: right; border-top: 2px solid #27ae60; color: #27ae60; font-size: 1.2em;">
+                                        Rs. ${parseFloat(order.final_total_amount || order.total_amount || 0).toFixed(2)}
+                                    </td>
                                 </tr>
                             </tbody>
                         </table>

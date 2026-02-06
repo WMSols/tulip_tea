@@ -72,6 +72,7 @@ class OrderService:
     def create_order(db: Session, shop_id: int, order_booker_id: int,
                     order_items: List[Dict], distributor_id: int = None,
                     visit_id: int = None, scheduled_date: date = None,
+                    final_total_amount: Decimal = None,
                     order_resolution_type: str = None, subsidy_id: int = None) -> Dict:
         """
         Create a new order with credit limit validation and conditional order support.
@@ -233,26 +234,49 @@ class OrderService:
                 'unit_price': float(unit_price)
             })
         
-        # Calculate total amount from processed items
-        total_amount = Decimal('0')
+        # Calculate total amount from processed items (this is the calculated_total_amount)
+        calculated_total_amount = Decimal('0')
         for item in processed_items:
             quantity = item['quantity']
             unit_price = Decimal(str(item['unit_price']))
             item_total = quantity * unit_price
-            total_amount += item_total
+            calculated_total_amount += item_total
         
-        if total_amount <= 0:
+        if calculated_total_amount <= 0:
             raise ValueError("Order total amount must be greater than 0")
+        
+        # Determine final_total_amount
+        # If provided, use it; otherwise use calculated_total_amount
+        if final_total_amount is not None:
+            final_total_amount_decimal = Decimal(str(final_total_amount))
+            # Validate final_total_amount
+            if final_total_amount_decimal <= 0:
+                raise ValueError("final_total_amount must be greater than 0")
+            if final_total_amount_decimal > calculated_total_amount:
+                raise ValueError(f"final_total_amount ({final_total_amount_decimal}) cannot exceed calculated_total_amount ({calculated_total_amount})")
+        else:
+            final_total_amount_decimal = calculated_total_amount
+        
+        # Determine subsidy_status
+        # If final_total_amount < calculated_total_amount, requires approval
+        if final_total_amount_decimal < calculated_total_amount:
+            subsidy_status = 'pending_approval'
+        else:
+            subsidy_status = 'none'
         
         # Explicitly refresh shop to get the latest outstanding_balance
         # This ensures we get the most recent value after any updates (e.g., from daily collections)
         db.refresh(shop)
         
-        # Initialize conditional order variables
-        final_amount = total_amount  # Amount to use for credit limit check (will be discounted for subsidy)
-        original_amount = None  # Only set for subsidy orders
+        # Initialize variables for backward compatibility (legacy subsidy system)
+        final_amount = final_total_amount_decimal  # Amount to use for credit limit check
+        original_amount = calculated_total_amount  # Store calculated total (repurposed original_amount)
         resolution_type = order_resolution_type or 'normal'
-        print(f"[DEBUG OrderService.create_order] Initial: order_resolution_type={order_resolution_type}, subsidy_id={subsidy_id}, resolution_type={resolution_type}")
+        
+        # Legacy subsidy system handling (for backward compatibility)
+        # If order_resolution_type is provided, use legacy system
+        if order_resolution_type:
+            print(f"[DEBUG OrderService.create_order] Using legacy subsidy system: order_resolution_type={order_resolution_type}, subsidy_id={subsidy_id}")
         
         # Validate credit limit using shop's outstanding_balance field
         credit_limit = Decimal(str(shop.credit_limit or 0))
@@ -262,15 +286,21 @@ class OrderService:
             # Available credit cannot be negative - if outstanding > credit_limit, available = 0
             available_credit = max(Decimal('0'), credit_limit - current_outstanding)
             
-            # Check if credit is sufficient
-            if current_outstanding + total_amount > credit_limit:
+            # Check if credit is sufficient (use final_total_amount for check)
+            if current_outstanding + final_total_amount_decimal > credit_limit:
                 # Credit insufficient - need conditional order resolution
-                if not order_resolution_type:
+                # If using new system (final_total_amount provided), check if it requires approval
+                if final_total_amount_decimal < calculated_total_amount:
+                    # Order booker reduced amount, but still exceeds credit - needs approval
+                    # Allow order creation with pending_approval status
+                    print(f"[DEBUG OrderService] Order requires approval: final={final_total_amount_decimal}, calculated={calculated_total_amount}, credit_limit={credit_limit}, outstanding={current_outstanding}")
+                elif not order_resolution_type:
+                    # Legacy system: credit insufficient and no resolution type
                     raise ValueError(
-                        f"Order amount (Rs. {total_amount}) exceeds available credit. "
+                        f"Order amount (Rs. {final_total_amount_decimal}) exceeds available credit. "
                         f"Credit limit: Rs. {credit_limit}, Outstanding: Rs. {current_outstanding}, "
                         f"Available: Rs. {available_credit}. "
-                        f"Please use one of: spot_payment (via daily collection), subsidy, or payment_before_delivery"
+                        f"Please reduce the order amount or use one of: spot_payment (via daily collection), subsidy, or payment_before_delivery"
                     )
                 
                 if order_resolution_type == 'subsidy':
@@ -349,10 +379,8 @@ class OrderService:
                     resolution_type = 'normal'
                     print(f"[DEBUG OrderService] Normal order (credit sufficient). resolution_type: {resolution_type}")
         
-        # Create order with conditional order information
-        # For subsidy orders: total_amount = discounted amount, original_amount = original amount
-        # For other orders: total_amount = order amount, original_amount = NULL
-        print(f"[DEBUG OrderService] Before creating order: resolution_type={resolution_type}, subsidy_id={subsidy_id}, original_amount={original_amount}, final_amount={final_amount}")
+        # Create order with new subsidy approval system
+        print(f"[DEBUG OrderService] Creating order: calculated_total={calculated_total_amount}, final_total={final_total_amount_decimal}, subsidy_status={subsidy_status}")
         order = OrderRepository.create(
             db=db,
             shop_id=shop_id,
@@ -360,12 +388,15 @@ class OrderService:
             distributor_id=distributor_id,
             delivery_man_id=None,  # Assigned later by distributor
             visit_id=visit_id,
-            total_amount=final_amount,  # Use final_amount (discounted for subsidy, original for others)
+            total_amount=final_total_amount_decimal,  # Final amount (after order booker edits)
             status=OrderStatus.PENDING,
             scheduled_date=scheduled_date,
-            order_resolution_type=resolution_type,
-            subsidy_id=subsidy_id if resolution_type == 'subsidy' else None,
-            original_amount=original_amount  # Only set for subsidy orders
+            original_amount=calculated_total_amount,  # Calculated total (sum of items)
+            final_total_amount=final_total_amount_decimal,  # Final amount (explicit column)
+            subsidy_status=subsidy_status,  # 'none' or 'pending_approval'
+            # Legacy fields (for backward compatibility)
+            order_resolution_type=resolution_type if order_resolution_type else None,
+            subsidy_id=subsidy_id if resolution_type == 'subsidy' else None
         )
         print(f"[DEBUG OrderService] After creating order: order.id={order.id}, order.order_resolution_type={order.order_resolution_type}, order.subsidy_id={order.subsidy_id}, order.original_amount={order.original_amount}")
         
@@ -394,19 +425,23 @@ class OrderService:
             })
         
         # Update shop's outstanding balance: Increase by order amount
-        # total_amount already contains the final amount (discounted for subsidy, original for others)
-        amount_to_add = final_amount
-        # Refresh shop to get latest data
-        shop = ShopRepository.get_by_id(db, shop_id)
-        if shop:
-            current_outstanding = Decimal(str(shop.outstanding_balance or 0))
-            new_outstanding = current_outstanding + amount_to_add
-            
-            ShopRepository.update(
-                db=db,
-                shop_id=shop_id,
-                outstanding_balance=new_outstanding
-            )
+        # Only update if order doesn't require approval (subsidy_status = 'none')
+        # If pending_approval, outstanding balance will be updated after approval
+        if subsidy_status == 'none':
+            amount_to_add = final_total_amount_decimal
+            # Refresh shop to get latest data
+            shop = ShopRepository.get_by_id(db, shop_id)
+            if shop:
+                current_outstanding = Decimal(str(shop.outstanding_balance or 0))
+                new_outstanding = current_outstanding + amount_to_add
+                
+                ShopRepository.update(
+                    db=db,
+                    shop_id=shop_id,
+                    outstanding_balance=new_outstanding
+                )
+        else:
+            print(f"[DEBUG OrderService] Order {order.id} requires approval (subsidy_status={subsidy_status}). Outstanding balance will be updated after approval.")
         
         # Get shop name for response (refresh to get updated outstanding_balance)
         shop = ShopRepository.get_by_id(db, shop_id)
@@ -426,7 +461,18 @@ class OrderService:
             "status": order.status.value if hasattr(order.status, 'value') else str(order.status),
             "scheduled_date": order.scheduled_date.isoformat() if order.scheduled_date else None,
             "order_items": created_items,
-            "created_at": order.created_at.isoformat() if order.created_at else None
+            "created_at": order.created_at.isoformat() if order.created_at else None,
+            # New subsidy approval fields
+            "calculated_total_amount": float(calculated_total_amount) if calculated_total_amount else None,
+            "final_total_amount": float(final_total_amount_decimal) if final_total_amount_decimal else None,
+            "subsidy_status": subsidy_status,
+            "subsidy_approved_by": None,
+            "subsidy_approved_at": None,
+            "subsidy_rejection_reason": None,
+            # Legacy fields (for backward compatibility)
+            "original_amount": float(calculated_total_amount) if calculated_total_amount else None,
+            "order_resolution_type": resolution_type if order_resolution_type else None,
+            "subsidy_id": subsidy_id if resolution_type == 'subsidy' else None
         }
     
     @staticmethod
@@ -457,69 +503,177 @@ class OrderService:
         3. Orders from order bookers in the same zone
         4. Orders that have deliveries for this delivery man (to allow completion of existing work)
         5. Includes orders with status: pending, delivered, disapproved
+        6. Excludes orders with subsidy_status: pending_approval, rejected (cannot be assigned)
         """
         from models.order import Order
-        from sqlalchemy import select
+        from sqlalchemy import select, or_
         from repositories.delivery_man_repository import DeliveryManRepository
         
-        # Get delivery man to retrieve their zone_id
+        # Get delivery man to retrieve their zone_id and distributor_id
         delivery_man = DeliveryManRepository.get_by_id(db, delivery_man_id, include_deleted=False)
         if not delivery_man:
             print(f"[get_orders_by_delivery_man] Delivery man {delivery_man_id} not found")
             return []
         
         zone_id = delivery_man.zone_id
-        print(f"[get_orders_by_delivery_man] Delivery man {delivery_man_id} is assigned to zone {zone_id}")
+        distributor_id = delivery_man.distributor_id
+        print(f"[get_orders_by_delivery_man] Delivery man {delivery_man_id} is assigned to zone {zone_id}, distributor {distributor_id}")
         
         # Status filter - used in all queries
         from models.order import OrderStatus
         status_filter = Order.status.in_([OrderStatus.PENDING, OrderStatus.DELIVERED, OrderStatus.DISAPPROVED])
+        
+        # Distributor filter - CRITICAL: Only show orders from this delivery man's distributor
+        distributor_filter = Order.distributor_id == distributor_id
         
         # Build separate queries for UNION (each can use its specific index)
         # Using UNION ALL for better performance, then getting distinct order IDs
         order_ids_set = set()
         
         # Query 1: Explicitly assigned orders (uses idx_orders_delivery_man_status_created)
+        # Must belong to the same distributor
         q1_ids = db.query(Order.id).filter(
             Order.delivery_man_id == delivery_man_id,
+            distributor_filter,  # Filter by distributor
             status_filter
         ).all()
         order_ids_set.update([row[0] for row in q1_ids])
         print(f"[get_orders_by_delivery_man] Query 1 (explicitly assigned): {len(q1_ids)} orders")
         
+        # Query 2 & 3: Orders from shops and order bookers
+        # Handle both cases: with zone_id and without zone_id (null)
+        from models.shop import Shop
+        from models.order_booker import OrderBooker as OB
+        from models.order_booker import OrderBooker
+        
         if zone_id:
             # Query 2: Orders from shops in zone (uses idx_orders_shop_status_created)
             # Use subquery to get shop IDs efficiently (uses idx_shops_zone_active)
-            from models.shop import Shop
-            shop_ids_subq = select(Shop.id).filter(
+            # IMPORTANT: Filter shops by their order booker's distributor_id to ensure data isolation
+            # Shops don't have direct distributor_id, but are linked through order_bookers
+            # Join shops with order_bookers to filter by distributor
+            # Check both assigned_to_order_booker and created_by_order_booker
+            shop_ids_subq = select(Shop.id).join(
+                OB, 
+                or_(
+                    Shop.assigned_to_order_booker == OB.id,
+                    Shop.created_by_order_booker == OB.id
+                )
+            ).filter(
                 Shop.zone_id == zone_id,
+                OB.distributor_id == distributor_id,  # Filter by distributor through order booker
                 Shop.deleted_at.is_(None),
-                Shop.is_active == True
-            )
+                Shop.is_active == True,
+                OB.deleted_at.is_(None),
+                OB.is_active == True
+            ).distinct()
             q2_ids = db.query(Order.id).filter(
                 Order.shop_id.in_(shop_ids_subq),
+                distributor_filter,  # Double-check order belongs to distributor
                 status_filter
             ).all()
             order_ids_set.update([row[0] for row in q2_ids])
-            print(f"[get_orders_by_delivery_man] Query 2 (shops in zone): {len(q2_ids)} orders")
+            print(f"[get_orders_by_delivery_man] Query 2 (shops in zone {zone_id}, distributor {distributor_id}): {len(q2_ids)} orders")
             
             # Query 3: Orders from order bookers in zone (uses idx_orders_order_booker_status_created)
             # Use subquery to get order booker IDs efficiently (uses idx_order_bookers_zone_active)
-            from models.order_booker import OrderBooker
+            # IMPORTANT: Filter order bookers by distributor_id to ensure data isolation
             order_booker_ids_subq = select(OrderBooker.id).filter(
                 OrderBooker.zone_id == zone_id,
+                OrderBooker.distributor_id == distributor_id,  # Filter by distributor
                 OrderBooker.deleted_at.is_(None),
                 OrderBooker.is_active == True
             )
             q3_ids = db.query(Order.id).filter(
                 Order.order_booker_id.in_(order_booker_ids_subq),
+                distributor_filter,  # Double-check order belongs to distributor
                 status_filter
             ).all()
             order_ids_set.update([row[0] for row in q3_ids])
-            print(f"[get_orders_by_delivery_man] Query 3 (order bookers in zone): {len(q3_ids)} orders")
+            print(f"[get_orders_by_delivery_man] Query 3 (order bookers in zone {zone_id}, distributor {distributor_id}): {len(q3_ids)} orders")
+            
+            # Query 2a & 3a: Fallback queries to catch orders from same distributor across zones
+            # This ensures delivery men see all orders from their distributor, even if shop/order booker is in different zone
+            # This is important for operational flexibility within a distributor's domain
+            print(f"[get_orders_by_delivery_man] Running fallback queries for cross-zone orders (distributor {distributor_id})")
+            
+            # Query 2a: Direct orders by distributor_id (catches all orders from distributor, regardless of zone)
+            q2a_ids = db.query(Order.id).filter(
+                distributor_filter,  # Filter by distributor
+                status_filter
+            ).all()
+            order_ids_set.update([row[0] for row in q2a_ids])
+            print(f"[get_orders_by_delivery_man] Query 2a (fallback: direct orders, distributor {distributor_id}): {len(q2a_ids)} orders")
+            
+            # Query 3a: Orders from order bookers of same distributor (no zone filter)
+            # This catches orders from order bookers in other zones of the same distributor
+            order_booker_ids_subq_fallback = select(OrderBooker.id).filter(
+                OrderBooker.distributor_id == distributor_id,  # Filter by distributor only (no zone)
+                OrderBooker.deleted_at.is_(None),
+                OrderBooker.is_active == True
+            )
+            q3a_ids = db.query(Order.id).filter(
+                Order.order_booker_id.in_(order_booker_ids_subq_fallback),
+                distributor_filter,  # Double-check order belongs to distributor
+                status_filter
+            ).all()
+            order_ids_set.update([row[0] for row in q3a_ids])
+            print(f"[get_orders_by_delivery_man] Query 3a (fallback: order bookers, distributor {distributor_id}): {len(q3a_ids)} orders")
+        else:
+            # Fallback: When delivery man has no zone assigned, show orders from order bookers of same distributor
+            # This ensures delivery men can still see orders even if not assigned to a zone yet
+            print(f"[get_orders_by_delivery_man] Delivery man has no zone assigned - using distributor-only filtering")
+            
+            # Query 2a (no zone): Direct orders by distributor_id (simplest and most efficient)
+            # Since orders have distributor_id, we can directly query them
+            q2a_ids = db.query(Order.id).filter(
+                distributor_filter,  # Filter by distributor
+                status_filter
+            ).all()
+            order_ids_set.update([row[0] for row in q2a_ids])
+            print(f"[get_orders_by_delivery_man] Query 2a (direct orders, no zone, distributor {distributor_id}): {len(q2a_ids)} orders")
+            
+            # Query 2b (no zone): Orders from shops linked to order bookers of same distributor
+            # Join shops with order_bookers to filter by distributor (no zone filter)
+            # This is a secondary check to ensure we catch all orders
+            shop_ids_subq = select(Shop.id).join(
+                OB, 
+                or_(
+                    Shop.assigned_to_order_booker == OB.id,
+                    Shop.created_by_order_booker == OB.id
+                )
+            ).filter(
+                OB.distributor_id == distributor_id,  # Filter by distributor through order booker
+                Shop.deleted_at.is_(None),
+                Shop.is_active == True,
+                OB.deleted_at.is_(None),
+                OB.is_active == True
+            ).distinct()
+            q2b_ids = db.query(Order.id).filter(
+                Order.shop_id.in_(shop_ids_subq),
+                distributor_filter,  # Double-check order belongs to distributor
+                status_filter
+            ).all()
+            order_ids_set.update([row[0] for row in q2b_ids])
+            print(f"[get_orders_by_delivery_man] Query 2b (shops, no zone, distributor {distributor_id}): {len(q2b_ids)} orders")
+            
+            # Query 3 (no zone): Orders from order bookers of same distributor (no zone filter)
+            order_booker_ids_subq = select(OrderBooker.id).filter(
+                OrderBooker.distributor_id == distributor_id,  # Filter by distributor only
+                OrderBooker.deleted_at.is_(None),
+                OrderBooker.is_active == True
+            )
+            q3_ids = db.query(Order.id).filter(
+                Order.order_booker_id.in_(order_booker_ids_subq),
+                distributor_filter,  # Double-check order belongs to distributor
+                status_filter
+            ).all()
+            order_ids_set.update([row[0] for row in q3_ids])
+            print(f"[get_orders_by_delivery_man] Query 3 (order bookers, no zone, distributor {distributor_id}): {len(q3_ids)} orders")
         
         # Query 4: Orders with deliveries (uses idx_deliveries_delivery_man_order)
         # Use subquery to get order IDs efficiently
+        # Must belong to the same distributor
         from models.delivery import Delivery
         delivery_order_ids_subq = select(Delivery.order_id).filter(
             Delivery.delivery_man_id == delivery_man_id,
@@ -527,6 +681,7 @@ class OrderService:
         ).distinct()
         q4_ids = db.query(Order.id).filter(
             Order.id.in_(delivery_order_ids_subq),
+            distributor_filter,  # Filter by distributor
             status_filter
         ).all()
         order_ids_set.update([row[0] for row in q4_ids])
@@ -535,13 +690,22 @@ class OrderService:
         # Convert set to list for IN clause
         order_ids = list(order_ids_set)
         
-        print(f"[get_orders_by_delivery_man] Found {len(order_ids)} unique orders from all query conditions")
+        print(f"[get_orders_by_delivery_man] Found {len(order_ids)} unique orders from all query conditions (distributor {distributor_id})")
         
         if order_ids:
             # Fetch full order objects using the IDs (uses primary key index)
+            # Filter out orders with pending_approval or rejected subsidy_status
             # Order by created_at DESC (uses idx_orders_created_at_desc or idx_orders_status_created)
+            # Final distributor check to ensure data isolation
             orders = db.query(Order).filter(
-                Order.id.in_(order_ids)
+                Order.id.in_(order_ids),
+                distributor_filter,  # Final distributor check
+                # Exclude orders that cannot be assigned (pending approval or rejected)
+                or_(
+                    Order.subsidy_status.is_(None),
+                    Order.subsidy_status == 'none',
+                    Order.subsidy_status == 'approved'
+                )
             ).order_by(Order.created_at.desc()).all()
         else:
             orders = []
@@ -549,8 +713,18 @@ class OrderService:
         
         if orders:
             # Debug: Show order details
-            order_details = [(o.id, o.shop_id, o.status.value if hasattr(o.status, 'value') else str(o.status), o.delivery_man_id, getattr(o, 'order_resolution_type', None)) for o in orders]
-            print(f"[get_orders_by_delivery_man] Order details: {order_details}")
+            try:
+                order_details = []
+                for o in orders:
+                    try:
+                        status_str = o.status.value if hasattr(o.status, 'value') else str(o.status) if o.status else 'PENDING'
+                        order_details.append((o.id, o.shop_id, status_str, o.delivery_man_id, getattr(o, 'order_resolution_type', None)))
+                    except Exception as e:
+                        print(f"[get_orders_by_delivery_man] Error processing order {o.id}: {e}")
+                        order_details.append((o.id, o.shop_id, 'PENDING', o.delivery_man_id, getattr(o, 'order_resolution_type', None)))
+                print(f"[get_orders_by_delivery_man] Order details: {order_details}")
+            except Exception as e:
+                print(f"[get_orders_by_delivery_man] Error in debug logging: {e}")
         
         return OrderService._format_orders(db, orders)
     
@@ -565,6 +739,16 @@ class OrderService:
         """Format orders with related data. Optimized with batch loading to avoid N+1 queries."""
         if not orders:
             return []
+        
+        # Helper function to safely format datetime to ISO string
+        def safe_isoformat(dt):
+            """Safely convert datetime to ISO format string, returning None if dt is None."""
+            if dt is None:
+                return None
+            try:
+                return dt.isoformat() if hasattr(dt, 'isoformat') else str(dt)
+            except:
+                return None
         
         from models.shop import Shop
         from models.order_booker import OrderBooker
@@ -675,7 +859,7 @@ class OrderService:
                 "delivery_man_name": delivery_man.name if delivery_man else None,
                 "visit_id": order.visit_id,
                 "total_amount": float(order.total_amount) if order.total_amount else 0,
-                "status": order.status.value if hasattr(order.status, 'value') else str(order.status),
+                "status": (order.status.value if hasattr(order.status, 'value') else str(order.status)) if order.status else 'PENDING',
                 "scheduled_date": order.scheduled_date.isoformat() if order.scheduled_date else None,
                 "order_items": order_items,
                 # GPS removed from orders - stored in shop_visits instead
@@ -683,16 +867,23 @@ class OrderService:
                 # "delivery_gps_lng": float(order.delivery_gps_lng) if order.delivery_gps_lng else None,
                 "delivery_remarks": order.delivery_remarks,
                 "delivery_images": delivery_images_list,
-                "created_at": order.created_at.isoformat() if order.created_at else None,
-                "updated_at": order.updated_at.isoformat() if order.updated_at else None,
-                # Conditional order information
+                "created_at": safe_isoformat(order.created_at),
+                "updated_at": safe_isoformat(order.updated_at),
+                # New subsidy approval system
+                "calculated_total_amount": float(order.original_amount) if hasattr(order, 'original_amount') and order.original_amount else None,
+                "final_total_amount": float(order.final_total_amount) if hasattr(order, 'final_total_amount') and order.final_total_amount else (float(order.total_amount) if order.total_amount else None),
+                "subsidy_status": getattr(order, 'subsidy_status', None) or 'none',
+                "subsidy_approved_by": getattr(order, 'subsidy_approved_by', None),
+                "subsidy_approved_at": safe_isoformat(getattr(order, 'subsidy_approved_at', None)),
+                "subsidy_rejection_reason": getattr(order, 'subsidy_rejection_reason', None),
+                # DEPRECATED: Legacy fields (kept for backward compatibility)
                 "order_resolution_type": order_resolution_type,
                 "subsidy_id": subsidy_id,
                 "subsidy_info": subsidy_info,
                 "original_amount": float(order.original_amount) if hasattr(order, 'original_amount') and order.original_amount else None,
                 "payment_collected_before_delivery": getattr(order, 'payment_collected_before_delivery', False),
                 "payment_collected_amount": float(order.payment_collected_amount) if hasattr(order, 'payment_collected_amount') and order.payment_collected_amount else None,
-                "payment_collected_at": order.payment_collected_at.isoformat() if hasattr(order, 'payment_collected_at') and order.payment_collected_at else None
+                "payment_collected_at": safe_isoformat(getattr(order, 'payment_collected_at', None))
             })
             
             # Debug: Log what we're returning
@@ -704,6 +895,18 @@ class OrderService:
     def assign_delivery_man(db: Session, order_id: int, delivery_man_id: int) -> Dict:
         """Assign order to a delivery man."""
         from repositories.delivery_man_repository import DeliveryManRepository
+        
+        # Validate order exists
+        order = OrderRepository.get_by_id(db, order_id)
+        if not order:
+            raise ValueError("Order not found")
+        
+        # Validate order can be assigned (subsidy_status must be 'none' or 'approved')
+        subsidy_status = getattr(order, 'subsidy_status', None) or 'none'
+        if subsidy_status == 'pending_approval':
+            raise ValueError("Cannot assign order. Order requires distributor approval for subsidy.")
+        if subsidy_status == 'rejected':
+            raise ValueError("Cannot assign order. Order subsidy was rejected by distributor.")
         
         # Validate delivery man exists
         delivery_man = DeliveryManRepository.get_by_id(db, delivery_man_id)
@@ -720,4 +923,128 @@ class OrderService:
             "delivery_man_name": delivery_man.name,
             "status": order.status.value if hasattr(order.status, 'value') else str(order.status)
         }
+    
+    @staticmethod
+    def get_pending_subsidy_approvals(db: Session, distributor_id: int) -> List[Dict]:
+        """
+        Get all orders pending subsidy approval for a distributor.
+        
+        Args:
+            db: Database session
+            distributor_id: Distributor ID to get pending approvals for
+        
+        Returns:
+            List of orders with subsidy_status = 'pending_approval'
+        """
+        from models.order import Order
+        orders = db.query(Order).filter(
+            Order.subsidy_status == 'pending_approval',
+            Order.distributor_id == distributor_id
+        ).order_by(Order.created_at.desc()).all()
+        
+        return OrderService._format_orders(db, orders)
+    
+    @staticmethod
+    def approve_subsidy(db: Session, order_id: int, distributor_id: int) -> Dict:
+        """
+        Approve a subsidized order.
+        
+        Args:
+            db: Database session
+            order_id: Order ID to approve
+            distributor_id: Distributor ID approving the order
+        
+        Returns:
+            Updated order data
+        
+        Raises:
+            ValueError: If order not found, not pending approval, or distributor mismatch
+        """
+        from datetime import datetime
+        
+        order = OrderRepository.get_by_id(db, order_id)
+        if not order:
+            raise ValueError("Order not found")
+        
+        # Validate order is pending approval
+        subsidy_status = getattr(order, 'subsidy_status', None) or 'none'
+        if subsidy_status != 'pending_approval':
+            raise ValueError(f"Order is not pending approval. Current status: {subsidy_status}")
+        
+        # Validate distributor has permission (order belongs to their order booker)
+        if order.distributor_id and order.distributor_id != distributor_id:
+            raise ValueError("You do not have permission to approve this order")
+        
+        # Update order
+        order.subsidy_status = 'approved'
+        order.subsidy_approved_by = distributor_id
+        order.subsidy_approved_at = datetime.utcnow()
+        
+        # Update shop's outstanding balance (was not updated during creation)
+        # Use final_total_amount (the reduced amount) for outstanding balance calculation
+        if order.shop_id:
+            from repositories.shop_repository import ShopRepository
+            shop = ShopRepository.get_by_id(db, order.shop_id)
+            if shop:
+                # Use final_total_amount (the reduced amount after order booker's discount)
+                # This is the actual amount the shop will owe
+                final_amount = Decimal(str(order.final_total_amount)) if order.final_total_amount else Decimal(str(order.total_amount))
+                
+                # Refresh shop to get latest outstanding_balance
+                db.refresh(shop)
+                current_outstanding = Decimal(str(shop.outstanding_balance or 0))
+                new_outstanding = current_outstanding + final_amount
+                
+                ShopRepository.update(
+                    db=db,
+                    shop_id=order.shop_id,
+                    outstanding_balance=new_outstanding
+                )
+                print(f"[approve_subsidy] Updated shop {order.shop_id} outstanding balance: {current_outstanding} -> {new_outstanding} (using final_total_amount: {final_amount})")
+        
+        db.commit()
+        db.refresh(order)
+        
+        return OrderService._format_orders(db, [order])[0]
+    
+    @staticmethod
+    def reject_subsidy(db: Session, order_id: int, distributor_id: int, rejection_reason: str = None) -> Dict:
+        """
+        Reject a subsidized order.
+        
+        Args:
+            db: Database session
+            order_id: Order ID to reject
+            distributor_id: Distributor ID rejecting the order
+            rejection_reason: Optional reason for rejection
+        
+        Returns:
+            Updated order data
+        
+        Raises:
+            ValueError: If order not found, not pending approval, or distributor mismatch
+        """
+        order = OrderRepository.get_by_id(db, order_id)
+        if not order:
+            raise ValueError("Order not found")
+        
+        # Validate order is pending approval
+        subsidy_status = getattr(order, 'subsidy_status', None) or 'none'
+        if subsidy_status != 'pending_approval':
+            raise ValueError(f"Order is not pending approval. Current status: {subsidy_status}")
+        
+        # Validate distributor has permission
+        if order.distributor_id and order.distributor_id != distributor_id:
+            raise ValueError("You do not have permission to reject this order")
+        
+        # Update order
+        order.subsidy_status = 'rejected'
+        order.subsidy_rejection_reason = rejection_reason
+        
+        # Do NOT update outstanding balance (order was not approved)
+        
+        db.commit()
+        db.refresh(order)
+        
+        return OrderService._format_orders(db, [order])[0]
 

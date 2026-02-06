@@ -634,8 +634,32 @@
                                 <label>Scheduled Delivery Date (Optional)</label>
                                 <input type="date" id="orderScheduledDate">
                             </div>
-                            <div id="orderTotalDisplay" style="margin-top: 15px; padding: 10px; background: white; border-radius: 5px; font-weight: bold; color: #3498db;">
-                                Total Order Amount: Rs. <span id="orderTotalAmount">0.00</span>
+                            <div id="orderTotalDisplay" style="margin-top: 15px; padding: 15px; background: white; border-radius: 5px; border: 2px solid #3498db;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                                    <div>
+                                        <strong style="color: #3498db; font-size: 16px;">Calculated Total:</strong>
+                                        <span id="orderCalculatedTotal" style="font-size: 18px; font-weight: bold; color: #2c3e50; margin-left: 10px;">Rs. 0.00</span>
+                                    </div>
+                                </div>
+                                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #e0e0e0;">
+                                    <label style="display: block; margin-bottom: 5px; color: #666; font-size: 14px;">
+                                        <strong>Final Order Amount (Optional):</strong>
+                                        <small style="display: block; font-weight: normal; color: #999;">You can reduce this amount. If reduced, it will require distributor approval.</small>
+                                    </label>
+                                    <div style="display: flex; align-items: center; gap: 10px;">
+                                        <input type="number" id="orderFinalTotalAmount" step="0.01" min="0" 
+                                               style="flex: 1; padding: 8px; border: 2px solid #3498db; border-radius: 5px; font-size: 16px; font-weight: bold;"
+                                               placeholder="Enter final amount (defaults to calculated total)"
+                                               onchange="updateFinalTotalDisplay()">
+                                        <button type="button" onclick="resetFinalTotal()" 
+                                                style="padding: 8px 15px; background: #95a5a6; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                                            Reset
+                                        </button>
+                                    </div>
+                                    <div id="finalTotalInfo" style="margin-top: 8px; padding: 8px; background: #f0f8ff; border-radius: 5px; font-size: 12px; display: none;">
+                                        <span id="finalTotalMessage" style="color: #3498db;"></span>
+                                    </div>
+                                </div>
                             </div>
                             <div id="shopCreditLimitInfo" style="margin-top: 10px; padding: 10px; background: #fff3cd; border-radius: 5px; font-size: 12px; color: #856404;">
                                 <strong>Note:</strong> Order will be validated against shop's credit limit before creation.
@@ -2079,14 +2103,15 @@
             const selectedOption = subsidySelect.options[subsidySelect.selectedIndex];
             const discountPercent = parseFloat(selectedOption.getAttribute('data-percentage') || 0);
             
-            // Get current order total
-            const orderTotal = parseFloat(document.getElementById('orderTotalAmount').textContent || 0);
+            // Get current calculated total
+            const calculatedTotal = parseFloat(document.getElementById('orderCalculatedTotal')?.textContent.replace('Rs. ', '').replace(/,/g, '') || 
+                                            document.getElementById('orderTotalAmount')?.textContent || 0);
             
-            if (orderTotal > 0 && discountPercent > 0) {
-                const discountAmount = orderTotal * (discountPercent / 100);
-                const discountedAmount = orderTotal - discountAmount;
+            if (calculatedTotal > 0 && discountPercent > 0) {
+                const discountAmount = calculatedTotal * (discountPercent / 100);
+                const discountedAmount = calculatedTotal - discountAmount;
                 
-                originalAmountSpan.textContent = orderTotal.toFixed(2);
+                originalAmountSpan.textContent = calculatedTotal.toFixed(2);
                 discountPercentSpan.textContent = discountPercent.toFixed(2);
                 discountedAmountSpan.textContent = discountedAmount.toFixed(2);
                 
@@ -2094,6 +2119,62 @@
             } else {
                 subsidyPreview.style.display = 'none';
             }
+        }
+        
+        // Update Final Total Display
+        function updateFinalTotalDisplay() {
+            const calculatedTotalElement = document.getElementById('orderCalculatedTotal');
+            const finalTotalInput = document.getElementById('orderFinalTotalAmount');
+            const finalTotalInfo = document.getElementById('finalTotalInfo');
+            const finalTotalMessage = document.getElementById('finalTotalMessage');
+            
+            if (!calculatedTotalElement || !finalTotalInput || !finalTotalInfo || !finalTotalMessage) return;
+            
+            const calculatedTotal = parseFloat(calculatedTotalElement.textContent.replace('Rs. ', '').replace(/,/g, '') || 0);
+            const finalTotal = parseFloat(finalTotalInput.value) || null;
+            
+            if (finalTotal === null || finalTotal === calculatedTotal) {
+                // No custom amount or same as calculated
+                finalTotalInfo.style.display = 'none';
+                finalTotalInput.style.borderColor = '#3498db';
+            } else if (finalTotal > calculatedTotal) {
+                // Final total is higher than calculated (not allowed)
+                finalTotalInfo.style.display = 'block';
+                finalTotalInfo.style.background = '#fee';
+                finalTotalInfo.style.borderLeft = '4px solid #e74c3c';
+                finalTotalMessage.innerHTML = '⚠️ Final amount cannot be higher than calculated total. Please enter a value less than or equal to Rs. ' + calculatedTotal.toFixed(2);
+                finalTotalInput.style.borderColor = '#e74c3c';
+            } else if (finalTotal < calculatedTotal && finalTotal > 0) {
+                // Final total is less than calculated (requires approval)
+                const discount = calculatedTotal - finalTotal;
+                const discountPercent = ((discount / calculatedTotal) * 100).toFixed(2);
+                finalTotalInfo.style.display = 'block';
+                finalTotalInfo.style.background = '#fff3cd';
+                finalTotalInfo.style.borderLeft = '4px solid #f39c12';
+                finalTotalMessage.innerHTML = `⚠️ <strong>Subsidy Request:</strong> You are requesting a discount of Rs. ${discount.toFixed(2)} (${discountPercent}%). This order will require distributor approval before it can be assigned for delivery.`;
+                finalTotalInput.style.borderColor = '#f39c12';
+            } else if (finalTotal <= 0) {
+                // Invalid amount
+                finalTotalInfo.style.display = 'block';
+                finalTotalInfo.style.background = '#fee';
+                finalTotalInfo.style.borderLeft = '4px solid #e74c3c';
+                finalTotalMessage.innerHTML = '⚠️ Final amount must be greater than 0.';
+                finalTotalInput.style.borderColor = '#e74c3c';
+            }
+        }
+        
+        // Reset Final Total
+        function resetFinalTotal() {
+            const finalTotalInput = document.getElementById('orderFinalTotalAmount');
+            const finalTotalInfo = document.getElementById('finalTotalInfo');
+            if (finalTotalInput) {
+                finalTotalInput.value = '';
+                finalTotalInput.style.borderColor = '#3498db';
+            }
+            if (finalTotalInfo) {
+                finalTotalInfo.style.display = 'none';
+            }
+            updateFinalTotalDisplay();
         }
 
         function updateOrderTotal() {
@@ -2112,22 +2193,25 @@
                 }
             });
             
+            // Update calculated total display
+            const calculatedTotalElement = document.getElementById('orderCalculatedTotal');
+            if (calculatedTotalElement) {
+                calculatedTotalElement.textContent = `Rs. ${total.toFixed(2)}`;
+            }
+            
+            // Update final total input placeholder and trigger validation
+            const finalTotalInput = document.getElementById('orderFinalTotalAmount');
+            if (finalTotalInput && !finalTotalInput.value) {
+                finalTotalInput.placeholder = `Enter final amount (defaults to ${total.toFixed(2)})`;
+            }
+            
+            // Update final total display if it exists
+            updateFinalTotalDisplay();
+            
+            // Keep old element for backward compatibility (if it exists)
             const orderTotalElement = document.getElementById('orderTotalAmount');
             if (orderTotalElement) {
                 orderTotalElement.textContent = total.toFixed(2);
-                // Update styling based on total
-                const totalDisplay = orderTotalElement.closest('#orderTotalDisplay');
-                if (totalDisplay) {
-                    if (total > 0 && hasValidItems) {
-                        totalDisplay.style.background = '#d4edda';
-                        totalDisplay.style.color = '#155724';
-                        totalDisplay.style.border = '2px solid #27ae60';
-                    } else {
-                        totalDisplay.style.background = '#f8f9fa';
-                        totalDisplay.style.color = '#6c757d';
-                        totalDisplay.style.border = '1px solid #dee2e6';
-                    }
-                }
             }
             // Update credit warning if shop is selected
             updateOrderTotalWithCreditWarning();
@@ -2259,27 +2343,14 @@
                 }
             }
 
-            // Get conditional order resolution type and subsidy
-            let orderResolutionType = null;
-            let subsidyId = null;
+            // Get final total amount if order_booking is selected
+            let finalTotalAmount = null;
             if (visitTypes.includes('order_booking')) {
-                const resolutionRadios = document.querySelectorAll('input[name="orderResolutionType"]');
-                for (const radio of resolutionRadios) {
-                    if (radio.checked) {
-                        orderResolutionType = radio.value;
-                        break;
-                    }
-                }
-                
-                // If subsidy is selected, get subsidy ID
-                if (orderResolutionType === 'subsidy') {
-                    const subsidySelect = document.getElementById('orderSubsidyId');
-                    if (subsidySelect && subsidySelect.value) {
-                        subsidyId = parseInt(subsidySelect.value);
-                    } else {
-                        resultDiv.className = 'result error';
-                        resultDiv.textContent = 'Please select a subsidy when using subsidy resolution type';
-                        return;
+                const finalTotalInput = document.getElementById('orderFinalTotalAmount');
+                if (finalTotalInput && finalTotalInput.value) {
+                    const finalTotal = parseFloat(finalTotalInput.value);
+                    if (!isNaN(finalTotal) && finalTotal > 0) {
+                        finalTotalAmount = finalTotal;
                     }
                 }
             }
@@ -2296,8 +2367,7 @@
                 scheduled_date: scheduledDate,
                 collection_amount: collectionAmount,
                 collection_remarks: collectionRemarks,
-                order_resolution_type: orderResolutionType,
-                subsidy_id: subsidyId
+                final_total_amount: finalTotalAmount
             };
 
             const endpoint = `${API_BASE}/shop-visits/order-booker/${currentUser.id}`;
@@ -2427,7 +2497,21 @@
                 }
                 document.getElementById('collectionRemarks').value = '';
                 // Reset order total
-                document.getElementById('orderTotalAmount').textContent = '0.00';
+                // Reset order totals
+                const calculatedTotalElement = document.getElementById('orderCalculatedTotal');
+                if (calculatedTotalElement) {
+                    calculatedTotalElement.textContent = 'Rs. 0.00';
+                }
+                const orderTotalElement = document.getElementById('orderTotalAmount');
+                if (orderTotalElement) {
+                    orderTotalElement.textContent = '0.00';
+                }
+                // Reset final total input
+                const finalTotalInput = document.getElementById('orderFinalTotalAmount');
+                if (finalTotalInput) {
+                    finalTotalInput.value = '';
+                }
+                resetFinalTotal();
                 // Don't hide credit info display if collection was created - keep it visible to show updated balance
                 if (!data.collection_id) {
                     const creditInfoDisplay = document.getElementById('shopCreditInfoDisplay');

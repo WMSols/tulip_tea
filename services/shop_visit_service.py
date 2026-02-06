@@ -155,8 +155,8 @@ class ShopVisitService:
                       visit_time: str = None, photo: str = None,
                       reason: str = None, order_items: List[Dict] = None,
                       scheduled_date: str = None, collection_amount: float = None,
-                      collection_remarks: str = None, order_resolution_type: str = None,
-                      subsidy_id: int = None) -> Dict:
+                      collection_remarks: str = None, final_total_amount: Decimal = None,
+                      order_resolution_type: str = None, subsidy_id: int = None) -> Dict:
         """
         Register a new shop visit.
         
@@ -334,6 +334,11 @@ class ShopVisitService:
             
             # Create order
             try:
+                # Convert final_total_amount to Decimal if provided
+                final_total_decimal = None
+                if final_total_amount is not None:
+                    final_total_decimal = Decimal(str(final_total_amount))
+                
                 order_data = OrderService.create_order(
                     db=db,
                     shop_id=shop_id,
@@ -342,6 +347,7 @@ class ShopVisitService:
                     distributor_id=distributor_id,
                     visit_id=visit.id,
                     scheduled_date=scheduled_date_obj,
+                    final_total_amount=final_total_decimal,
                     order_resolution_type=order_resolution_type,
                     subsidy_id=subsidy_id
                 )

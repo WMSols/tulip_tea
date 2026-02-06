@@ -481,6 +481,7 @@
                         <button class="tab" onclick="switchTab('products')">📦 Products</button>
                         <button class="tab" onclick="switchTab('shops')">Shops <span id="pendingShopsBadge" style="background: #e74c3c; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 5px;">0</span></button>
                         <button class="tab" onclick="switchTab('creditLimits')">Credit Limits <span id="creditRequestsBadge" style="background: #e74c3c; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 5px;">0</span></button>
+                        <button class="tab" onclick="switchTab('subsidyApprovals')">💰 Subsidy Approvals <span id="pendingSubsidyBadge" style="background: #f39c12; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 5px;">0</span></button>
                         <button class="tab" onclick="switchTab('visits')">📍 Visits</button>
                         <button class="tab" onclick="switchTab('schedules')">📅 Schedules</button>
                         <button class="tab" onclick="switchTab('wallet')">💵 Wallet</button>
@@ -681,6 +682,18 @@
                     <!-- Pending Credit Limit Requests Section -->
                     <h2 style="margin-top: 40px; color: #e74c3c;">Pending Credit Limit Requests <span id="creditRequestsBadgeInline" style="background: #e74c3c; color: white; padding: 2px 8px; border-radius: 10px; font-size: 14px;">0</span></h2>
                     <div id="creditLimitRequestsList" style="margin-top: 20px;"></div>
+                </div>
+
+                <!-- Subsidy Approvals Tab -->
+                <div id="subsidyApprovalsTab" class="tab-content">
+                    <h2>💰 Pending Subsidy Approvals</h2>
+                    <p style="color: #666; margin-bottom: 20px;">Review and approve/reject orders where order bookers have requested a discount (reduced final amount).</p>
+                    
+                    <div style="margin-bottom: 20px;">
+                        <button class="btn btn-success" onclick="loadPendingSubsidyApprovals()">Refresh Pending Approvals</button>
+                    </div>
+                    
+                    <div id="pendingSubsidyApprovalsList" style="margin-top: 20px;"></div>
                 </div>
 
                 <!-- Warehouses Tab -->
@@ -1085,10 +1098,10 @@
             });
 
             // Show selected tab
-            const tabs = ['zones', 'routes', 'orderBookers', 'deliveryMen', 'warehouses', 'products', 'shops', 'creditLimits', 'visits', 'schedules', 'wallet'];
+            const tabs = ['zones', 'routes', 'orderBookers', 'deliveryMen', 'warehouses', 'products', 'shops', 'creditLimits', 'subsidyApprovals', 'visits', 'schedules', 'wallet'];
             const tabIndex = tabs.indexOf(tabName);
             if (tabIndex !== -1) {
-                const tabContents = ['zonesTab', 'routesTab', 'orderBookersTab', 'deliveryMenTab', 'warehousesTab', 'productsTab', 'shopsTab', 'creditLimitsTab', 'visitsTab', 'schedulesTab', 'walletTab'];
+                const tabContents = ['zonesTab', 'routesTab', 'orderBookersTab', 'deliveryMenTab', 'warehousesTab', 'productsTab', 'shopsTab', 'creditLimitsTab', 'subsidyApprovalsTab', 'visitsTab', 'schedulesTab', 'walletTab'];
                 const tabContentElement = document.getElementById(tabContents[tabIndex]);
                 if (tabContentElement) {
                     tabContentElement.classList.add('active');
@@ -1128,6 +1141,8 @@
                 } else if (tabName === 'creditLimits') {
                     loadAllShopsWithCreditLimits();
                     loadPendingCreditLimitRequests();
+                } else if (tabName === 'subsidyApprovals') {
+                    loadPendingSubsidyApprovals();
                 } else if (tabName === 'visits') {
                     loadAllVisits();
                 } else if (tabName === 'wallet') {
@@ -1193,6 +1208,7 @@
                 loadPendingShops();
                 loadAllShopsWithCreditLimits();
                 loadPendingCreditLimitRequests();
+                loadPendingSubsidyApprovals();
                 loadWalletBalance();
             } catch (error) {
                 resultDiv.className = 'result error';
@@ -3516,6 +3532,194 @@
         function updateCreditRequestsBadge(count) {
             document.getElementById('creditRequestsBadge').textContent = count;
             document.getElementById('creditRequestsBadgeInline').textContent = count;
+        }
+
+        // Load Pending Subsidy Approvals
+        async function loadPendingSubsidyApprovals() {
+            const listDiv = document.getElementById('pendingSubsidyApprovalsList');
+            if (!currentDistributorId) {
+                listDiv.innerHTML = '<p>Please login first</p>';
+                return;
+            }
+
+            const endpoint = `${API_BASE}/orders/pending-subsidy-approval`;
+            showApiCall('GET', endpoint, 'Load Pending Subsidy Approvals', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    showApiCall('GET', endpoint, 'Load Pending Subsidy Approvals', 'error');
+                    throw new Error(data.detail || 'Failed to load pending subsidy approvals');
+                }
+
+                if (data.length === 0) {
+                    listDiv.innerHTML = '<p style="padding: 20px; background: #d4edda; border-radius: 5px; color: #155724;">✅ No pending subsidy approvals. All orders are up to date!</p>';
+                    updatePendingSubsidyBadge(0);
+                    showApiCall('GET', endpoint, 'Load Pending Subsidy Approvals', 'success');
+                    return;
+                }
+
+                updatePendingSubsidyBadge(data.length);
+                listDiv.innerHTML = data.map(order => {
+                    const calculatedTotal = parseFloat(order.calculated_total_amount || order.total_amount || 0);
+                    const finalTotal = parseFloat(order.final_total_amount || order.total_amount || 0);
+                    const discount = calculatedTotal - finalTotal;
+                    const discountPercent = calculatedTotal > 0 ? ((discount / calculatedTotal) * 100).toFixed(2) : 0;
+                    const shopName = (order.shop_name || 'N/A').replace(/'/g, "\\'");
+                    const orderBookerName = (order.order_booker_name || 'N/A').replace(/'/g, "\\'");
+                    const orderDate = order.created_at ? new Date(order.created_at).toLocaleString() : 'N/A';
+                    
+                    return `
+                        <div class="list-item" style="margin-bottom: 20px; padding: 20px; background: #fff3cd; border-left: 4px solid #f39c12; border-radius: 5px;">
+                            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 15px;">
+                                <div>
+                                    <h3 style="margin: 0 0 10px 0; color: #856404;">Order #${order.id}</h3>
+                                    <div style="color: #666; font-size: 14px;">
+                                        <strong>Shop:</strong> ${shopName}<br>
+                                        <strong>Order Booker:</strong> ${orderBookerName}<br>
+                                        <strong>Order Date:</strong> ${orderDate}
+                                    </div>
+                                </div>
+                                <span style="background: #f39c12; color: white; padding: 6px 12px; border-radius: 15px; font-size: 12px; font-weight: bold;">
+                                    PENDING APPROVAL
+                                </span>
+                            </div>
+                            
+                            <div style="background: white; padding: 15px; border-radius: 5px; margin-bottom: 15px;">
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 10px;">
+                                    <div>
+                                        <strong style="color: #2c3e50;">Calculated Total:</strong>
+                                        <div style="font-size: 18px; font-weight: bold; color: #2c3e50;">Rs. ${calculatedTotal.toFixed(2)}</div>
+                                    </div>
+                                    <div>
+                                        <strong style="color: #e74c3c;">Final Amount:</strong>
+                                        <div style="font-size: 18px; font-weight: bold; color: #e74c3c;">Rs. ${finalTotal.toFixed(2)}</div>
+                                    </div>
+                                </div>
+                                <div style="padding-top: 10px; border-top: 1px solid #e0e0e0;">
+                                    <strong style="color: #f39c12;">Requested Discount:</strong>
+                                    <div style="font-size: 16px; font-weight: bold; color: #f39c12;">
+                                        Rs. ${discount.toFixed(2)} (${discountPercent}% off)
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            ${order.order_items && order.order_items.length > 0 ? `
+                                <div style="background: #f8f9fa; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
+                                    <strong style="color: #2c3e50; margin-bottom: 8px; display: block;">Order Items:</strong>
+                                    <div style="font-size: 13px;">
+                                        ${order.order_items.map(item => `
+                                            <div style="padding: 5px 0; border-bottom: 1px solid #e0e0e0;">
+                                                ${item.product_name || 'N/A'} - Qty: ${item.quantity || 0} ${item.unit || ''} @ Rs. ${parseFloat(item.unit_price || 0).toFixed(2)} = Rs. ${parseFloat(item.total_price || 0).toFixed(2)}
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            ` : ''}
+                            
+                            <div style="display: flex; gap: 10px;">
+                                <button class="btn btn-success" onclick="approveSubsidy(${order.id})" style="flex: 1;">
+                                    ✅ Approve Subsidy
+                                </button>
+                                <button class="btn btn-danger" onclick="rejectSubsidy(${order.id})" style="flex: 1;">
+                                    ❌ Reject Subsidy
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                
+                showApiCall('GET', endpoint, 'Load Pending Subsidy Approvals', 'success');
+            } catch (error) {
+                listDiv.innerHTML = `<p style="color: #e74c3c;">Error: ${error.message}</p>`;
+                showApiCall('GET', endpoint, 'Load Pending Subsidy Approvals', 'error');
+            }
+        }
+
+        // Approve Subsidy
+        async function approveSubsidy(orderId) {
+            if (!confirm(`Approve the subsidy request for Order #${orderId}?`)) {
+                return;
+            }
+
+            const endpoint = `${API_BASE}/orders/${orderId}/approve-subsidy`;
+            showApiCall('PUT', endpoint, 'Approve Subsidy', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify({})
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    showApiCall('PUT', endpoint, 'Approve Subsidy', 'error');
+                    throw new Error(data.detail || 'Failed to approve subsidy');
+                }
+
+                showApiCall('PUT', endpoint, 'Approve Subsidy', 'success');
+                alert(`✅ Subsidy for Order #${orderId} has been approved. The order can now be assigned for delivery.`);
+                loadPendingSubsidyApprovals();
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+                showApiCall('PUT', endpoint, 'Approve Subsidy', 'error');
+            }
+        }
+
+        // Reject Subsidy
+        async function rejectSubsidy(orderId) {
+            const rejectionReason = prompt('Enter reason for rejection:') || 'Rejected by distributor';
+            if (!rejectionReason || rejectionReason.trim() === '') {
+                alert('Rejection reason is required.');
+                return;
+            }
+
+            if (!confirm(`Reject the subsidy request for Order #${orderId}?`)) {
+                return;
+            }
+
+            const endpoint = `${API_BASE}/orders/${orderId}/reject-subsidy?rejection_reason=${encodeURIComponent(rejectionReason)}`;
+            showApiCall('PUT', endpoint, 'Reject Subsidy', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify({
+                        rejection_reason: rejectionReason
+                    })
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    showApiCall('PUT', endpoint, 'Reject Subsidy', 'error');
+                    throw new Error(data.detail || 'Failed to reject subsidy');
+                }
+
+                showApiCall('PUT', endpoint, 'Reject Subsidy', 'success');
+                alert(`❌ Subsidy for Order #${orderId} has been rejected. The order cannot be assigned for delivery.`);
+                loadPendingSubsidyApprovals();
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+                showApiCall('PUT', endpoint, 'Reject Subsidy', 'error');
+            }
+        }
+
+        // Update Pending Subsidy Badge
+        function updatePendingSubsidyBadge(count) {
+            const badge = document.getElementById('pendingSubsidyBadge');
+            if (badge) {
+                badge.textContent = count;
+                badge.style.display = count > 0 ? 'inline-block' : 'none';
+            }
         }
 
         // Store visits data for filtering

@@ -338,9 +338,11 @@ class ShopVisitCreate(BaseModel):
     # Order data (if visit_types includes "order_booking")
     order_items: Optional[List[OrderItemCreate]] = None  # List of order items
     scheduled_date: Optional[str] = None  # ISO date string (e.g., "2026-01-10")
-    # Conditional order options (if visit_types includes "order_booking")
-    order_resolution_type: Optional[str] = None  # "normal", "subsidy", or "payment_before_delivery"
-    subsidy_id: Optional[int] = None  # Required if order_resolution_type is "subsidy"
+    # New subsidy approval system (replaces order_resolution_type and subsidy_id)
+    final_total_amount: Optional[float] = None  # Final amount after order booker edits (optional, defaults to calculated total)
+    # DEPRECATED: Legacy fields (kept for backward compatibility, will be ignored)
+    order_resolution_type: Optional[str] = None  # DEPRECATED: Use final_total_amount instead
+    subsidy_id: Optional[int] = None  # DEPRECATED: Not used in new system
     # Daily collection data (if visit_types includes "daily_collections")
     collection_amount: Optional[float] = None
     collection_remarks: Optional[str] = None
@@ -390,6 +392,7 @@ class OrderCreate(BaseModel):
     order_items: List[OrderItemCreate]
     scheduled_date: Optional[str] = None  # ISO date string
     visit_id: Optional[int] = None
+    final_total_amount: Optional[float] = None  # Final amount after order booker edits (optional, defaults to calculated total)
 
 
 class SubsidyInfo(BaseModel):
@@ -423,11 +426,18 @@ class OrderResponse(BaseModel):
     delivery_images: Optional[List[str]] = None  # Array of image URLs
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
-    # Conditional order information
-    order_resolution_type: Optional[str] = None  # "normal", "subsidy", or "payment_before_delivery"
-    subsidy_id: Optional[int] = None
-    subsidy_info: Optional[SubsidyInfo] = None
-    original_amount: Optional[float] = None
+    # New subsidy approval system
+    calculated_total_amount: Optional[float] = None  # Original calculated total from items (original_amount)
+    final_total_amount: Optional[float] = None  # Final amount after order booker edits
+    subsidy_status: Optional[str] = None  # 'none', 'pending_approval', 'approved', 'rejected'
+    subsidy_approved_by: Optional[int] = None  # Distributor ID who approved
+    subsidy_approved_at: Optional[str] = None  # Timestamp when approved
+    subsidy_rejection_reason: Optional[str] = None  # Reason if rejected
+    # DEPRECATED: Legacy fields (kept for backward compatibility)
+    order_resolution_type: Optional[str] = None  # DEPRECATED: Use subsidy_status instead
+    subsidy_id: Optional[int] = None  # DEPRECATED: Not used
+    subsidy_info: Optional[SubsidyInfo] = None  # DEPRECATED: Not used
+    original_amount: Optional[float] = None  # DEPRECATED: Use calculated_total_amount instead
     payment_collected_before_delivery: Optional[bool] = False
     payment_collected_amount: Optional[float] = None
     payment_collected_at: Optional[str] = None

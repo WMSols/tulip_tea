@@ -713,6 +713,7 @@ class VisitTaskResponse(BaseModel):
     completed_at: Optional[str] = None
     notes: Optional[str] = None
     created_at: Optional[str] = None
+    weekly_schedule_id: Optional[int] = None
 
     class Config:
         from_attributes = True

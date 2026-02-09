@@ -79,6 +79,21 @@ async def create_schedule(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
+    except Exception as e:
+        # Log unexpected errors
+        ActivityLogService.log_failure(
+            db=db,
+            user_id=distributor.get('user_id'),
+            user_role='distributor',
+            action_type='CREATE',
+            entity_type='weekly_route_schedule',
+            error_message=str(e),
+            request=request
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error creating schedule: {str(e)}"
+        )
 
 
 @router.get("/distributor/{distributor_id}", response_model=List[WeeklyRouteScheduleResponse], tags=["Weekly Route Schedules", "Distributor APIs"])

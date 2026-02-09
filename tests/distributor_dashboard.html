@@ -1048,7 +1048,7 @@
     </div>
 
     <script>
-        // const API_BASE = 'https://tulip-tea-backend.onrender.com';
+        //  const API_BASE = 'https://tulip-tea.onrender.com';
         const API_BASE = 'http://localhost:8000';
         let currentToken = null;
         let currentUser = null;
@@ -6572,12 +6572,38 @@
                 return;
             }
 
+            // Get and validate form values
+            const assigneeId = document.getElementById('scheduleOrderBookerId').value;
+            const routeId = document.getElementById('scheduleRouteId').value;
+            const dayOfWeek = document.getElementById('scheduleDayOfWeek').value;
+
+            // Validate required fields
+            if (!assigneeId || !routeId || dayOfWeek === '') {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Please fill in all required fields';
+                return;
+            }
+
             const scheduleData = {
                 assignee_type: 'order_booker',
-                assignee_id: parseInt(document.getElementById('scheduleOrderBookerId').value),
-                route_id: parseInt(document.getElementById('scheduleRouteId').value),
-                day_of_week: parseInt(document.getElementById('scheduleDayOfWeek').value)
+                assignee_id: parseInt(assigneeId),
+                route_id: parseInt(routeId),
+                day_of_week: parseInt(dayOfWeek)
             };
+
+            // Validate parsed values
+            if (isNaN(scheduleData.assignee_id) || isNaN(scheduleData.route_id) || isNaN(scheduleData.day_of_week)) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Invalid values in form. Please check your inputs.';
+                return;
+            }
+
+            // Validate day_of_week range
+            if (scheduleData.day_of_week < 0 || scheduleData.day_of_week > 6) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Day of week must be between 0 (Monday) and 6 (Sunday)';
+                return;
+            }
 
             try {
                 const response = await fetch(`${API_BASE}/weekly-route-schedules/distributor/${currentDistributorId}`, {
@@ -6590,8 +6616,14 @@
                 });
 
                 if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.detail || 'Failed to create schedule');
+                    let errorMessage = 'Failed to create schedule';
+                    try {
+                        const error = await response.json();
+                        errorMessage = error.detail || error.message || errorMessage;
+                    } catch (e) {
+                        errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+                    }
+                    throw new Error(errorMessage);
                 }
 
                 const schedule = await response.json();

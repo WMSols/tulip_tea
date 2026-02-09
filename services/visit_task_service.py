@@ -91,41 +91,85 @@ class VisitTaskService:
     @staticmethod
     def get_tasks_for_order_booker(db: Session, order_booker_id: int,
                                    task_date: Optional[date] = None) -> List[Dict]:
-        """Get tasks for an order booker, optionally filtered by date."""
-        tasks = VisitTaskRepository.get_by_assignee_and_date(
-            db, 'order_booker', order_booker_id, task_date
+        """
+        Get tasks for an order booker, dynamically generated from schedules.
+        Tasks are created on-demand (lazy creation) when viewing.
+        This ensures schedules automatically recur every week without manual generation.
+        """
+        if not task_date:
+            task_date = date.today()
+        
+        # Get active schedules for this order booker
+        schedules = WeeklyRouteScheduleRepository.get_by_assignee(
+            db, 'order_booker', order_booker_id, include_deleted=False, include_inactive=False
         )
         
+        # Filter schedules that match the requested day of week
+        matching_schedules = [
+            s for s in schedules 
+            if s.day_of_week == task_date.weekday()
+        ]
+        
         result = []
-        for task in tasks:
-            shop = ShopRepository.get_by_id(db, task.shop_id)
-            route = RouteRepository.get_by_id(db, task.route_id)
+        for schedule in matching_schedules:
+            # Get all shops in the route
+            shops = ShopRepository.get_by_route(db, schedule.route_id)
             
-            result.append({
-                "id": task.id,
-                "shop_id": task.shop_id,
-                "shop_name": shop.name if shop else None,
-                "shop_owner": shop.owner_name if shop else None,
-                "shop_phone": shop.owner_phone if shop else None,
-                "shop_gps_lat": float(shop.gps_lat) if shop and shop.gps_lat else None,
-                "shop_gps_lng": float(shop.gps_lng) if shop and shop.gps_lng else None,
-                "route_id": task.route_id,
-                "route_name": route.name if route else None,
-                "scheduled_date": task.scheduled_date.isoformat() if task.scheduled_date else None,
-                "day_of_week": task.day_of_week,
-                "status": task.status,
-                "shop_visit_id": task.shop_visit_id,
-                "completed_at": task.completed_at.isoformat() if task.completed_at else None,
-                "notes": task.notes,
-                "created_at": task.created_at.isoformat() if task.created_at else None
-            })
+            if not shops:
+                continue  # No shops in route, skip
+            
+            for shop in shops:
+                # Check if task already exists (for status tracking)
+                existing_task = VisitTaskRepository.check_existing_task(
+                    db, shop.id, task_date, 'order_booker', order_booker_id
+                )
+                
+                # If no task exists, create one with 'pending' status (lazy creation)
+                # This ensures we can track status changes later
+                if not existing_task:
+                    existing_task = VisitTaskRepository.create(
+                        db,
+                        weekly_schedule_id=schedule.id,
+                        assignee_type='order_booker',
+                        assignee_id=order_booker_id,
+                        route_id=schedule.route_id,
+                        shop_id=shop.id,
+                        scheduled_date=task_date,
+                        day_of_week=schedule.day_of_week
+                    )
+                
+                route = RouteRepository.get_by_id(db, schedule.route_id)
+                
+                result.append({
+                    "id": existing_task.id,
+                    "shop_id": shop.id,
+                    "shop_name": shop.name if shop else None,
+                    "shop_owner": shop.owner_name if shop else None,
+                    "shop_phone": shop.owner_phone if shop else None,
+                    "shop_gps_lat": float(shop.gps_lat) if shop and shop.gps_lat else None,
+                    "shop_gps_lng": float(shop.gps_lng) if shop and shop.gps_lng else None,
+                    "route_id": schedule.route_id,
+                    "route_name": route.name if route else None,
+                    "scheduled_date": task_date.isoformat(),
+                    "day_of_week": schedule.day_of_week,
+                    "status": existing_task.status,
+                    "shop_visit_id": existing_task.shop_visit_id,
+                    "completed_at": existing_task.completed_at.isoformat() if existing_task.completed_at else None,
+                    "notes": existing_task.notes,
+                    "created_at": existing_task.created_at.isoformat() if existing_task.created_at else None,
+                    "weekly_schedule_id": schedule.id
+                })
         
         return result
     
     @staticmethod
     def get_tasks_for_order_booker_week(db: Session, order_booker_id: int,
                                        week_start: Optional[date] = None) -> List[Dict]:
-        """Get tasks for an order booker for a week."""
+        """
+        Get tasks for an order booker for a week, dynamically generated from schedules.
+        Tasks are created on-demand (lazy creation) when viewing.
+        This ensures schedules automatically recur every week without manual generation.
+        """
         if not week_start:
             # Default to current week (Monday)
             today = date.today()
@@ -133,33 +177,70 @@ class VisitTaskService:
         
         week_end = week_start + timedelta(days=6)
         
-        tasks = VisitTaskRepository.get_by_assignee_date_range(
-            db, 'order_booker', order_booker_id, week_start, week_end
+        # Get active schedules for this order booker
+        schedules = WeeklyRouteScheduleRepository.get_by_assignee(
+            db, 'order_booker', order_booker_id, include_deleted=False, include_inactive=False
         )
         
         result = []
-        for task in tasks:
-            shop = ShopRepository.get_by_id(db, task.shop_id)
-            route = RouteRepository.get_by_id(db, task.route_id)
+        current_date = week_start
+        
+        # Generate tasks for each day in the week
+        while current_date <= week_end:
+            # Find schedules matching this day of week
+            matching_schedules = [
+                s for s in schedules 
+                if s.day_of_week == current_date.weekday()
+            ]
             
-            result.append({
-                "id": task.id,
-                "shop_id": task.shop_id,
-                "shop_name": shop.name if shop else None,
-                "shop_owner": shop.owner_name if shop else None,
-                "shop_phone": shop.owner_phone if shop else None,
-                "shop_gps_lat": float(shop.gps_lat) if shop and shop.gps_lat else None,
-                "shop_gps_lng": float(shop.gps_lng) if shop and shop.gps_lng else None,
-                "route_id": task.route_id,
-                "route_name": route.name if route else None,
-                "scheduled_date": task.scheduled_date.isoformat() if task.scheduled_date else None,
-                "day_of_week": task.day_of_week,
-                "status": task.status,
-                "shop_visit_id": task.shop_visit_id,
-                "completed_at": task.completed_at.isoformat() if task.completed_at else None,
-                "notes": task.notes,
-                "created_at": task.created_at.isoformat() if task.created_at else None
-            })
+            for schedule in matching_schedules:
+                shops = ShopRepository.get_by_route(db, schedule.route_id)
+                
+                if not shops:
+                    continue  # No shops in route, skip
+                
+                for shop in shops:
+                    # Check for existing task (for status tracking)
+                    existing_task = VisitTaskRepository.check_existing_task(
+                        db, shop.id, current_date, 'order_booker', order_booker_id
+                    )
+                    
+                    # If no task exists, create one with 'pending' status (lazy creation)
+                    if not existing_task:
+                        existing_task = VisitTaskRepository.create(
+                            db,
+                            weekly_schedule_id=schedule.id,
+                            assignee_type='order_booker',
+                            assignee_id=order_booker_id,
+                            route_id=schedule.route_id,
+                            shop_id=shop.id,
+                            scheduled_date=current_date,
+                            day_of_week=schedule.day_of_week
+                        )
+                    
+                    route = RouteRepository.get_by_id(db, schedule.route_id)
+                    
+                    result.append({
+                        "id": existing_task.id,
+                        "shop_id": shop.id,
+                        "shop_name": shop.name if shop else None,
+                        "shop_owner": shop.owner_name if shop else None,
+                        "shop_phone": shop.owner_phone if shop else None,
+                        "shop_gps_lat": float(shop.gps_lat) if shop and shop.gps_lat else None,
+                        "shop_gps_lng": float(shop.gps_lng) if shop and shop.gps_lng else None,
+                        "route_id": schedule.route_id,
+                        "route_name": route.name if route else None,
+                        "scheduled_date": current_date.isoformat(),
+                        "day_of_week": schedule.day_of_week,
+                        "status": existing_task.status,
+                        "shop_visit_id": existing_task.shop_visit_id,
+                        "completed_at": existing_task.completed_at.isoformat() if existing_task.completed_at else None,
+                        "notes": existing_task.notes,
+                        "created_at": existing_task.created_at.isoformat() if existing_task.created_at else None,
+                        "weekly_schedule_id": schedule.id
+                    })
+            
+            current_date += timedelta(days=1)
         
         return result
     
@@ -195,7 +276,8 @@ class VisitTaskService:
             "status": updated.status,
             "shop_visit_id": updated.shop_visit_id,
             "completed_at": updated.completed_at.isoformat() if updated.completed_at else None,
-            "notes": updated.notes
+            "notes": updated.notes,
+            "weekly_schedule_id": updated.weekly_schedule_id
         }
 
 

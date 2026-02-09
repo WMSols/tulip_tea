@@ -25,7 +25,7 @@ from utils.auth_helpers import get_current_user_from_request
 router = APIRouter(prefix="/daily-collections", tags=["Daily Collections"])
 
 
-@router.post("/delivery-man/{delivery_man_id}", response_model=DailyCollectionResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/delivery-man/{delivery_man_id}", response_model=DailyCollectionResponse, status_code=status.HTTP_201_CREATED, tags=["Daily Collections", "Delivery Man APIs"])
 async def submit_daily_collection_by_delivery_man(
     delivery_man_id: int,
     collection: DailyCollectionCreate,
@@ -366,7 +366,7 @@ async def list_all_collections(
         )
 
 
-@router.post("/{collection_id}/approve", response_model=dict)
+@router.post("/{collection_id}/approve", response_model=dict, tags=["Daily Collections", "Distributor APIs"])
 async def approve_daily_collection(
     collection_id: int,
     approval_data: DailyCollectionApprove,
@@ -465,7 +465,7 @@ async def approve_daily_collection(
         )
 
 
-@router.post("/{collection_id}/reject", response_model=DailyCollectionResponse)
+@router.post("/{collection_id}/reject", response_model=DailyCollectionResponse, tags=["Daily Collections", "Distributor APIs"])
 async def reject_daily_collection(
     collection_id: int,
     rejection_data: DailyCollectionReject,

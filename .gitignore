@@ -118,3 +118,5 @@ docs/WALLET_TRANSFER_OPTIMIZATION_ANALYSIS.md
 sql/optimize_wallet_tables.sql
 sql/add_distributor_id_to_warehouses_simple.sql
 sql/add_distributor_id_to_warehouses.sql
+docs/API_FRONTEND_CATEGORIZATION.md
+tests/OLDdistributor_dashboard.html

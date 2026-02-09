@@ -20,18 +20,14 @@ router = APIRouter(prefix="/warehouses", tags=["Warehouses"])
 # One warehouse per distributor is automatically assigned
 
 
-@router.get("/", response_model=List[WarehouseResponse])
+@router.get("/", response_model=List[WarehouseResponse], tags=["Warehouses", "Distributor APIs"])
 async def list_warehouses(
-    distributor_id: int = Query(None, description="Optional distributor ID to filter warehouses"),
-    current_user: Dict = Depends(get_current_user),
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
-    """List all warehouses. Requires authentication. Filter by distributor_id if provided."""
+    """List all warehouses for the authenticated distributor. Distributors can only see their own warehouses."""
     try:
-        if distributor_id:
-            warehouses = WarehouseService.get_warehouses_by_distributor(db, distributor_id)
-        else:
-            warehouses = WarehouseService.get_all_warehouses(db)
+        warehouses = WarehouseService.get_warehouses_by_distributor(db, distributor['user_id'])
         return warehouses
     except Exception as e:
         raise HTTPException(
@@ -40,7 +36,7 @@ async def list_warehouses(
         )
 
 
-@router.get("/{warehouse_id}/inventory", response_model=List[InventoryResponse])
+@router.get("/{warehouse_id}/inventory", response_model=List[InventoryResponse], tags=["Warehouses", "Distributor APIs"])
 async def get_warehouse_inventory(
     warehouse_id: int,
     current_user: Dict = Depends(get_current_user),
@@ -62,7 +58,7 @@ async def get_warehouse_inventory(
         )
 
 
-@router.post("/{warehouse_id}/inventory", response_model=InventoryResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/{warehouse_id}/inventory", response_model=InventoryResponse, status_code=status.HTTP_201_CREATED, tags=["Warehouses", "Distributor APIs"])
 async def add_inventory_item(
     warehouse_id: int,
     inventory: InventoryCreate,
@@ -90,7 +86,7 @@ async def add_inventory_item(
         )
 
 
-@router.put("/{warehouse_id}/inventory/{inventory_id}", response_model=InventoryResponse)
+@router.put("/{warehouse_id}/inventory/{inventory_id}", response_model=InventoryResponse, tags=["Warehouses", "Distributor APIs"])
 async def update_inventory_item(
     warehouse_id: int,
     inventory_id: int,
@@ -120,7 +116,7 @@ async def update_inventory_item(
         )
 
 
-@router.delete("/{warehouse_id}/inventory/{inventory_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{warehouse_id}/inventory/{inventory_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Warehouses", "Distributor APIs"])
 async def delete_inventory_item(
     warehouse_id: int,
     inventory_id: int,
@@ -142,7 +138,7 @@ async def delete_inventory_item(
         )
 
 
-@router.get("/{warehouse_id}/delivery-men", response_model=List[dict])
+@router.get("/{warehouse_id}/delivery-men", response_model=List[dict], tags=["Warehouses", "Distributor APIs"])
 async def get_warehouse_delivery_men(
     warehouse_id: int,
     current_user: Dict = Depends(get_current_user),
@@ -164,7 +160,7 @@ async def get_warehouse_delivery_men(
         )
 
 
-@router.post("/{warehouse_id}/delivery-men/{delivery_man_id}", status_code=status.HTTP_201_CREATED)
+@router.post("/{warehouse_id}/delivery-men/{delivery_man_id}", status_code=status.HTTP_201_CREATED, tags=["Warehouses", "Distributor APIs"])
 async def assign_delivery_man(
     warehouse_id: int,
     delivery_man_id: int,
@@ -182,7 +178,7 @@ async def assign_delivery_man(
         )
 
 
-@router.delete("/{warehouse_id}/delivery-men/{delivery_man_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{warehouse_id}/delivery-men/{delivery_man_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Warehouses", "Distributor APIs"])
 async def unassign_delivery_man(
     warehouse_id: int,
     delivery_man_id: int,

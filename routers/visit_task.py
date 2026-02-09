@@ -17,7 +17,7 @@ from utils.dependencies import get_current_user, get_current_distributor
 router = APIRouter(prefix="/visit-tasks", tags=["Visit Tasks"])
 
 
-@router.post("/generate", status_code=status.HTTP_200_OK)
+@router.post("/generate", status_code=status.HTTP_200_OK, tags=["Visit Tasks", "Distributor APIs"])
 async def generate_tasks(
     request: TaskGenerationRequest,
     distributor: Dict = Depends(get_current_distributor),

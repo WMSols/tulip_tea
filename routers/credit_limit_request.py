@@ -31,7 +31,7 @@ from services.activity_log_service import ActivityLogService
 router = APIRouter(prefix="/credit-limit-requests", tags=["Credit Limit Requests"])
 
 
-@router.post("/order-booker/{order_booker_id}", response_model=CreditLimitRequestResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/order-booker/{order_booker_id}", response_model=CreditLimitRequestResponse, status_code=status.HTTP_201_CREATED, tags=["Credit Limit Requests", "Order Booker APIs"])
 async def create_credit_limit_request(
     order_booker_id: int,
     request_data: CreditLimitRequestCreate,
@@ -106,7 +106,7 @@ async def create_credit_limit_request(
         )
 
 
-@router.get("/pending", response_model=List[CreditLimitRequestResponse])
+@router.get("/pending", response_model=List[CreditLimitRequestResponse], tags=["Credit Limit Requests", "Distributor APIs", "Order Booker APIs"])
 async def get_pending_requests(
     distributor_id: int = None,
     db: Session = Depends(get_db)
@@ -190,7 +190,7 @@ async def update_credit_limit_request(
         )
 
 
-@router.post("/{request_id}/approve", response_model=CreditLimitRequestResponse)
+@router.post("/{request_id}/approve", response_model=CreditLimitRequestResponse, tags=["Credit Limit Requests", "Distributor APIs"])
 async def approve_credit_limit_request(
     request_id: int,
     approval_data: CreditLimitRequestApprove,
@@ -281,7 +281,7 @@ async def approve_credit_limit_request(
         )
 
 
-@router.post("/{request_id}/reject", response_model=CreditLimitRequestResponse)
+@router.post("/{request_id}/reject", response_model=CreditLimitRequestResponse, tags=["Credit Limit Requests", "Distributor APIs"])
 async def reject_credit_limit_request(
     request_id: int,
     rejection_data: CreditLimitRequestReject,

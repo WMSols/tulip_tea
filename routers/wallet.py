@@ -22,7 +22,7 @@ from utils.dependencies import get_current_distributor
 router = APIRouter(prefix="/wallets", tags=["Wallets"])
 
 
-@router.get("/{user_type}/{user_id}/balance")
+@router.get("/{user_type}/{user_id}/balance", tags=["Wallets", "Super Admin APIs", "Order Booker APIs", "Delivery Man APIs"])
 async def get_wallet_balance(
     user_type: str,
     user_id: int,
@@ -63,7 +63,7 @@ async def get_wallet_balance(
         )
 
 
-@router.get("/{user_type}/{user_id}/transactions")
+@router.get("/{user_type}/{user_id}/transactions", tags=["Wallets", "Order Booker APIs", "Delivery Man APIs"])
 async def get_transaction_history(
     user_type: str,
     user_id: int,
@@ -248,7 +248,7 @@ async def transfer_between_wallets(
         )
 
 
-@router.get("/distributor/{distributor_id}/all-wallets")
+@router.get("/distributor/{distributor_id}/all-wallets", tags=["Wallets", "Distributor APIs"])
 async def list_all_wallets_for_distributor(
     distributor_id: int,
     current_distributor: Dict = Depends(get_current_distributor),

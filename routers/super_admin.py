@@ -27,7 +27,7 @@ from repositories.route_repository import RouteRepository
 router = APIRouter(prefix="/super-admin", tags=["Super Admin"])
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=TokenResponse, tags=["Super Admin", "Super Admin APIs"])
 async def login_super_admin(credentials: SuperAdminLogin, request: Request, db: Session = Depends(get_db)):
     """
     Super admin login endpoint.
@@ -104,7 +104,7 @@ async def login_super_admin(credentials: SuperAdminLogin, request: Request, db: 
         )
 
 
-@router.get("/entities")
+@router.get("/entities", tags=["Super Admin", "Super Admin APIs"])
 async def get_all_entities(
     request: Request,
     db: Session = Depends(get_db)
@@ -861,7 +861,7 @@ async def reactivate_entity(
         )
 
 
-@router.post("/distributors", status_code=status.HTTP_201_CREATED)
+@router.post("/distributors", status_code=status.HTTP_201_CREATED, tags=["Super Admin", "Super Admin APIs"])
 async def create_distributor(
     distributor_data: Dict[str, Any],
     request: Request,
@@ -937,7 +937,7 @@ async def create_distributor(
         )
 
 
-@router.put("/distributors/{distributor_id}", response_model=Dict)
+@router.put("/distributors/{distributor_id}", response_model=Dict, tags=["Super Admin", "Super Admin APIs"])
 async def update_distributor(
     distributor_id: int,
     distributor_update: DistributorUpdate,
@@ -1051,7 +1051,7 @@ async def update_distributor(
         )
 
 
-@router.put("/wallets/{user_type}/{user_id}/toggle-active")
+@router.put("/wallets/{user_type}/{user_id}/toggle-active", tags=["Super Admin", "Super Admin APIs"])
 async def toggle_wallet_active(
     user_type: str,
     user_id: int,

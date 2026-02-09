@@ -23,7 +23,7 @@ from utils.dependencies import get_current_user, get_current_distributor
 router = APIRouter(prefix="/orders", tags=["Orders"])
 
 
-@router.post("/order-booker/{order_booker_id}", response_model=OrderResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/order-booker/{order_booker_id}", response_model=OrderResponse, status_code=status.HTTP_201_CREATED, tags=["Orders", "Order Booker APIs"])
 async def create_order(
     order_booker_id: int,
     order: OrderCreate,
@@ -171,7 +171,7 @@ async def list_orders_by_order_booker(
         )
 
 
-@router.get("/delivery-man/{delivery_man_id}", response_model=List[OrderResponse])
+@router.get("/delivery-man/{delivery_man_id}", response_model=List[OrderResponse], tags=["Orders", "Delivery Man APIs"])
 async def list_orders_by_delivery_man(
     delivery_man_id: int,
     db: Session = Depends(get_db)
@@ -187,7 +187,7 @@ async def list_orders_by_delivery_man(
         )
 
 
-@router.get("/pending-subsidy-approval", response_model=List[OrderResponse])
+@router.get("/pending-subsidy-approval", response_model=List[OrderResponse], tags=["Orders", "Distributor APIs"])
 async def get_pending_subsidy_approvals(
     request: Request,
     distributor: Dict = Depends(get_current_distributor),
@@ -353,7 +353,7 @@ async def collect_payment_before_delivery(
         )
 
 
-@router.put("/{order_id}/deliver", response_model=OrderResponse)
+@router.put("/{order_id}/deliver", response_model=OrderResponse, tags=["Orders", "Delivery Man APIs"])
 async def deliver_order(
     order_id: int,
     delivery_data: "OrderDeliveryUpdate",
@@ -515,7 +515,7 @@ async def deliver_order(
         )
 
 
-@router.put("/{order_id}/approve-subsidy", response_model=OrderResponse)
+@router.put("/{order_id}/approve-subsidy", response_model=OrderResponse, tags=["Orders", "Distributor APIs"])
 async def approve_subsidy(
     order_id: int,
     request: Request,
@@ -571,7 +571,7 @@ async def approve_subsidy(
         )
 
 
-@router.put("/{order_id}/reject-subsidy", response_model=OrderResponse)
+@router.put("/{order_id}/reject-subsidy", response_model=OrderResponse, tags=["Orders", "Distributor APIs"])
 async def reject_subsidy(
     order_id: int,
     rejection_reason: str = Query(None, description="Optional reason for rejection"),
@@ -631,7 +631,7 @@ async def reject_subsidy(
         )
 
 
-@router.post("/{order_id}/assign", response_model=OrderResponse)
+@router.post("/{order_id}/assign", response_model=OrderResponse, tags=["Orders", "Distributor APIs"])
 async def assign_order_to_delivery_man(
     order_id: int,
     delivery_man_id: int,

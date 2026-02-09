@@ -18,11 +18,165 @@ from models import distributor, order_booker, delivery_man, zone, route, shop, c
 from routers import auth, distributor as distributor_router, order_booker, delivery_man, zone, route, shop
 from routers import credit_limit_request as credit_limit_request_router, daily_collection as daily_collection_router, shop_visit as shop_visit_router, order as order_router, super_admin as super_admin_router, warehouse as warehouse_router, product as product_router, activity_log as activity_log_router, delivery as delivery_router, subsidy as subsidy_router, wallet as wallet_router, weekly_route_schedule as weekly_route_schedule_router, visit_task as visit_task_router
 
+# Define OpenAPI tags with categories for frontend dashboards
+tags_metadata = [
+    {
+        "name": "Order Booker APIs",
+        "description": "APIs used by Order Booker Dashboard ",
+    },
+    {
+        "name": "Distributor APIs",
+        "description": "APIs used by Distributor Dashboard ",
+    },
+    {
+        "name": "Super Admin APIs",
+        "description": "APIs used by Super Admin Dashboard ",
+    },
+    {
+        "name": "Delivery Man APIs",
+        "description": "APIs used by Delivery Man Dashboard ",
+    },
+    {
+        "name": "Authentication",
+        "description": "Authentication endpoints for all user types",
+    },
+    {
+        "name": "Orders",
+        "description": "Order management endpoints",
+    },
+    {
+        "name": "Shop Visits",
+        "description": "Shop visit registration and tracking",
+    },
+    {
+        "name": "Shops",
+        "description": "Shop registration and management",
+    },
+    {
+        "name": "Zones",
+        "description": "Zone management",
+    },
+    {
+        "name": "Routes",
+        "description": "Route management",
+    },
+    {
+        "name": "Order Bookers",
+        "description": "Order booker management",
+    },
+    {
+        "name": "Delivery Men",
+        "description": "Delivery man management",
+    },
+    {
+        "name": "Distributors",
+        "description": "Distributor management",
+    },
+    {
+        "name": "Products",
+        "description": "Product catalog management",
+    },
+    {
+        "name": "Warehouses",
+        "description": "Warehouse and inventory management",
+    },
+    {
+        "name": "Deliveries",
+        "description": "Delivery tracking and management",
+    },
+    {
+        "name": "Daily Collections",
+        "description": "Daily collection management",
+    },
+    {
+        "name": "Credit Limit Requests",
+        "description": "Credit limit request management",
+    },
+    {
+        "name": "Subsidies",
+        "description": "Subsidy program management",
+    },
+    {
+        "name": "Wallets",
+        "description": "Wallet and transaction management",
+    },
+    {
+        "name": "Weekly Route Schedules",
+        "description": "Weekly route scheduling",
+    },
+    {
+        "name": "Visit Tasks",
+        "description": "Visit task generation and management",
+    },
+    {
+        "name": "Activity Logs",
+        "description": "System activity logging",
+    },
+    {
+        "name": "Super Admin",
+        "description": "Super admin operations",
+    },
+]
+
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    debug=settings.debug
+    debug=settings.debug,
+    openapi_tags=tags_metadata,
+    openapi_url="/openapi.json",
+    docs_url="/docs",
+    redoc_url="/redoc",
 )
+
+
+# Customize OpenAPI schema to add tag groups for better organization in Swagger UI
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    
+    from fastapi.openapi.utils import get_openapi
+    
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description="Tulip Tea Backend API - Categorized by Frontend Dashboards",
+        routes=app.routes,
+        tags=tags_metadata,
+    )
+    
+    # Add x-tagGroups for Swagger UI organization
+    openapi_schema["x-tagGroups"] = [
+        {
+            "name": "📋 Order Booker Dashboard",
+            "tags": ["Order Booker APIs", "Shop Visits", "Shops", "Orders", "Credit Limit Requests", "Weekly Route Schedules", "Subsidies", "Products", "Zones", "Routes", "Wallets", "Authentication"]
+        },
+        {
+            "name": "👔 Distributor Dashboard",
+            "tags": ["Distributor APIs", "Zones", "Routes", "Order Bookers", "Delivery Men", "Shops", "Products", "Warehouses", "Orders", "Deliveries", "Daily Collections", "Credit Limit Requests", "Weekly Route Schedules", "Visit Tasks", "Shop Visits", "Wallets", "Authentication"]
+        },
+        {
+            "name": "👑 Super Admin Dashboard",
+            "tags": ["Super Admin APIs", "Super Admin", "Distributors", "Wallets", "Authentication"]
+        },
+        {
+            "name": "🚚 Delivery Man Dashboard",
+            "tags": ["Delivery Man APIs", "Orders", "Deliveries", "Warehouses", "Daily Collections", "Wallets", "Authentication"]
+        },
+        {
+            "name": "📊 Activity Logs Dashboard",
+            "tags": ["Activity Logs"]
+        },
+        {
+            "name": "🔧 Common APIs",
+            "tags": ["Common APIs"]
+        }
+    ]
+    
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+
+app.openapi = custom_openapi
 
 
 @app.on_event("startup")
@@ -163,7 +317,7 @@ async def health_check():
         }
 
 
-@app.get("/config/supabase")
+@app.get("/config/supabase", tags=["Common APIs"])
 async def get_supabase_config():
     """
     Get Supabase configuration for frontend.

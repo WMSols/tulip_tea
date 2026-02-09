@@ -22,11 +22,12 @@ from repositories.shop_repository import ShopRepository
 from repositories.order_booker_repository import OrderBookerRepository
 from services.activity_log_service import ActivityLogService
 from utils.auth_helpers import get_current_user_from_request
+from utils.dependencies import get_current_distributor
 
 router = APIRouter(prefix="/shops", tags=["Shops"])
 
 
-@router.post("/order-booker/{order_booker_id}", response_model=ShopResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/order-booker/{order_booker_id}", response_model=ShopResponse, status_code=status.HTTP_201_CREATED, tags=["Shops", "Order Booker APIs"])
 async def register_shop(
     order_booker_id: int,
     shop: ShopRegister,
@@ -130,7 +131,7 @@ async def register_shop(
         )
 
 
-@router.get("/order-booker/{order_booker_id}", response_model=List[ShopResponse])
+@router.get("/order-booker/{order_booker_id}", response_model=List[ShopResponse], tags=["Shops", "Order Booker APIs"])
 async def list_shops_by_order_booker(
     order_booker_id: int, 
     approved_only: bool = Query(False, description="Filter to show only approved shops (for visit registration)"),
@@ -151,7 +152,7 @@ async def list_shops_by_order_booker(
     return shops
 
 
-@router.get("/{shop_id}/credit-info")
+@router.get("/{shop_id}/credit-info", tags=["Shops", "Order Booker APIs", "Delivery Man APIs"])
 async def get_shop_credit_info(shop_id: int, db: Session = Depends(get_db)):
     """
     Get shop's credit limit information including outstanding balance and available credit.
@@ -201,25 +202,22 @@ async def get_shop_credit_info(shop_id: int, db: Session = Depends(get_db)):
     }
 
 
-@router.get("/pending", response_model=List[ShopResponse])
+@router.get("/pending", response_model=List[ShopResponse], tags=["Shops", "Distributor APIs"])
 async def list_pending_shops(
     distributor_id: int = Query(None, description="Optional distributor ID to filter pending shops"),
     request: Request = None,
     db: Session = Depends(get_db)
 ):
     """
-    List all shops with pending registration status.
+    List all shops with pending registration status for the authenticated distributor.
     
-    API: GET /shops/pending?distributor_id={id}
+    API: GET /shops/pending
     
     FLOW:
     1. Distributor views pending shop registrations
     2. Service gets all shops with registration_status="pending"
-    3. If distributor_id is provided, filters to shops created by order bookers belonging to this distributor
+    3. Filters to shops created by order bookers belonging to the authenticated distributor
     4. Returns list for review
-    
-    Query Parameters:
-        distributor_id: Optional - Filter pending shops by distributor (shops created by their order bookers)
     
     Response (200):
         List of pending shops awaiting verification
@@ -227,23 +225,26 @@ async def list_pending_shops(
     try:
         from models.order_booker import OrderBooker
         
-        if distributor_id:
-            # Filter pending shops by distributor: get shops created by order bookers belonging to this distributor
-            order_booker_ids = db.query(OrderBooker.id).filter(
-                OrderBooker.distributor_id == distributor_id,
-                OrderBooker.deleted_at.is_(None),
-                OrderBooker.is_active == True
-            ).subquery()
-            
-            from models.shop import Shop
-            shops = db.query(Shop).filter(
-                Shop.registration_status == "pending",
-                Shop.deleted_at.is_(None),
-                Shop.is_active == True,
-                Shop.created_by_order_booker.in_(db.query(order_booker_ids.c.id))
-            ).all()
-        else:
-            shops = ShopRepository.get_by_registration_status(db=db, status="pending")
+        if not distributor_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="distributor_id is required"
+            )
+        
+        # Filter pending shops by distributor: get shops created by order bookers belonging to this distributor
+        order_booker_ids = db.query(OrderBooker.id).filter(
+            OrderBooker.distributor_id == distributor_id,
+            OrderBooker.deleted_at.is_(None),
+            OrderBooker.is_active == True
+        ).subquery()
+        
+        from models.shop import Shop
+        shops = db.query(Shop).filter(
+            Shop.registration_status == "pending",
+            Shop.deleted_at.is_(None),
+            Shop.is_active == True,
+            Shop.created_by_order_booker.in_(db.query(order_booker_ids.c.id))
+        ).all()
         result = []
         for shop in shops:
             # Get order booker name who created the shop (historical)
@@ -328,7 +329,7 @@ async def get_unassigned_shops(
         )
 
 
-@router.get("/all", response_model=List[ShopResponse])
+@router.get("/all", response_model=List[ShopResponse], tags=["Shops", "Distributor APIs"])
 async def get_all_shops(
     distributor_id: int = None,
     zone_id: int = None,
@@ -336,22 +337,19 @@ async def get_all_shops(
     db: Session = Depends(get_db)
 ):
     """
-    Get all shops with their associated order_booker and route information.
+    Get all shops with their associated order_booker and route information for the authenticated distributor.
     
-    API: GET /shops/all?distributor_id={id}&zone_id={id}&route_id={id}
+    API: GET /shops/all?zone_id={id}&route_id={id}
     
     FLOW:
-    1. Gets all shops (optionally filtered by zone_id or route_id)
+    1. Gets all shops for the authenticated distributor (optionally filtered by zone_id or route_id)
     2. For each shop, includes order_booker who created it
     3. For each shop, includes routes it belongs to and their order_bookers
     4. Returns formatted list with all associations
     
     Query Parameters:
-        distributor_id: Optional - For future use (currently not used for filtering)
         zone_id: Optional - Filter shops by zone
         route_id: Optional - Filter shops by route
-    
-    Note: distributor_id is accepted but doesn't filter shops. Use zone_id or route_id for filtering.
     
     Response (200):
         List of shops with order_booker and route information
@@ -610,7 +608,7 @@ async def resubmit_rejected_shop(
         )
 
 
-@router.post("/{shop_id}/verify", response_model=ShopResponse)
+@router.post("/{shop_id}/verify", response_model=ShopResponse, tags=["Shops", "Distributor APIs"])
 async def verify_shop(
     shop_id: int,
     verification: ShopVerify,

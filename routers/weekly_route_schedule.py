@@ -3,7 +3,7 @@ Weekly Route Schedule Router
 ============================
 Handles weekly route schedule CRUD operations for distributors.
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from typing import List
 from config.database import get_db
@@ -13,14 +13,16 @@ from models.schemas import (
 from services.weekly_route_schedule_service import WeeklyRouteScheduleService
 from utils.dependencies import get_current_distributor, get_current_user
 from typing import Dict
+from services.activity_log_service import ActivityLogService
 
 router = APIRouter(prefix="/weekly-route-schedules", tags=["Weekly Route Schedules"])
 
 
-@router.post("/distributor/{distributor_id}", response_model=WeeklyRouteScheduleResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/distributor/{distributor_id}", response_model=WeeklyRouteScheduleResponse, status_code=status.HTTP_201_CREATED, tags=["Weekly Route Schedules", "Distributor APIs"])
 async def create_schedule(
     distributor_id: int,
     schedule: WeeklyRouteScheduleCreate,
+    request: Request,
     distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
@@ -41,15 +43,45 @@ async def create_schedule(
             day_of_week=schedule.day_of_week,
             distributor_id=distributor_id
         )
+        
+        # Log creation
+        ActivityLogService.log_create(
+            db=db,
+            user_id=distributor['user_id'],
+            user_role='distributor',
+            entity_type='weekly_route_schedule',
+            entity_id=result['id'],
+            new_values={
+                'assignee_type': result.get('assignee_type'),
+                'assignee_id': result.get('assignee_id'),
+                'route_id': result.get('route_id'),
+                'day_of_week': result.get('day_of_week'),
+                'is_active': result.get('is_active', True)
+            },
+            user_name=distributor.get('user_name'),
+            changes_summary=f"Weekly route schedule created: {result.get('day_of_week')} for route {result.get('route_id')}",
+            request=request
+        )
+        
         return result
     except ValueError as e:
+        # Log failure
+        ActivityLogService.log_failure(
+            db=db,
+            user_id=distributor['user_id'],
+            user_role='distributor',
+            action_type='CREATE',
+            entity_type='weekly_route_schedule',
+            error_message=str(e),
+            request=request
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
 
 
-@router.get("/distributor/{distributor_id}", response_model=List[WeeklyRouteScheduleResponse])
+@router.get("/distributor/{distributor_id}", response_model=List[WeeklyRouteScheduleResponse], tags=["Weekly Route Schedules", "Distributor APIs"])
 async def list_schedules_by_distributor(
     distributor_id: int,
     distributor: Dict = Depends(get_current_distributor),
@@ -67,7 +99,7 @@ async def list_schedules_by_distributor(
     return schedules
 
 
-@router.get("/order-booker/{order_booker_id}", response_model=List[WeeklyRouteScheduleResponse])
+@router.get("/order-booker/{order_booker_id}", response_model=List[WeeklyRouteScheduleResponse], tags=["Weekly Route Schedules", "Order Booker APIs"])
 async def list_schedules_by_order_booker(
     order_booker_id: int,
     current_user: Dict = Depends(get_current_user),
@@ -91,10 +123,11 @@ async def list_schedules_by_order_booker(
     return schedules
 
 
-@router.put("/{schedule_id}", response_model=WeeklyRouteScheduleResponse)
+@router.put("/{schedule_id}", response_model=WeeklyRouteScheduleResponse, tags=["Weekly Route Schedules", "Distributor APIs"])
 async def update_schedule(
     schedule_id: int,
     schedule: WeeklyRouteScheduleUpdate,
+    request: Request,
     distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
@@ -115,6 +148,13 @@ async def update_schedule(
                 detail="You can only update schedules that you created"
             )
         
+        # Get old values
+        old_values = {
+            'route_id': existing_schedule.route_id,
+            'day_of_week': existing_schedule.day_of_week,
+            'is_active': existing_schedule.is_active
+        }
+        
         result = WeeklyRouteScheduleService.update_schedule(
             db=db,
             schedule_id=schedule_id,
@@ -122,8 +162,38 @@ async def update_schedule(
             day_of_week=schedule.day_of_week,
             is_active=schedule.is_active
         )
+        
+        # Log update
+        ActivityLogService.log_update(
+            db=db,
+            user_id=distributor['user_id'],
+            user_role='distributor',
+            entity_type='weekly_route_schedule',
+            entity_id=schedule_id,
+            old_values=old_values,
+            new_values={
+                'route_id': result.get('route_id'),
+                'day_of_week': result.get('day_of_week'),
+                'is_active': result.get('is_active', True)
+            },
+            user_name=distributor.get('user_name'),
+            changes_summary=f"Weekly route schedule updated: {result.get('day_of_week')}",
+            request=request
+        )
+        
         return result
     except ValueError as e:
+        # Log failure
+        ActivityLogService.log_failure(
+            db=db,
+            user_id=distributor['user_id'],
+            user_role='distributor',
+            action_type='UPDATE',
+            entity_type='weekly_route_schedule',
+            entity_id=schedule_id,
+            error_message=str(e),
+            request=request
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
@@ -133,6 +203,7 @@ async def update_schedule(
 @router.delete("/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_schedule(
     schedule_id: int,
+    request: Request,
     distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
@@ -153,9 +224,41 @@ async def delete_schedule(
                 detail="You can only delete schedules that you created"
             )
         
+        # Get old values
+        old_values = {
+            'route_id': existing_schedule.route_id,
+            'day_of_week': existing_schedule.day_of_week,
+            'is_active': existing_schedule.is_active
+        }
+        
         WeeklyRouteScheduleService.delete_schedule(db=db, schedule_id=schedule_id)
+        
+        # Log delete
+        ActivityLogService.log_delete(
+            db=db,
+            user_id=distributor['user_id'],
+            user_role='distributor',
+            entity_type='weekly_route_schedule',
+            entity_id=schedule_id,
+            old_values=old_values,
+            user_name=distributor.get('user_name'),
+            changes_summary=f"Weekly route schedule deleted: {existing_schedule.day_of_week}",
+            request=request
+        )
+        
         return None
     except ValueError as e:
+        # Log failure
+        ActivityLogService.log_failure(
+            db=db,
+            user_id=distributor['user_id'],
+            user_role='distributor',
+            action_type='DELETE',
+            entity_type='weekly_route_schedule',
+            entity_id=schedule_id,
+            error_message=str(e),
+            request=request
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e)

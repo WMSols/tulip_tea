@@ -26,7 +26,7 @@ from services.activity_log_service import ActivityLogService
 router = APIRouter(prefix="/shop-visits", tags=["Shop Visits"])
 
 
-@router.post("/order-booker/{order_booker_id}", response_model=ShopVisitResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/order-booker/{order_booker_id}", response_model=ShopVisitResponse, status_code=status.HTTP_201_CREATED, tags=["Shop Visits", "Order Booker APIs"])
 async def register_visit(
     order_booker_id: int,
     visit: ShopVisitCreate,
@@ -247,7 +247,7 @@ async def list_visits_by_shop(
         )
 
 
-@router.get("/all", response_model=List[ShopVisitResponse])
+@router.get("/all", response_model=List[ShopVisitResponse], tags=["Shop Visits", "Distributor APIs"])
 async def list_all_visits(
     distributor_id: int = Query(None, description="Optional distributor ID to filter visits"),
     skip: int = Query(0, ge=0, description="Number of records to skip"),

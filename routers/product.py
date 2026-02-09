@@ -22,7 +22,7 @@ from utils.dependencies import get_current_user, get_current_distributor
 router = APIRouter(prefix="/products", tags=["Products"])
 
 
-@router.post("/", response_model=ProductResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=ProductResponse, status_code=status.HTTP_201_CREATED, tags=["Products", "Distributor APIs"])
 async def create_product(
     product: ProductCreate,
     distributor: Dict = Depends(get_current_distributor),
@@ -72,16 +72,15 @@ async def create_product(
         )
 
 
-@router.get("/", response_model=List[ProductResponse])
+@router.get("/", response_model=List[ProductResponse], tags=["Products", "Distributor APIs"])
 async def list_products(
-    distributor_id: int = Query(None, description="Optional distributor ID to filter products"),
     include_inactive: bool = Query(False, description="Include inactive products"),
-    current_user: Dict = Depends(get_current_user),
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
-    """List all products. Requires authentication. Filter by distributor_id if provided."""
+    """List all products for the authenticated distributor. Distributors can only see their own products."""
     try:
-        products = ProductService.get_all_products(db, distributor_id=distributor_id, include_inactive=include_inactive)
+        products = ProductService.get_all_products(db, distributor_id=distributor['user_id'], include_inactive=include_inactive)
         return products
     except Exception as e:
         raise HTTPException(
@@ -90,9 +89,9 @@ async def list_products(
         )
 
 
-@router.get("/active", response_model=List[ProductResponse])
+@router.get("/active", response_model=List[ProductResponse], tags=["Products", "Distributor APIs", "Order Booker APIs"])
 async def list_active_products(
-    distributor_id: int = Query(None, description="Optional distributor ID to filter products"),
+    distributor_id: int = Query(None, description="Distributor ID to filter products (required for Order Bookers)"),
     current_user: Dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -136,7 +135,7 @@ async def get_product(
         )
 
 
-@router.put("/{product_id}", response_model=ProductResponse)
+@router.put("/{product_id}", response_model=ProductResponse, tags=["Products", "Distributor APIs"])
 async def update_product(
     product_id: int,
     product: ProductUpdate,
@@ -235,7 +234,7 @@ async def update_product(
         )
 
 
-@router.delete("/{product_id}", status_code=status.HTTP_200_OK)
+@router.delete("/{product_id}", status_code=status.HTTP_200_OK, tags=["Products", "Distributor APIs"])
 async def delete_product(
     product_id: int,
     distributor: Dict = Depends(get_current_distributor),

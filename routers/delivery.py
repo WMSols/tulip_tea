@@ -18,6 +18,7 @@ from decimal import Decimal
 from config.database import get_db
 from services.delivery_service import DeliveryService
 from utils.auth_helpers import get_current_user_from_request
+from services.activity_log_service import ActivityLogService
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/deliveries", tags=["Deliveries"])
@@ -49,7 +50,7 @@ class DeliveryCreateRequest(BaseModel):
     warehouse_id: int
 
 
-@router.post("/order/{order_id}", status_code=status.HTTP_201_CREATED)
+@router.post("/order/{order_id}", status_code=status.HTTP_201_CREATED, tags=["Deliveries", "Delivery Man APIs"])
 async def create_delivery_for_order(
     order_id: int,
     request_data: DeliveryCreateRequest,
@@ -79,6 +80,24 @@ async def create_delivery_for_order(
             warehouse_id=request_data.warehouse_id
         )
         
+        # Log delivery creation
+        ActivityLogService.log_create(
+            db=db,
+            user_id=delivery_man_id,
+            user_role='delivery_man',
+            entity_type='delivery',
+            entity_id=result.get('id'),
+            new_values={
+                'order_id': order_id,
+                'delivery_man_id': delivery_man_id,
+                'warehouse_id': request_data.warehouse_id,
+                'status': result.get('status', 'pending')
+            },
+            user_name=user_info.get('user_name'),
+            changes_summary=f"Delivery created for order {order_id}",
+            request=request
+        )
+        
         return result
     except ValueError as e:
         raise HTTPException(
@@ -96,7 +115,7 @@ async def create_delivery_for_order(
         )
 
 
-@router.post("/{delivery_id}/pickup")
+@router.post("/{delivery_id}/pickup", tags=["Deliveries", "Delivery Man APIs"])
 async def pickup_from_warehouse(
     delivery_id: int,
     pickup_data: DeliveryPickupRequest,
@@ -125,6 +144,26 @@ async def pickup_from_warehouse(
             pickup_gps_lng=Decimal(str(pickup_data.pickup_gps_lng)) if pickup_data.pickup_gps_lng else None
         )
         
+        # Log pickup operation
+        ActivityLogService.log_activity(
+            db=db,
+            user_id=user_info.get('user_id'),
+            user_role='delivery_man',
+            action_type='PICKUP',
+            entity_type='delivery',
+            entity_id=delivery_id,
+            user_name=user_info.get('user_name'),
+            new_values={
+                'delivery_id': delivery_id,
+                'pickup_quantities': pickup_data.pickup_quantities,
+                'pickup_gps_lat': str(pickup_data.pickup_gps_lat) if pickup_data.pickup_gps_lat else None,
+                'pickup_gps_lng': str(pickup_data.pickup_gps_lng) if pickup_data.pickup_gps_lng else None,
+                'status': result.get('status', 'picked_up')
+            },
+            changes_summary=f"Warehouse pickup completed for delivery {delivery_id}",
+            request=request
+        )
+        
         return result
     except ValueError as e:
         raise HTTPException(
@@ -138,7 +177,7 @@ async def pickup_from_warehouse(
         )
 
 
-@router.post("/{delivery_id}/deliver")
+@router.post("/{delivery_id}/deliver", tags=["Deliveries", "Delivery Man APIs"])
 async def deliver_to_shop(
     delivery_id: int,
     deliver_data: DeliveryDeliverRequest,
@@ -169,6 +208,28 @@ async def deliver_to_shop(
             delivery_images=deliver_data.delivery_images
         )
         
+        # Log delivery operation
+        ActivityLogService.log_activity(
+            db=db,
+            user_id=user_info.get('user_id'),
+            user_role='delivery_man',
+            action_type='DELIVER',
+            entity_type='delivery',
+            entity_id=delivery_id,
+            user_name=user_info.get('user_name'),
+            new_values={
+                'delivery_id': delivery_id,
+                'delivery_quantities': deliver_data.delivery_quantities,
+                'delivery_gps_lat': str(deliver_data.delivery_gps_lat) if deliver_data.delivery_gps_lat else None,
+                'delivery_gps_lng': str(deliver_data.delivery_gps_lng) if deliver_data.delivery_gps_lng else None,
+                'delivery_remarks': deliver_data.delivery_remarks,
+                'has_images': bool(deliver_data.delivery_images),
+                'status': result.get('status', 'delivered')
+            },
+            changes_summary=f"Order delivered to shop for delivery {delivery_id}",
+            request=request
+        )
+        
         return result
     except ValueError as e:
         raise HTTPException(
@@ -182,7 +243,7 @@ async def deliver_to_shop(
         )
 
 
-@router.post("/{delivery_id}/return")
+@router.post("/{delivery_id}/return", tags=["Deliveries", "Delivery Man APIs"])
 async def return_to_warehouse(
     delivery_id: int,
     return_data: DeliveryReturnRequest,
@@ -212,6 +273,28 @@ async def return_to_warehouse(
             return_reason=return_data.return_reason
         )
         
+        # Log return operation
+        ActivityLogService.log_activity(
+            db=db,
+            user_id=user_info.get('user_id'),
+            user_role='delivery_man',
+            action_type='RETURN',
+            entity_type='delivery',
+            entity_id=delivery_id,
+            user_name=user_info.get('user_name'),
+            new_values={
+                'delivery_id': delivery_id,
+                'return_quantities': return_data.return_quantities,
+                'return_gps_lat': str(return_data.return_gps_lat) if return_data.return_gps_lat else None,
+                'return_gps_lng': str(return_data.return_gps_lng) if return_data.return_gps_lng else None,
+                'return_reason': return_data.return_reason,
+                'status': result.get('status', 'returned')
+            },
+            changes_summary=f"Items returned to warehouse for delivery {delivery_id}" + 
+                          (f": {return_data.return_reason}" if return_data.return_reason else ""),
+            request=request
+        )
+        
         return result
     except ValueError as e:
         raise HTTPException(
@@ -225,7 +308,7 @@ async def return_to_warehouse(
         )
 
 
-@router.get("/order/{order_id}")
+@router.get("/order/{order_id}", tags=["Deliveries", "Delivery Man APIs", "Distributor APIs"])
 async def get_delivery_by_order(
     order_id: int,
     request: Request,
@@ -275,7 +358,7 @@ async def get_deliveries_by_delivery_man(
         )
 
 
-@router.get("/distributor/{distributor_id}")
+@router.get("/distributor/{distributor_id}", tags=["Deliveries", "Distributor APIs"])
 async def get_deliveries_by_distributor(
     distributor_id: int,
     skip: int = 0,

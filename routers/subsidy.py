@@ -3,22 +3,25 @@ Subsidy Router
 =============
 Handles subsidy CRUD operations.
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from typing import List
 from config.database import get_db
 from models.schemas import SubsidyCreate, SubsidyResponse, SubsidyUpdate
 from services.subsidy_service import SubsidyService
 from utils.dependencies import get_current_user, get_current_distributor
+from typing import Dict
+from services.activity_log_service import ActivityLogService
 
 router = APIRouter(prefix="/subsidies", tags=["Subsidies"])
 
 
-@router.post("/distributor/{distributor_id}", response_model=SubsidyResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/distributor/{distributor_id}", response_model=SubsidyResponse, status_code=status.HTTP_201_CREATED, tags=["Subsidies", "Distributor APIs"])
 async def create_subsidy(
     distributor_id: int,
     subsidy: SubsidyCreate,
-    current_user: dict = Depends(get_current_user),
+    request: Request,
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
     """
@@ -41,6 +44,12 @@ async def create_subsidy(
     Response (201):
         Created subsidy data
     """
+    # Verify distributor can only create subsidies for their own account
+    if distributor['user_id'] != distributor_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only create subsidies for your own distributor account"
+        )
     try:
         from decimal import Decimal
         result = SubsidyService.create_subsidy(
@@ -50,24 +59,63 @@ async def create_subsidy(
             percentage=Decimal(str(subsidy.percentage)),
             description=subsidy.description
         )
+        
+        # Log creation
+        ActivityLogService.log_create(
+            db=db,
+            user_id=distributor['user_id'],
+            user_role='distributor',
+            entity_type='subsidy',
+            entity_id=result['id'],
+            new_values={
+                'name': result.get('name'),
+                'percentage': str(result.get('percentage', 0)),
+                'description': result.get('description'),
+                'is_active': result.get('is_active', True)
+            },
+            user_name=distributor.get('user_name'),
+            changes_summary=f"Subsidy created: {result.get('name')} ({result.get('percentage', 0)}%)",
+            request=request
+        )
+        
         return result
     except ValueError as e:
+        # Log failure
+        ActivityLogService.log_failure(
+            db=db,
+            user_id=distributor['user_id'],
+            user_role='distributor',
+            action_type='CREATE',
+            entity_type='subsidy',
+            error_message=str(e),
+            request=request
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except Exception as e:
+        # Log failure
+        ActivityLogService.log_failure(
+            db=db,
+            user_id=distributor['user_id'],
+            user_role='distributor',
+            action_type='CREATE',
+            entity_type='subsidy',
+            error_message=str(e),
+            request=request
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error creating subsidy: {str(e)}"
         )
 
 
-@router.get("/distributor/{distributor_id}", response_model=List[SubsidyResponse])
+@router.get("/distributor/{distributor_id}", response_model=List[SubsidyResponse], tags=["Subsidies", "Distributor APIs"])
 async def list_subsidies_by_distributor(
     distributor_id: int,
     include_inactive: bool = False,
-    current_user: dict = Depends(get_current_user),
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
     """
@@ -78,6 +126,12 @@ async def list_subsidies_by_distributor(
     Response (200):
         List of subsidies
     """
+    # Verify distributor can only view their own subsidies
+    if distributor['user_id'] != distributor_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only view subsidies for your own distributor account"
+        )
     try:
         subsidies = SubsidyService.get_subsidies_by_distributor(
             db=db,
@@ -92,7 +146,7 @@ async def list_subsidies_by_distributor(
         )
 
 
-@router.get("/distributor/{distributor_id}/active", response_model=List[SubsidyResponse])
+@router.get("/distributor/{distributor_id}/active", response_model=List[SubsidyResponse], tags=["Subsidies", "Order Booker APIs"])
 async def list_active_subsidies_by_distributor(
     distributor_id: int,
     current_user: dict = Depends(get_current_user),
@@ -119,10 +173,10 @@ async def list_active_subsidies_by_distributor(
         )
 
 
-@router.get("/{subsidy_id}", response_model=SubsidyResponse)
+@router.get("/{subsidy_id}", response_model=SubsidyResponse, tags=["Subsidies", "Distributor APIs"])
 async def get_subsidy(
     subsidy_id: int,
-    current_user: dict = Depends(get_current_user),
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
     """
@@ -140,6 +194,12 @@ async def get_subsidy(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Subsidy not found"
             )
+        # Verify subsidy belongs to the authenticated distributor
+        if subsidy.get('distributor_id') != distributor['user_id']:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only access subsidies for your own distributor account"
+            )
         return subsidy
     except HTTPException:
         raise
@@ -150,11 +210,12 @@ async def get_subsidy(
         )
 
 
-@router.put("/{subsidy_id}", response_model=SubsidyResponse)
+@router.put("/{subsidy_id}", response_model=SubsidyResponse, tags=["Subsidies", "Distributor APIs"])
 async def update_subsidy(
     subsidy_id: int,
     subsidy_update: SubsidyUpdate,
-    current_user: dict = Depends(get_current_user),
+    request: Request,
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
     """
@@ -173,7 +234,39 @@ async def update_subsidy(
     Response (200):
         Updated subsidy data
     """
+    # First verify subsidy exists and belongs to distributor
     try:
+        existing_subsidy = SubsidyService.get_subsidy_by_id(db, subsidy_id)
+        if not existing_subsidy:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Subsidy not found"
+            )
+        if existing_subsidy.get('distributor_id') != distributor['user_id']:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only update subsidies for your own distributor account"
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error verifying subsidy ownership: {str(e)}"
+        )
+    
+    try:
+        # Get old values before update
+        old_subsidy = SubsidyService.get_subsidy_by_id(db, subsidy_id)
+        old_values = {}
+        if old_subsidy:
+            old_values = {
+                'name': old_subsidy.get('name'),
+                'percentage': str(old_subsidy.get('percentage', 0)),
+                'description': old_subsidy.get('description'),
+                'is_active': old_subsidy.get('is_active', True)
+            }
+        
         from decimal import Decimal
         update_data = {}
         if subsidy_update.name is not None:
@@ -197,6 +290,25 @@ async def update_subsidy(
                 detail="Subsidy not found"
             )
         
+        # Log update
+        ActivityLogService.log_update(
+            db=db,
+            user_id=distributor['user_id'],
+            user_role='distributor',
+            entity_type='subsidy',
+            entity_id=subsidy_id,
+            old_values=old_values,
+            new_values={
+                'name': result.get('name'),
+                'percentage': str(result.get('percentage', 0)),
+                'description': result.get('description'),
+                'is_active': result.get('is_active', True)
+            },
+            user_name=distributor.get('user_name'),
+            changes_summary=f"Subsidy updated: {result.get('name')}",
+            request=request
+        )
+        
         return result
     except HTTPException:
         raise
@@ -212,10 +324,11 @@ async def update_subsidy(
         )
 
 
-@router.delete("/{subsidy_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{subsidy_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Subsidies", "Distributor APIs"])
 async def delete_subsidy(
     subsidy_id: int,
-    current_user: dict = Depends(get_current_user),
+    request: Request,
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
     """
@@ -226,13 +339,59 @@ async def delete_subsidy(
     Response (204):
         No content
     """
+    # First verify subsidy exists and belongs to distributor
     try:
+        existing_subsidy = SubsidyService.get_subsidy_by_id(db, subsidy_id)
+        if not existing_subsidy:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Subsidy not found"
+            )
+        if existing_subsidy.get('distributor_id') != distributor['user_id']:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only delete subsidies for your own distributor account"
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error verifying subsidy ownership: {str(e)}"
+        )
+    
+    try:
+        # Get old values before delete
+        old_subsidy = SubsidyService.get_subsidy_by_id(db, subsidy_id)
+        old_values = {}
+        if old_subsidy:
+            old_values = {
+                'name': old_subsidy.get('name'),
+                'percentage': str(old_subsidy.get('percentage', 0)),
+                'description': old_subsidy.get('description'),
+                'is_active': old_subsidy.get('is_active', True)
+            }
+        
         deleted = SubsidyService.delete_subsidy(db, subsidy_id)
         if not deleted:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Subsidy not found"
             )
+        
+        # Log delete
+        ActivityLogService.log_delete(
+            db=db,
+            user_id=distributor['user_id'],
+            user_role='distributor',
+            entity_type='subsidy',
+            entity_id=subsidy_id,
+            old_values=old_values,
+            user_name=distributor.get('user_name'),
+            changes_summary=f"Subsidy deleted: {old_subsidy.get('name') if old_subsidy else 'N/A'}",
+            request=request
+        )
+        
         return None
     except HTTPException:
         raise

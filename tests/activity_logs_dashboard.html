@@ -372,6 +372,11 @@
                         <option value="LOGOUT">LOGOUT</option>
                         <option value="WALLET_TRANSFER">Wallet Transfer</option>
                         <option value="WALLET_COLLECT">Wallet Collection</option>
+                        <option value="PICKUP">PICKUP</option>
+                        <option value="DELIVER">DELIVER</option>
+                        <option value="RETURN">RETURN</option>
+                        <option value="ASSIGN">ASSIGN</option>
+                        <option value="VIEW">VIEW</option>
                     </select>
                 </div>
                 <div class="filter-group">
@@ -387,6 +392,11 @@
                         <option value="delivery_man">Delivery Man</option>
                         <option value="order">Order</option>
                         <option value="payment">Payment</option>
+                        <option value="subsidy">Subsidy</option>
+                        <option value="weekly_route_schedule">Weekly Route Schedule</option>
+                        <option value="zone">Zone</option>
+                        <option value="route">Route</option>
+                        <option value="delivery">Delivery</option>
                     </select>
                 </div>
                 <div class="filter-group">
@@ -548,6 +558,16 @@
                     actionDisplay = '💰 Transfer';
                 } else if (log.action_type === 'WALLET_COLLECT') {
                     actionDisplay = '💸 Collect';
+                } else if (log.action_type === 'PICKUP') {
+                    actionDisplay = '📦 Pickup';
+                } else if (log.action_type === 'DELIVER') {
+                    actionDisplay = '🚚 Deliver';
+                } else if (log.action_type === 'RETURN') {
+                    actionDisplay = '↩️ Return';
+                } else if (log.action_type === 'ASSIGN') {
+                    actionDisplay = '📋 Assign';
+                } else if (log.action_type === 'VIEW') {
+                    actionDisplay = '👁️ View';
                 }
                 
                 // Format entity type for display
@@ -558,6 +578,16 @@
                     entityDisplay = `💵 Collection #${log.entity_id || 'N/A'}`;
                 } else if (log.entity_type === 'wallet_transaction') {
                     entityDisplay = `💳 Transaction #${log.entity_id || 'N/A'}`;
+                } else if (log.entity_type === 'subsidy') {
+                    entityDisplay = `🎁 Subsidy #${log.entity_id || 'N/A'}`;
+                } else if (log.entity_type === 'weekly_route_schedule') {
+                    entityDisplay = `📅 Schedule #${log.entity_id || 'N/A'}`;
+                } else if (log.entity_type === 'zone') {
+                    entityDisplay = `🗺️ Zone #${log.entity_id || 'N/A'}`;
+                } else if (log.entity_type === 'route') {
+                    entityDisplay = `🛣️ Route #${log.entity_id || 'N/A'}`;
+                } else if (log.entity_type === 'delivery') {
+                    entityDisplay = `📦 Delivery #${log.entity_id || 'N/A'}`;
                 }
                 
                 row.innerHTML = `

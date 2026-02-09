@@ -45,7 +45,7 @@ from services.activity_log_service import ActivityLogService
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
-@router.post("/login/distributor", response_model=TokenResponse)
+@router.post("/login/distributor", response_model=TokenResponse, tags=["Authentication", "Distributor APIs"])
 async def login_distributor(credentials: DistributorLogin, request: Request, db: Session = Depends(get_db)):
     """
     Login endpoint for Distributor role.
@@ -130,7 +130,7 @@ async def login_distributor(credentials: DistributorLogin, request: Request, db:
     return result
 
 
-@router.post("/login/order-booker", response_model=TokenResponse)
+@router.post("/login/order-booker", response_model=TokenResponse, tags=["Authentication", "Order Booker APIs"])
 async def login_order_booker(credentials: OrderBookerLogin, request: Request, db: Session = Depends(get_db)):
     """
     Login endpoint for Order Booker role.
@@ -184,7 +184,7 @@ async def login_order_booker(credentials: OrderBookerLogin, request: Request, db
     return result
 
 
-@router.post("/login/delivery-man", response_model=TokenResponse)
+@router.post("/login/delivery-man", response_model=TokenResponse, tags=["Authentication", "Delivery Man APIs"])
 async def login_delivery_man(credentials: DeliveryManLogin, request: Request, db: Session = Depends(get_db)):
     """
     Login endpoint for Delivery Man role.

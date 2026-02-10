@@ -15,6 +15,10 @@ from repositories.shop_repository import ShopRepository
 from repositories.order_booker_repository import OrderBookerRepository
 from repositories.delivery_man_repository import DeliveryManRepository
 from repositories.distributor_repository import DistributorRepository
+from models.shop import Shop
+from models.order_booker import OrderBooker
+from models.delivery_man import DeliveryMan
+from models.distributor import Distributor
 from decimal import Decimal
 from typing import Dict, List, Optional
 from datetime import datetime
@@ -109,42 +113,101 @@ class CreditLimitRequestService:
     @staticmethod
     def get_pending_requests(db: Session, distributor_id: int = None) -> List[Dict]:
         """
-        Get all pending credit limit requests.
+        Get all pending credit limit requests, optionally filtered by distributor.
         
         FLOW:
-        1. Gets all pending requests from repository
-        2. Includes shop information
-        3. Returns formatted list
+        1. Gets all pending requests from repository (filtered by distributor if provided)
+        2. Batch loads all related entities (shops, order bookers, delivery men, distributors) to avoid N+1 queries
+        3. Includes shop information
+        4. Returns formatted list
         
         Args:
             db: Database session
-            distributor_id: Optional distributor ID (currently not used for filtering)
+            distributor_id: Optional distributor ID - filters requests to shops belonging to this distributor's order bookers
         
         Returns:
             List[Dict]: List of pending requests with shop info
         
-        Note: Distributors are not assigned to zones, so distributor_id is not used for filtering.
-        All pending requests are returned regardless of distributor.
+        Note: When distributor_id is provided, only returns requests for shops that:
+            - Were created by an order booker belonging to this distributor, OR
+            - Are assigned to an order booker belonging to this distributor, OR
+            - Were verified by this distributor
         """
         requests = CreditLimitRequestRepository.get_pending(db, distributor_id)
         
+        if not requests:
+            return []
+        
+        # Batch load all related entities to avoid N+1 queries
+        # Collect all unique IDs
+        shop_ids = set()
+        order_booker_ids = set()
+        delivery_man_ids = set()
+        distributor_ids = set()
+        
+        for req in requests:
+            shop_ids.add(req.shop_id)
+            if req.requested_by_role == "order_booker":
+                order_booker_ids.add(req.requested_by_id)
+            elif req.requested_by_role == "delivery_man":
+                delivery_man_ids.add(req.requested_by_id)
+            if req.approved_by_distributor:
+                distributor_ids.add(req.approved_by_distributor)
+        
+        # Batch load shops (1 query for all shops)
+        shops_map = {}
+        if shop_ids:
+            shops = db.query(Shop).filter(
+                Shop.id.in_(shop_ids),
+                Shop.deleted_at.is_(None)
+            ).all()
+            shops_map = {shop.id: shop for shop in shops}
+        
+        # Batch load order bookers (1 query for all order bookers)
+        order_bookers_map = {}
+        if order_booker_ids:
+            order_bookers = db.query(OrderBooker).filter(
+                OrderBooker.id.in_(order_booker_ids),
+                OrderBooker.deleted_at.is_(None)
+            ).all()
+            order_bookers_map = {ob.id: ob for ob in order_bookers}
+        
+        # Batch load delivery men (1 query for all delivery men)
+        delivery_men_map = {}
+        if delivery_man_ids:
+            delivery_men = db.query(DeliveryMan).filter(
+                DeliveryMan.id.in_(delivery_man_ids),
+                DeliveryMan.deleted_at.is_(None)
+            ).all()
+            delivery_men_map = {dm.id: dm for dm in delivery_men}
+        
+        # Batch load distributors (1 query for all distributors)
+        distributors_map = {}
+        if distributor_ids:
+            distributors = db.query(Distributor).filter(
+                Distributor.id.in_(distributor_ids),
+                Distributor.deleted_at.is_(None)
+            ).all()
+            distributors_map = {d.id: d for d in distributors}
+        
+        # Build result using lookup maps (no additional queries)
         result = []
         for req in requests:
-            shop = ShopRepository.get_by_id(db, req.shop_id)
+            shop = shops_map.get(req.shop_id)
             
-            # Get requester name based on role
+            # Get requester name from lookup map
             requested_by_name = None
             if req.requested_by_role == "order_booker":
-                requester = OrderBookerRepository.get_by_id(db, req.requested_by_id)
+                requester = order_bookers_map.get(req.requested_by_id)
                 requested_by_name = requester.name if requester else None
             elif req.requested_by_role == "delivery_man":
-                requester = DeliveryManRepository.get_by_id(db, req.requested_by_id)
+                requester = delivery_men_map.get(req.requested_by_id)
                 requested_by_name = requester.name if requester else None
             
-            # Get approved_by_distributor_name if approved
+            # Get distributor name from lookup map
             approved_by_distributor_name = None
             if req.approved_by_distributor:
-                distributor = DistributorRepository.get_by_id(db, req.approved_by_distributor)
+                distributor = distributors_map.get(req.approved_by_distributor)
                 approved_by_distributor_name = distributor.name if distributor else None
             
             result.append({

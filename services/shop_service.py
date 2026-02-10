@@ -431,15 +431,13 @@ class ShopService:
                                        zone_id: int = None, route_id: int = None) -> List[Dict]:
         """
         Get all shops with their associated order_booker and route information.
-        OPTIMIZED: Uses batch loading to avoid N+1 queries for better performance.
         
         FLOW:
         1. Gets all shops (optionally filtered by distributor_id, zone_id, or route_id)
-        2. Collects all unique IDs needed (order_bookers, routes, zones)
-        3. Batch loads all related data in 3-4 queries instead of 100+ individual queries
-        4. Builds lookup dictionaries for fast access
-        5. For each shop, looks up associated data from dictionaries
-        6. Returns formatted list with all associations
+        2. For each shop, finds associated order_booker (via created_by_order_booker)
+        3. For each shop, finds associated route (via shop.route_id)
+        4. For each route, finds assigned order_booker and zone info
+        5. Returns formatted list with all associations
         
         Args:
             db: Database session
@@ -454,9 +452,6 @@ class ShopService:
             - Shop was created by an order booker belonging to this distributor, OR
             - Shop is assigned to an order booker belonging to this distributor, OR
             - Shop was verified/approved by this distributor
-        
-        Performance: This method is optimized to reduce database queries from O(n) to O(1) 
-        where n is the number of shops, resulting in 10-100x faster response times.
         """
 # RouteShop model removed - shops now use route_id directly
         from models.route import Route
@@ -516,124 +511,105 @@ class ShopService:
                 traceback.print_exc()
                 raise
         
-        # OPTIMIZATION: Collect all unique IDs first to avoid N+1 queries
-        from models.zone import Zone
-        
-        order_booker_ids = set()
+        # Batch load all related entities to avoid N+1 queries
+        # Collect all unique IDs
+        created_order_booker_ids = set()
+        assigned_order_booker_ids = set()
         route_ids = set()
         zone_ids = set()
+        route_order_booker_ids = set()
         
         for shop in shops:
             if shop.created_by_order_booker:
-                order_booker_ids.add(shop.created_by_order_booker)
+                created_order_booker_ids.add(shop.created_by_order_booker)
             if shop.assigned_to_order_booker:
-                order_booker_ids.add(shop.assigned_to_order_booker)
+                assigned_order_booker_ids.add(shop.assigned_to_order_booker)
             if shop.route_id:
                 route_ids.add(shop.route_id)
-            if shop.zone_id:
-                zone_ids.add(shop.zone_id)
         
-        # OPTIMIZATION: Batch load all order bookers (including deleted for historical data)
-        order_bookers_lookup = {}
-        if order_booker_ids:
-            # Load active order bookers
-            active_order_bookers = db.query(OrderBooker).filter(
-                OrderBooker.id.in_(order_booker_ids),
-                OrderBooker.deleted_at.is_(None),
-                OrderBooker.is_active == True
-            ).all()
-            for ob in active_order_bookers:
-                order_bookers_lookup[ob.id] = ob
-            
-            # Load deleted order bookers (for historical data - shops created by deleted order bookers)
-            deleted_order_bookers = db.query(OrderBooker).filter(
-                OrderBooker.id.in_(order_booker_ids),
-                OrderBooker.deleted_at.isnot(None)
-            ).all()
-            for ob in deleted_order_bookers:
-                if ob.id not in order_bookers_lookup:  # Only add if not already loaded
-                    order_bookers_lookup[ob.id] = ob
-        
-        # OPTIMIZATION: Batch load all routes
-        routes_lookup = {}
+        # Batch load all routes (1 query for all routes)
+        routes_map = {}
         if route_ids:
-            routes = db.query(Route).filter(
-                Route.id.in_(route_ids),
-                Route.deleted_at.is_(None),
-                Route.is_active == True
-            ).all()
+            routes = RouteRepository.get_by_ids(db, list(route_ids), include_deleted=False)
+            routes_map = {route.id: route for route in routes}
+            # Collect zone IDs and route order booker IDs from routes
             for route in routes:
-                routes_lookup[route.id] = route
-                # Also collect order booker IDs from routes
-                if route.order_booker_id:
-                    order_booker_ids.add(route.order_booker_id)
-                # Also collect zone IDs from routes
                 if route.zone_id:
                     zone_ids.add(route.zone_id)
-            
-            # Load any additional order bookers from routes that weren't already loaded
-            route_order_booker_ids = {r.order_booker_id for r in routes if r.order_booker_id}
-            if route_order_booker_ids:
-                additional_order_bookers = db.query(OrderBooker).filter(
-                    OrderBooker.id.in_(route_order_booker_ids),
-                    OrderBooker.deleted_at.is_(None),
-                    OrderBooker.is_active == True
-                ).all()
-                for ob in additional_order_bookers:
-                    if ob.id not in order_bookers_lookup:
-                        order_bookers_lookup[ob.id] = ob
+                if route.order_booker_id:
+                    route_order_booker_ids.add(route.order_booker_id)
         
-        # OPTIMIZATION: Batch load all zones
-        zones_lookup = {}
-        if zone_ids:
-            zones = db.query(Zone).filter(
-                Zone.id.in_(zone_ids),
-                Zone.deleted_at.is_(None),
-                Zone.is_active == True
+        # Batch load all order bookers (created, assigned, and route order bookers) - 1 query
+        all_order_booker_ids = created_order_booker_ids | assigned_order_booker_ids | route_order_booker_ids
+        order_bookers_map = {}
+        if all_order_booker_ids:
+            from models.order_booker import OrderBooker
+            # Load active order bookers (for assigned and route order bookers)
+            active_order_bookers = db.query(OrderBooker).filter(
+                OrderBooker.id.in_(list(all_order_booker_ids)),
+                OrderBooker.deleted_at.is_(None)
             ).all()
-            for zone in zones:
-                zones_lookup[zone.id] = zone
+            order_bookers_map.update({ob.id: ob for ob in active_order_bookers})
+            
+            # Load deleted order bookers for created_by (historical data)
+            deleted_order_booker_ids = created_order_booker_ids - set(order_bookers_map.keys())
+            if deleted_order_booker_ids:
+                deleted_order_bookers = db.query(OrderBooker).filter(
+                    OrderBooker.id.in_(list(deleted_order_booker_ids))
+                ).all()
+                order_bookers_map.update({ob.id: ob for ob in deleted_order_bookers})
         
-        # Now build result using lookups (no more individual queries!)
+        # Batch load all zones (1 query for all zones)
+        zones_map = {}
+        if zone_ids:
+            from models.zone import Zone
+            zones = db.query(Zone).filter(
+                Zone.id.in_(list(zone_ids)),
+                Zone.deleted_at.is_(None)
+            ).all()
+            zones_map = {zone.id: zone for zone in zones}
+        
+        # Build result using lookup maps (no additional queries)
         result = []
         for shop in shops:
-            # Get order booker names from lookup
+            # Get order booker who created the shop (historical) from lookup map
             created_order_booker_name = None
-            if shop.created_by_order_booker and shop.created_by_order_booker in order_bookers_lookup:
-                created_order_booker = order_bookers_lookup[shop.created_by_order_booker]
+            if shop.created_by_order_booker:
+                created_order_booker = order_bookers_map.get(shop.created_by_order_booker)
                 created_order_booker_name = created_order_booker.name if created_order_booker else None
             
-            # Get assigned order booker name from lookup (only active ones)
+            # Get order booker currently assigned to the shop from lookup map
             assigned_order_booker_name = None
-            if shop.assigned_to_order_booker and shop.assigned_to_order_booker in order_bookers_lookup:
-                assigned_order_booker = order_bookers_lookup[shop.assigned_to_order_booker]
-                # Only use if not deleted (for assigned, we want active only)
-                if assigned_order_booker.deleted_at is None:
-                    assigned_order_booker_name = assigned_order_booker.name
+            if shop.assigned_to_order_booker:
+                assigned_order_booker = order_bookers_map.get(shop.assigned_to_order_booker)
+                assigned_order_booker_name = assigned_order_booker.name if assigned_order_booker else None
             
-            # Get route info from lookup
+            # Get route this shop belongs to from lookup map
             routes_info = []
-            if shop.route_id and shop.route_id in routes_lookup:
-                route = routes_lookup[shop.route_id]
-                route_order_booker_name = None
-                if route.order_booker_id and route.order_booker_id in order_bookers_lookup:
-                    route_ob = order_bookers_lookup[route.order_booker_id]
-                    if route_ob.deleted_at is None:  # Only active order bookers for routes
-                        route_order_booker_name = route_ob.name
-                
-                route_zone_name = None
-                if route.zone_id and route.zone_id in zones_lookup:
-                    route_zone_name = zones_lookup[route.zone_id].name
-                
-                routes_info.append({
-                    "route_id": route.id,
-                    "route_name": route.name,
-                    "route_zone_id": route.zone_id,
-                    "route_zone_name": route_zone_name,
-                    "order_booker_id": route.order_booker_id,
-                    "order_booker_name": route_order_booker_name,
-                    "sequence": shop.route_sequence
-                })
+            if shop.route_id:
+                route = routes_map.get(shop.route_id)
+                if route:
+                    # Get route order booker from lookup map
+                    route_order_booker_name = None
+                    if route.order_booker_id:
+                        route_order_booker = order_bookers_map.get(route.order_booker_id)
+                        route_order_booker_name = route_order_booker.name if route_order_booker else None
+                    
+                    # Get zone name from lookup map
+                    route_zone_name = None
+                    if route.zone_id:
+                        route_zone = zones_map.get(route.zone_id)
+                        route_zone_name = route_zone.name if route_zone else None
+                    
+                    routes_info.append({
+                        "route_id": route.id,
+                        "route_name": route.name,
+                        "route_zone_id": route.zone_id,
+                        "route_zone_name": route_zone_name,
+                        "order_booker_id": route.order_booker_id,
+                        "order_booker_name": route_order_booker_name,
+                        "sequence": shop.route_sequence
+                    })
             
             # Safely build result dictionary with error handling
             try:

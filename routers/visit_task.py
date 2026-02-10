@@ -86,6 +86,41 @@ async def get_tasks_for_week(
     return tasks
 
 
+@router.get("/order-booker/{order_booker_id}/schedule-view", tags=["Visit Tasks", "Order Booker APIs"])
+async def get_schedule_view(
+    order_booker_id: int,
+    date: Optional[date] = Query(None, description="Date to view schedule for (defaults to today)"),
+    current_user: Dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get schedule view for an order booker showing shops grouped by route with visit status.
+    
+    Returns shops scheduled for the specified date, grouped by route, with visit status
+    (visited/pending) for each shop.
+    """
+    # If user is order booker, verify they can only view their own schedule
+    if current_user.get('user_role') == 'order_booker':
+        if current_user.get('user_id') != order_booker_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only view your own schedule"
+            )
+    
+    try:
+        result = VisitTaskService.get_schedule_view_data(
+            db=db,
+            order_booker_id=order_booker_id,
+            view_date=date
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching schedule view: {str(e)}"
+        )
+
+
 @router.put("/{task_id}/status", response_model=VisitTaskResponse)
 async def update_task_status(
     task_id: int,

@@ -141,6 +141,27 @@ class ShopRepository:
         return query.order_by(Shop.route_sequence.asc()).all()
     
     @staticmethod
+    def get_by_routes(db: Session, route_ids: List[int], include_deleted: bool = False) -> List[Shop]:
+        """
+        Batch load all shops for multiple routes (optimized to avoid N+1 queries).
+        
+        Args:
+            db: Database session
+            route_ids: List of route IDs to fetch shops for
+            include_deleted: If True, includes soft-deleted and inactive records
+        
+        Returns:
+            List of shops from all specified routes
+        """
+        if not route_ids:
+            return []
+        
+        query = db.query(Shop).filter(Shop.route_id.in_(route_ids))
+        if not include_deleted:
+            query = query.filter(Shop.deleted_at.is_(None), Shop.is_active == True)
+        return query.order_by(Shop.route_id, Shop.route_sequence.asc()).all()
+    
+    @staticmethod
     def get_by_registration_status(db: Session, status: str, include_deleted: bool = False) -> List[Shop]:
         """
         Get all shops by registration status (excludes soft-deleted and inactive by default).

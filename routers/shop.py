@@ -204,14 +204,14 @@ async def get_shop_credit_info(shop_id: int, db: Session = Depends(get_db)):
 
 @router.get("/pending", response_model=List[ShopResponse], tags=["Shops", "Distributor APIs"])
 async def list_pending_shops(
-    distributor_id: int = Query(None, description="Optional distributor ID to filter pending shops"),
+    distributor_id: int = Query(..., description="Distributor ID to filter pending shops"),
     request: Request = None,
     db: Session = Depends(get_db)
 ):
     """
     List all shops with pending registration status for the authenticated distributor.
     
-    API: GET /shops/pending
+    API: GET /shops/pending?distributor_id={id}
     
     FLOW:
     1. Distributor views pending shop registrations
@@ -219,18 +219,14 @@ async def list_pending_shops(
     3. Filters to shops created by order bookers belonging to the authenticated distributor
     4. Returns list for review
     
+    Query Parameters:
+        distributor_id: Required - Distributor ID
+    
     Response (200):
         List of pending shops awaiting verification
     """
     try:
         from models.order_booker import OrderBooker
-        
-        if not distributor_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="distributor_id is required"
-            )
-        
         # Filter pending shops by distributor: get shops created by order bookers belonging to this distributor
         order_booker_ids = db.query(OrderBooker.id).filter(
             OrderBooker.distributor_id == distributor_id,
@@ -331,15 +327,15 @@ async def get_unassigned_shops(
 
 @router.get("/all", response_model=List[ShopResponse], tags=["Shops", "Distributor APIs"])
 async def get_all_shops(
-    distributor_id: int = None,
-    zone_id: int = None,
-    route_id: int = None,
+    distributor_id: int = Query(..., description="Distributor ID"),
+    zone_id: int = Query(None, description="Optional zone filter"),
+    route_id: int = Query(None, description="Optional route filter"),
     db: Session = Depends(get_db)
 ):
     """
     Get all shops with their associated order_booker and route information for the authenticated distributor.
     
-    API: GET /shops/all?zone_id={id}&route_id={id}
+    API: GET /shops/all?distributor_id={id}&zone_id={id}&route_id={id}
     
     FLOW:
     1. Gets all shops for the authenticated distributor (optionally filtered by zone_id or route_id)
@@ -348,6 +344,7 @@ async def get_all_shops(
     4. Returns formatted list with all associations
     
     Query Parameters:
+        distributor_id: Required - Distributor ID
         zone_id: Optional - Filter shops by zone
         route_id: Optional - Filter shops by route
     

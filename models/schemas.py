@@ -1,7 +1,7 @@
 """
 Pydantic schemas for request/response validation.
 """
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Optional, List, Dict, Any
 
 
@@ -56,11 +56,18 @@ class DistributorResponse(BaseModel):
 
 # Order Booker Schemas
 class OrderBookerCreate(BaseModel):
-    name: str
+    name: str = Field(..., min_length=1, description="Order booker name cannot be empty")
     phone: str
     password: str
     email: Optional[EmailStr] = None
     zone_id: Optional[int] = None
+    
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError('Order booker name cannot be empty')
+        return v.strip()
 
 
 class OrderBookerLogin(BaseModel):
@@ -84,20 +91,36 @@ class OrderBookerResponse(BaseModel):
 
 
 class OrderBookerUpdate(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(None, min_length=1, description="Order booker name cannot be empty if provided")
     phone: Optional[str] = None
     email: Optional[EmailStr] = None
     zone_id: Optional[int] = None
     password: Optional[str] = None
+    
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            if not v or not v.strip():
+                raise ValueError('Order booker name cannot be empty')
+            return v.strip()
+        return v
 
 
 # Delivery Man Schemas
 class DeliveryManCreate(BaseModel):
-    name: str
+    name: str = Field(..., min_length=1, description="Delivery man name cannot be empty")
     phone: str
     password: str
     zone_id: Optional[int] = None
     # Note: Delivery men work by zone, not routes - route_ids removed
+    
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError('Delivery man name cannot be empty')
+        return v.strip()
 
 
 class DeliveryManLogin(BaseModel):
@@ -119,19 +142,42 @@ class DeliveryManResponse(BaseModel):
 
 
 class DeliveryManUpdate(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(None, min_length=1, description="Delivery man name cannot be empty if provided")
     phone: Optional[str] = None
     zone_id: Optional[int] = None
     password: Optional[str] = None
+    
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            if not v or not v.strip():
+                raise ValueError('Delivery man name cannot be empty')
+            return v.strip()
+        return v
 
 
 # Zone Schemas
 class ZoneCreate(BaseModel):
-    name: str
+    name: str = Field(..., min_length=1, description="Zone name cannot be empty")
+    
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError('Zone name cannot be empty')
+        return v.strip()
 
 
 class ZoneUpdate(BaseModel):
-    name: str
+    name: str = Field(..., min_length=1, description="Zone name cannot be empty")
+    
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError('Zone name cannot be empty')
+        return v.strip()
 
 
 class ZoneResponse(BaseModel):
@@ -147,15 +193,31 @@ class ZoneResponse(BaseModel):
 
 # Route Schemas
 class RouteCreate(BaseModel):
-    name: str
+    name: str = Field(..., min_length=1, description="Route name cannot be empty")
     zone_id: int
     order_booker_id: Optional[int] = None
+    
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError('Route name cannot be empty')
+        return v.strip()
 
 
 class RouteUpdate(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(None, min_length=1, description="Route name cannot be empty if provided")
     zone_id: Optional[int] = None
     order_booker_id: Optional[int] = None
+    
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            if not v or not v.strip():
+                raise ValueError('Route name cannot be empty')
+            return v.strip()
+        return v
 
 
 class RouteResponse(BaseModel):
@@ -713,7 +775,6 @@ class VisitTaskResponse(BaseModel):
     completed_at: Optional[str] = None
     notes: Optional[str] = None
     created_at: Optional[str] = None
-    weekly_schedule_id: Optional[int] = None
 
     class Config:
         from_attributes = True

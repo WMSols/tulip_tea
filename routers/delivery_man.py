@@ -2,15 +2,13 @@
 Delivery Man router.
 Handles delivery man CRUD operations.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Dict
 from config.database import get_db
 from models.schemas import DeliveryManCreate, DeliveryManResponse, DeliveryManUpdate
 from services.delivery_man_service import DeliveryManService
 from utils.dependencies import get_current_user, get_current_distributor
-from services.activity_log_service import ActivityLogService
-from utils.auth_helpers import get_current_user_from_request
 
 router = APIRouter(prefix="/delivery-men", tags=["Delivery Men"])
 
@@ -47,24 +45,11 @@ async def list_delivery_men_by_distributor(
 async def update_delivery_man(
     delivery_man_id: int,
     update_data: DeliveryManUpdate,
-    request: Request,
     current_user: Dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Update a delivery man. Requires authentication."""
     try:
-        # Get old values before update
-        from repositories.delivery_man_repository import DeliveryManRepository
-        old_delivery_man = DeliveryManRepository.get_by_id(db, delivery_man_id, include_deleted=False)
-        old_values = {}
-        if old_delivery_man:
-            old_values = {
-                'name': old_delivery_man.name,
-                'phone': old_delivery_man.phone,
-                'zone_id': old_delivery_man.zone_id,
-                'is_active': old_delivery_man.is_active
-            }
-        
         result = DeliveryManService.update_delivery_man(
             db=db,
             delivery_man_id=delivery_man_id,
@@ -73,39 +58,8 @@ async def update_delivery_man(
             zone_id=update_data.zone_id,
             password=update_data.password
         )
-        
-        # Log update
-        ActivityLogService.log_update(
-            db=db,
-            user_id=current_user.get('user_id'),
-            user_role=current_user.get('user_role', 'distributor'),
-            entity_type='delivery_man',
-            entity_id=delivery_man_id,
-            old_values=old_values,
-            new_values={
-                'name': result.get('name'),
-                'phone': result.get('phone'),
-                'zone_id': result.get('zone_id'),
-                'is_active': result.get('is_active', True)
-            },
-            user_name=current_user.get('user_name'),
-            changes_summary=f"Delivery man updated: {result.get('name')}",
-            request=request
-        )
-        
         return result
     except ValueError as e:
-        # Log failure
-        ActivityLogService.log_failure(
-            db=db,
-            user_id=current_user.get('user_id'),
-            user_role=current_user.get('user_role', 'distributor'),
-            action_type='UPDATE',
-            entity_type='delivery_man',
-            entity_id=delivery_man_id,
-            error_message=str(e),
-            request=request
-        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e)
@@ -115,52 +69,14 @@ async def update_delivery_man(
 @router.delete("/{delivery_man_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_delivery_man(
     delivery_man_id: int,
-    request: Request,
     distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
     """Delete a delivery man. Only distributors can delete delivery men."""
     try:
-        # Get old values before delete
-        from repositories.delivery_man_repository import DeliveryManRepository
-        old_delivery_man = DeliveryManRepository.get_by_id(db, delivery_man_id, include_deleted=False)
-        old_values = {}
-        if old_delivery_man:
-            old_values = {
-                'name': old_delivery_man.name,
-                'phone': old_delivery_man.phone,
-                'zone_id': old_delivery_man.zone_id,
-                'is_active': old_delivery_man.is_active
-            }
-        
         DeliveryManService.delete_delivery_man(db=db, delivery_man_id=delivery_man_id)
-        
-        # Log delete
-        ActivityLogService.log_delete(
-            db=db,
-            user_id=distributor['user_id'],
-            user_role='distributor',
-            entity_type='delivery_man',
-            entity_id=delivery_man_id,
-            old_values=old_values,
-            user_name=distributor.get('user_name'),
-            changes_summary=f"Delivery man deleted: {old_delivery_man.name if old_delivery_man else 'N/A'}",
-            request=request
-        )
-        
         return None
     except ValueError as e:
-        # Log failure
-        ActivityLogService.log_failure(
-            db=db,
-            user_id=distributor['user_id'],
-            user_role='distributor',
-            action_type='DELETE',
-            entity_type='delivery_man',
-            entity_id=delivery_man_id,
-            error_message=str(e),
-            request=request
-        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e)
@@ -276,7 +192,6 @@ async def get_delivery_man_warehouses(
 async def create_delivery_man(
     distributor_id: int,
     delivery_man: DeliveryManCreate,
-    request: Request,
     distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
@@ -300,36 +215,8 @@ async def create_delivery_man(
             zone_id=delivery_man.zone_id,
             route_ids=None  # Delivery men work by zone, not routes
         )
-        
-        # Log creation
-        ActivityLogService.log_create(
-            db=db,
-            user_id=distributor['user_id'],
-            user_role='distributor',
-            entity_type='delivery_man',
-            entity_id=result['id'],
-            new_values={
-                'name': result.get('name'),
-                'phone': result.get('phone'),
-                'zone_id': result.get('zone_id')
-            },
-            user_name=distributor.get('user_name'),
-            changes_summary=f"Delivery man created: {result.get('name')}",
-            request=request
-        )
-        
         return result
     except ValueError as e:
-        # Log failure
-        ActivityLogService.log_failure(
-            db=db,
-            user_id=distributor['user_id'],
-            user_role='distributor',
-            action_type='CREATE',
-            entity_type='delivery_man',
-            error_message=str(e),
-            request=request
-        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)

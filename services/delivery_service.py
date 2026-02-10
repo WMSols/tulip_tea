@@ -629,12 +629,155 @@ class DeliveryService:
     @staticmethod
     def get_deliveries_by_distributor(db: Session, distributor_id: int,
                                      skip: int = 0, limit: int = 1000) -> List[Dict]:
-        """Get all deliveries for a distributor (through their delivery men)."""
+        """
+        Get all deliveries for a distributor (through their delivery men).
+        OPTIMIZED: Uses batch loading to avoid N+1 queries.
+        
+        FLOW:
+        1. Gets all deliveries from repository (1 query)
+        2. Batch loads all related data (delivery items, orders, shops, delivery men)
+        3. Formats deliveries using pre-loaded data (no additional queries)
+        
+        Args:
+            db: Database session
+            distributor_id: Distributor ID
+            skip: Number of records to skip (for pagination)
+            limit: Maximum number of records to return
+        
+        Returns:
+            List[Dict]: List of deliveries with all related data
+        """
         deliveries = DeliveryRepository.get_by_distributor(
             db=db,
             distributor_id=distributor_id,
             skip=skip,
             limit=limit
         )
-        return [DeliveryService._format_delivery_data(db, d) for d in deliveries]
+        
+        if not deliveries:
+            return []
+        
+        # BATCH LOADING: Collect all unique IDs first
+        delivery_ids = [d.id for d in deliveries]
+        order_ids = list(set([d.order_id for d in deliveries if d.order_id]))
+        delivery_man_ids = list(set([d.delivery_man_id for d in deliveries if d.delivery_man_id]))
+        
+        # Batch load delivery items (1 query for all)
+        from models.delivery_item import DeliveryItem
+        delivery_items_map = {}
+        if delivery_ids:
+            all_items = db.query(DeliveryItem).filter(
+                DeliveryItem.delivery_id.in_(delivery_ids)
+            ).all()
+            for item in all_items:
+                if item.delivery_id not in delivery_items_map:
+                    delivery_items_map[item.delivery_id] = []
+                delivery_items_map[item.delivery_id].append(item)
+        
+        # Batch load orders (1 query for all)
+        from models.order import Order
+        orders_map = {}
+        if order_ids:
+            orders = db.query(Order).filter(Order.id.in_(order_ids)).all()
+            orders_map = {order.id: order for order in orders}
+        
+        # Batch load shops (1 query for all)
+        shop_ids = list(set([o.shop_id for o in orders_map.values() if o.shop_id]))
+        shops_map = {}
+        if shop_ids:
+            from models.shop import Shop
+            shops = db.query(Shop).filter(Shop.id.in_(shop_ids)).all()
+            shops_map = {shop.id: shop for shop in shops}
+        
+        # Batch load delivery men (1 query for all)
+        delivery_men_map = {}
+        if delivery_man_ids:
+            from models.delivery_man import DeliveryMan
+            delivery_men = db.query(DeliveryMan).filter(DeliveryMan.id.in_(delivery_man_ids)).all()
+            delivery_men_map = {dm.id: dm for dm in delivery_men}
+        
+        # Format using pre-loaded data (NO MORE QUERIES!)
+        result = []
+        for delivery in deliveries:
+            # Get from maps (instant, no query!)
+            delivery_items = delivery_items_map.get(delivery.id, [])
+            order = orders_map.get(delivery.order_id)
+            
+            shop_id = None
+            shop_name = None
+            shop_zone_id = None
+            if order and order.shop_id:
+                shop = shops_map.get(order.shop_id)
+                if shop:
+                    shop_id = shop.id
+                    shop_name = shop.name
+                    shop_zone_id = shop.zone_id
+            
+            delivery_man = delivery_men_map.get(delivery.delivery_man_id)
+            delivery_man_name = delivery_man.name if delivery_man else None
+            
+            # Parse delivery images
+            delivery_images = []
+            if delivery.delivery_images:
+                try:
+                    delivery_images = json.loads(delivery.delivery_images)
+                except:
+                    pass
+            
+            # Helper functions
+            def safe_isoformat(dt):
+                if dt is None:
+                    return None
+                try:
+                    return dt.isoformat() if hasattr(dt, 'isoformat') else str(dt)
+                except:
+                    return None
+            
+            def safe_float(value):
+                if value is None:
+                    return None
+                try:
+                    return float(value)
+                except:
+                    return None
+            
+            result.append({
+                "id": delivery.id,
+                "order_id": delivery.order_id,
+                "delivery_man_id": delivery.delivery_man_id,
+                "delivery_man_name": delivery_man_name,
+                "warehouse_id": delivery.warehouse_id,
+                "shop_id": shop_id,
+                "shop_name": shop_name,
+                "shop_zone_id": shop_zone_id,
+                "status": delivery.status,
+                "picked_up_at": safe_isoformat(delivery.picked_up_at),
+                "pickup_gps_lat": safe_float(delivery.pickup_gps_lat),
+                "pickup_gps_lng": safe_float(delivery.pickup_gps_lng),
+                "delivered_at": safe_isoformat(delivery.delivered_at),
+                "delivery_gps_lat": safe_float(delivery.delivery_gps_lat),
+                "delivery_gps_lng": safe_float(delivery.delivery_gps_lng),
+                "delivery_remarks": delivery.delivery_remarks,
+                "delivery_images": delivery_images,
+                "returned_at": safe_isoformat(delivery.returned_at),
+                "return_gps_lat": safe_float(delivery.return_gps_lat),
+                "return_gps_lng": safe_float(delivery.return_gps_lng),
+                "return_reason": delivery.return_reason,
+                "created_at": safe_isoformat(delivery.created_at),
+                "updated_at": safe_isoformat(delivery.updated_at),
+                "delivery_items": [
+                    {
+                        "id": item.id,
+                        "order_item_id": item.order_item_id,
+                        "product_id": item.product_id,
+                        "inventory_item_id": item.inventory_item_id,
+                        "quantity_picked_up": item.quantity_picked_up,
+                        "quantity_delivered": item.quantity_delivered,
+                        "quantity_returned": item.quantity_returned
+                    }
+                    for item in delivery_items
+                ]
+            })
+        
+        return result
 

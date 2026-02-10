@@ -10,7 +10,6 @@ from models.schemas import OrderBookerCreate, OrderBookerResponse, OrderBookerUp
 from services.order_booker_service import OrderBookerService
 from utils.auth_helpers import get_current_user_from_request
 from utils.dependencies import get_current_user, get_current_distributor
-from services.activity_log_service import ActivityLogService
 
 router = APIRouter(prefix="/order-bookers", tags=["Order Bookers"])
 
@@ -77,25 +76,11 @@ async def list_order_bookers_by_zone(
 async def update_order_booker(
     order_booker_id: int,
     update_data: OrderBookerUpdate,
-    request: Request,
     current_user: Dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Update an order booker. Requires authentication."""
     try:
-        # Get old values before update
-        from repositories.order_booker_repository import OrderBookerRepository
-        old_order_booker = OrderBookerRepository.get_by_id(db, order_booker_id, include_deleted=False)
-        old_values = {}
-        if old_order_booker:
-            old_values = {
-                'name': old_order_booker.name,
-                'phone': old_order_booker.phone,
-                'email': old_order_booker.email,
-                'zone_id': old_order_booker.zone_id,
-                'is_active': old_order_booker.is_active
-            }
-        
         result = OrderBookerService.update_order_booker(
             db=db,
             order_booker_id=order_booker_id,
@@ -105,40 +90,8 @@ async def update_order_booker(
             zone_id=update_data.zone_id,
             password=update_data.password
         )
-        
-        # Log update
-        ActivityLogService.log_update(
-            db=db,
-            user_id=current_user.get('user_id'),
-            user_role=current_user.get('user_role', 'distributor'),
-            entity_type='order_booker',
-            entity_id=order_booker_id,
-            old_values=old_values,
-            new_values={
-                'name': result.get('name'),
-                'phone': result.get('phone'),
-                'email': result.get('email'),
-                'zone_id': result.get('zone_id'),
-                'is_active': result.get('is_active', True)
-            },
-            user_name=current_user.get('user_name'),
-            changes_summary=f"Order booker updated: {result.get('name')}",
-            request=request
-        )
-        
         return result
     except ValueError as e:
-        # Log failure
-        ActivityLogService.log_failure(
-            db=db,
-            user_id=current_user.get('user_id'),
-            user_role=current_user.get('user_role', 'distributor'),
-            action_type='UPDATE',
-            entity_type='order_booker',
-            entity_id=order_booker_id,
-            error_message=str(e),
-            request=request
-        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e)
@@ -148,9 +101,9 @@ async def update_order_booker(
 @router.delete("/{order_booker_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_order_booker(
     order_booker_id: int,
-    request: Request,
     reassign_shops_to: Optional[int] = Query(None, description="Optional Order Booker ID to reassign shops to"),
     reassign_routes_to: Optional[int] = Query(None, description="Optional Order Booker ID to reassign routes to"),
+    request: Request = None,
     db: Session = Depends(get_db)
 ):
     """
@@ -194,19 +147,6 @@ async def delete_order_booker(
                 detail="Only distributors can delete order bookers."
             )
         
-        # Get old values before delete
-        from repositories.order_booker_repository import OrderBookerRepository
-        old_order_booker = OrderBookerRepository.get_by_id(db, order_booker_id, include_deleted=False)
-        old_values = {}
-        if old_order_booker:
-            old_values = {
-                'name': old_order_booker.name,
-                'phone': old_order_booker.phone,
-                'email': old_order_booker.email,
-                'zone_id': old_order_booker.zone_id,
-                'is_active': old_order_booker.is_active
-            }
-        
         OrderBookerService.delete_order_booker(
             db=db, 
             order_booker_id=order_booker_id,
@@ -215,22 +155,6 @@ async def delete_order_booker(
             deleter_id=user_info['user_id'],
             request=request
         )
-        
-        # Log delete
-        ActivityLogService.log_delete(
-            db=db,
-            user_id=user_info['user_id'],
-            user_role=user_info['user_role'],
-            entity_type='order_booker',
-            entity_id=order_booker_id,
-            old_values=old_values,
-            user_name=user_info.get('user_name'),
-            changes_summary=f"Order booker deleted: {old_order_booker.name if old_order_booker else 'N/A'}" + 
-                          (f" (shops reassigned to {reassign_shops_to})" if reassign_shops_to else "") +
-                          (f" (routes reassigned to {reassign_routes_to})" if reassign_routes_to else ""),
-            request=request
-        )
-        
         return None
     except ValueError as e:
         # Check if it's a "not found" error or a "cannot delete" error
@@ -240,20 +164,6 @@ async def delete_order_booker(
         else:
             # It's a constraint violation or reassignment error
             status_code = status.HTTP_400_BAD_REQUEST
-        
-        # Log failure
-        user_info = get_current_user_from_request(request)
-        ActivityLogService.log_failure(
-            db=db,
-            user_id=user_info.get('user_id') if user_info else None,
-            user_role=user_info.get('user_role', 'distributor') if user_info else 'distributor',
-            action_type='DELETE',
-            entity_type='order_booker',
-            entity_id=order_booker_id,
-            error_message=error_msg,
-            request=request
-        )
-        
         raise HTTPException(
             status_code=status_code,
             detail=error_msg
@@ -265,7 +175,6 @@ async def delete_order_booker(
 async def create_order_booker(
     distributor_id: int,
     order_booker: OrderBookerCreate,
-    request: Request,
     distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
@@ -289,37 +198,8 @@ async def create_order_booker(
             email=order_booker.email,
             zone_id=order_booker.zone_id
         )
-        
-        # Log creation
-        ActivityLogService.log_create(
-            db=db,
-            user_id=distributor['user_id'],
-            user_role='distributor',
-            entity_type='order_booker',
-            entity_id=result['id'],
-            new_values={
-                'name': result.get('name'),
-                'phone': result.get('phone'),
-                'email': result.get('email'),
-                'zone_id': result.get('zone_id')
-            },
-            user_name=distributor.get('user_name'),
-            changes_summary=f"Order booker created: {result.get('name')}",
-            request=request
-        )
-        
         return result
     except ValueError as e:
-        # Log failure
-        ActivityLogService.log_failure(
-            db=db,
-            user_id=distributor['user_id'],
-            user_role='distributor',
-            action_type='CREATE',
-            entity_type='order_booker',
-            error_message=str(e),
-            request=request
-        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)

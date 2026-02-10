@@ -2,14 +2,13 @@
 Route router.
 Handles route CRUD operations.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Dict
 from config.database import get_db
 from models.schemas import RouteCreate, RouteUpdate, RouteResponse, RouteAssign
 from services.route_service import RouteService
 from utils.dependencies import get_current_user, get_current_distributor
-from services.activity_log_service import ActivityLogService
 
 router = APIRouter(prefix="/routes", tags=["Routes"])
 
@@ -18,7 +17,6 @@ router = APIRouter(prefix="/routes", tags=["Routes"])
 async def create_route(
     distributor_id: int,
     route: RouteCreate,
-    request: Request,
     distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
@@ -37,36 +35,8 @@ async def create_route(
             zone_id=route.zone_id,
             order_booker_id=route.order_booker_id
         )
-        
-        # Log creation
-        ActivityLogService.log_create(
-            db=db,
-            user_id=distributor['user_id'],
-            user_role='distributor',
-            entity_type='route',
-            entity_id=result['id'],
-            new_values={
-                'name': result.get('name'),
-                'zone_id': result.get('zone_id'),
-                'order_booker_id': result.get('order_booker_id')
-            },
-            user_name=distributor.get('user_name'),
-            changes_summary=f"Route created: {result.get('name')}",
-            request=request
-        )
-        
         return result
     except ValueError as e:
-        # Log failure
-        ActivityLogService.log_failure(
-            db=db,
-            user_id=distributor['user_id'],
-            user_role='distributor',
-            action_type='CREATE',
-            entity_type='route',
-            error_message=str(e),
-            request=request
-        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
@@ -110,51 +80,18 @@ async def list_routes_by_order_booker(
 async def assign_route_to_order_booker(
     route_id: int,
     assignment: RouteAssign,
-    request: Request,
     distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
     """Assign a route to an order booker. Only distributors can assign routes."""
     try:
-        # Get old values
-        from repositories.route_repository import RouteRepository
-        old_route = RouteRepository.get_by_id(db, route_id)
-        old_values = {'order_booker_id': old_route.order_booker_id} if old_route else {}
-        
         result = RouteService.assign_route_to_order_booker(
             db=db,
             route_id=route_id,
             order_booker_id=assignment.order_booker_id
         )
-        
-        # Log assignment
-        ActivityLogService.log_activity(
-            db=db,
-            user_id=distributor['user_id'],
-            user_role='distributor',
-            action_type='ASSIGN',
-            entity_type='route',
-            entity_id=route_id,
-            old_values=old_values,
-            new_values={'order_booker_id': assignment.order_booker_id},
-            user_name=distributor.get('user_name'),
-            changes_summary=f"Route {route_id} assigned to order booker {assignment.order_booker_id}",
-            request=request
-        )
-        
         return result
     except ValueError as e:
-        # Log failure
-        ActivityLogService.log_failure(
-            db=db,
-            user_id=distributor['user_id'],
-            user_role='distributor',
-            action_type='ASSIGN',
-            entity_type='route',
-            entity_id=route_id,
-            error_message=str(e),
-            request=request
-        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
@@ -165,7 +102,6 @@ async def assign_route_to_order_booker(
 async def update_route(
     route_id: int,
     route: RouteUpdate,
-    request: Request,
     distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
@@ -217,13 +153,6 @@ async def update_route(
             update_order_booker = route.order_booker_id is not None or (route.name is None and route.zone_id is None and route.order_booker_id is not None)
             update_zone = route.zone_id is not None or (route.name is None and route.order_booker_id is None and route.zone_id is not None)
         
-        # Get old values
-        old_values = {
-            'name': existing_route.name,
-            'zone_id': existing_route.zone_id,
-            'order_booker_id': existing_route.order_booker_id
-        }
-        
         result = RouteService.update_route(
             db=db, 
             route_id=route_id, 
@@ -233,38 +162,8 @@ async def update_route(
             update_order_booker=update_order_booker,
             update_zone=update_zone
         )
-        
-        # Log update
-        ActivityLogService.log_update(
-            db=db,
-            user_id=distributor['user_id'],
-            user_role='distributor',
-            entity_type='route',
-            entity_id=route_id,
-            old_values=old_values,
-            new_values={
-                'name': result.get('name'),
-                'zone_id': result.get('zone_id'),
-                'order_booker_id': result.get('order_booker_id')
-            },
-            user_name=distributor.get('user_name'),
-            changes_summary=f"Route updated: {result.get('name')}",
-            request=request
-        )
-        
         return result
     except ValueError as e:
-        # Log failure
-        ActivityLogService.log_failure(
-            db=db,
-            user_id=distributor['user_id'],
-            user_role='distributor',
-            action_type='UPDATE',
-            entity_type='route',
-            entity_id=route_id,
-            error_message=str(e),
-            request=request
-        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
@@ -274,49 +173,14 @@ async def update_route(
 @router.delete("/{route_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_route(
     route_id: int,
-    request: Request,
     distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
     """Delete a route. Only distributors can delete routes."""
     try:
-        # Get old values
-        from repositories.route_repository import RouteRepository
-        old_route = RouteRepository.get_by_id(db, route_id)
-        old_values = {
-            'name': old_route.name,
-            'zone_id': old_route.zone_id,
-            'order_booker_id': old_route.order_booker_id
-        } if old_route else {}
-        
         RouteService.delete_route(db=db, route_id=route_id)
-        
-        # Log delete
-        ActivityLogService.log_delete(
-            db=db,
-            user_id=distributor['user_id'],
-            user_role='distributor',
-            entity_type='route',
-            entity_id=route_id,
-            old_values=old_values,
-            user_name=distributor.get('user_name'),
-            changes_summary=f"Route deleted: {old_values.get('name', 'N/A')}",
-            request=request
-        )
-        
         return None
     except ValueError as e:
-        # Log failure
-        ActivityLogService.log_failure(
-            db=db,
-            user_id=distributor['user_id'],
-            user_role='distributor',
-            action_type='DELETE',
-            entity_type='route',
-            entity_id=route_id,
-            error_message=str(e),
-            request=request
-        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e)

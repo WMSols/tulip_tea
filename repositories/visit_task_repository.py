@@ -4,7 +4,7 @@ Data access layer for VisitTask operations.
 """
 from sqlalchemy.orm import Session
 from models.visit_task import VisitTask
-from typing import Optional, List
+from typing import Optional, List, Dict, Tuple
 from datetime import date, datetime
 
 
@@ -179,6 +179,41 @@ class VisitTaskRepository:
             VisitTask.assignee_id == assignee_id,
             VisitTask.deleted_at.is_(None)
         ).first()
+    
+    @staticmethod
+    def get_existing_tasks_batch(db: Session, shop_ids: List[int], scheduled_dates: List[date],
+                                assignee_type: str, assignee_id: int) -> Dict[tuple, VisitTask]:
+        """
+        Batch check for existing tasks (optimized to avoid N+1 queries).
+        
+        Args:
+            db: Database session
+            shop_ids: List of shop IDs
+            scheduled_dates: List of scheduled dates
+            assignee_type: Assignee type ('order_booker' or 'delivery_man')
+            assignee_id: Assignee ID
+        
+        Returns:
+            Dictionary mapping (shop_id, scheduled_date) to VisitTask
+        """
+        if not shop_ids or not scheduled_dates:
+            return {}
+        
+        tasks = db.query(VisitTask).filter(
+            VisitTask.shop_id.in_(shop_ids),
+            VisitTask.scheduled_date.in_(scheduled_dates),
+            VisitTask.assignee_type == assignee_type,
+            VisitTask.assignee_id == assignee_id,
+            VisitTask.deleted_at.is_(None)
+        ).all()
+        
+        # Create lookup dictionary
+        task_lookup = {}
+        for task in tasks:
+            key = (task.shop_id, task.scheduled_date)
+            task_lookup[key] = task
+        
+        return task_lookup
 
 
 

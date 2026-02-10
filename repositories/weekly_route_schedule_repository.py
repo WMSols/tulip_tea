@@ -50,6 +50,19 @@ class WeeklyRouteScheduleRepository:
         return query.order_by(WeeklyRouteSchedule.day_of_week).all()
     
     @staticmethod
+    def get_by_assignee_and_day(db: Session, assignee_type: str, assignee_id: int, 
+                                day_of_week: int, include_deleted: bool = False) -> List[WeeklyRouteSchedule]:
+        """Get schedules for an assignee on a specific day of week."""
+        query = db.query(WeeklyRouteSchedule).filter(
+            WeeklyRouteSchedule.assignee_type == assignee_type,
+            WeeklyRouteSchedule.assignee_id == assignee_id,
+            WeeklyRouteSchedule.day_of_week == day_of_week
+        )
+        if not include_deleted:
+            query = query.filter(WeeklyRouteSchedule.deleted_at.is_(None))
+        return query.all()
+    
+    @staticmethod
     def get_by_distributor(db: Session, distributor_id: int, 
                           include_deleted: bool = False) -> List[WeeklyRouteSchedule]:
         """Get all schedules created by a distributor."""

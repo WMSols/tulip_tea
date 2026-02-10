@@ -837,7 +837,7 @@
 
     <script>
         // // okay
-        // const API_BASE = 'https://tulip-tea.onrender.com';
+        //  ??const API_BASE = 'https://tulip-tea.onrender.com';
         const API_BASE = 'http://localhost:8000';
         let currentToken = null;
         let currentUser = null;
@@ -1380,7 +1380,13 @@
 
             const listDiv = document.getElementById('creditLimitRequestsList');
 
-            const endpoint = `${API_BASE}/credit-limit-requests/pending`;
+            // Check if distributor_id is available
+            if (!currentUser.distributor_id) {
+                listDiv.innerHTML = '<p style="color: red;">Error: Distributor ID not available. Please contact support.</p>';
+                return;
+            }
+
+            const endpoint = `${API_BASE}/credit-limit-requests/pending?distributor_id=${currentUser.distributor_id}`;
             showApiCall('GET', endpoint, 'Load Credit Limit Requests', 'loading');
 
             try {
@@ -2527,6 +2533,12 @@
                 }
                 
                 loadMyVisits();
+                
+                // Refresh schedule view if schedule tab is active
+                const scheduleTab = document.getElementById('scheduleTab');
+                if (scheduleTab && scheduleTab.classList.contains('active')) {
+                    loadMySchedule();
+                }
             } catch (error) {
                 resultDiv.className = 'result error';
                 // Display error message with better formatting
@@ -3138,7 +3150,7 @@
 
         // ==================== SCHEDULE VIEW FUNCTIONS ====================
 
-        // Load my schedule
+        // Load my schedule with visit status
         async function loadMySchedule() {
             if (!currentUser || !currentUser.id) return;
             
@@ -3146,58 +3158,110 @@
             listDiv.innerHTML = '<p>Loading schedule...</p>';
 
             try {
-                const response = await fetch(`${API_BASE}/weekly-route-schedules/order-booker/${currentUser.id}`, {
+                // Get today's date
+                const today = new Date().toISOString().split('T')[0];
+                
+                // Use the new schedule-view endpoint
+                const response = await fetch(`${API_BASE}/visit-tasks/order-booker/${currentUser.id}/schedule-view?date=${today}`, {
                     headers: { 'Authorization': `Bearer ${currentToken}` }
                 });
 
                 if (!response.ok) {
-                    throw new Error('Failed to load schedule');
+                    const errorData = await response.json().catch(() => ({ detail: 'Failed to load schedule' }));
+                    throw new Error(errorData.detail || 'Failed to load schedule');
                 }
 
-                const schedules = await response.json();
+                const scheduleData = await response.json();
 
-                if (schedules.length === 0) {
-                    listDiv.innerHTML = '<p style="color: #666;">No schedule assigned yet. Contact your distributor to set up your weekly schedule.</p>';
+                if (!scheduleData.routes || scheduleData.routes.length === 0) {
+                    listDiv.innerHTML = '<p style="color: #666;">No schedule assigned for today. Contact your distributor to set up your weekly schedule.</p>';
                     return;
                 }
 
                 const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-                let html = '<div style="display: grid; gap: 15px;">';
+                const dayName = days[scheduleData.day_of_week] || 'Today';
                 
-                // Group by day
-                const byDay = {};
-                schedules.forEach(schedule => {
-                    if (!byDay[schedule.day_of_week]) {
-                        byDay[schedule.day_of_week] = [];
-                    }
-                    byDay[schedule.day_of_week].push(schedule);
-                });
-
-                // Display by day
-                for (let day = 0; day <= 6; day++) {
-                    if (byDay[day]) {
-                        html += `
-                            <div style="background: white; padding: 20px; border-radius: 8px; border-left: 4px solid #667eea;">
-                                <h3 style="margin-bottom: 15px; color: #667eea;">📅 ${days[day]}</h3>
-                                <div style="display: grid; gap: 10px;">
-                        `;
-                        
-                        byDay[day].forEach(schedule => {
-                            html += `
-                                <div style="padding: 12px; background: #f8f9fa; border-radius: 5px;">
-                                    <strong>${schedule.route_name || 'Route #' + schedule.route_id}</strong>
-                                    ${!schedule.is_active ? '<span style="color: #e74c3c; margin-left: 10px;">(Inactive)</span>' : ''}
+                let html = `
+                    <div style="margin-bottom: 20px; padding: 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 8px;">
+                        <h3 style="margin: 0 0 10px 0;">📅 ${dayName} - ${new Date(scheduleData.date).toLocaleDateString()}</h3>
+                        <div style="display: flex; gap: 20px; font-size: 14px;">
+                            <div>
+                                <strong>Total Shops:</strong> ${scheduleData.summary.total_shops}
+                            </div>
+                            <div>
+                                <strong>✅ Visited:</strong> ${scheduleData.summary.visited_shops}
+                            </div>
+                            <div>
+                                <strong>⏳ Remaining:</strong> ${scheduleData.summary.remaining_shops}
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                html += '<div style="display: grid; gap: 20px;">';
+                
+                // Display routes with shops
+                scheduleData.routes.forEach(route => {
+                    const progressPercent = route.total_count > 0 ? (route.visited_count / route.total_count) * 100 : 0;
+                    const progressColor = progressPercent === 100 ? '#27ae60' : progressPercent > 0 ? '#f39c12' : '#95a5a6';
+                    
+                    html += `
+                        <div style="background: white; padding: 20px; border-radius: 8px; border-left: 4px solid #667eea; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                <h3 style="margin: 0; color: #667eea;">🛣️ ${route.route_name}</h3>
+                                <div style="background: #f8f9fa; padding: 8px 15px; border-radius: 20px; font-weight: bold; color: ${progressColor};">
+                                    ${route.visited_count}/${route.total_count} visited
                                 </div>
-                            `;
-                        });
+                            </div>
+                            
+                            <!-- Progress Bar -->
+                            <div style="width: 100%; height: 8px; background: #e9ecef; border-radius: 4px; margin-bottom: 15px; overflow: hidden;">
+                                <div style="width: ${progressPercent}%; height: 100%; background: ${progressColor}; transition: width 0.3s;"></div>
+                            </div>
+                            
+                            <!-- Shops List -->
+                            <div style="display: grid; gap: 10px;">
+                    `;
+                    
+                    route.shops.forEach(shop => {
+                        const isVisited = shop.status === 'completed';
+                        const statusIcon = isVisited ? '✅' : '⏳';
+                        const statusColor = isVisited ? '#27ae60' : '#95a5a6';
+                        const bgColor = isVisited ? '#d4edda' : '#f8f9fa';
+                        const borderColor = isVisited ? '#27ae60' : '#dee2e6';
                         
                         html += `
+                            <div style="padding: 12px; background: ${bgColor}; border-radius: 5px; border-left: 3px solid ${borderColor};">
+                                <div style="display: flex; justify-content: space-between; align-items: start;">
+                                    <div style="flex: 1;">
+                                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px;">
+                                            <span style="font-size: 18px;">${statusIcon}</span>
+                                            <strong style="color: #2c3e50;">${shop.shop_name}</strong>
+                                        </div>
+                                        <div style="font-size: 13px; color: #666; margin-left: 26px;">
+                                            ${shop.shop_owner ? `Owner: ${shop.shop_owner}` : ''}
+                                            ${shop.shop_phone ? ` | Phone: ${shop.shop_phone}` : ''}
+                                        </div>
+                                        ${isVisited && shop.visited_at ? `
+                                            <div style="font-size: 12px; color: #27ae60; margin-left: 26px; margin-top: 5px;">
+                                                Visited at: ${new Date(shop.visited_at).toLocaleString()}
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                    <div style="color: ${statusColor}; font-weight: bold; font-size: 12px; text-transform: uppercase;">
+                                        ${shop.status}
+                                    </div>
                                 </div>
                             </div>
                         `;
-                    }
-                }
-
+                    });
+                    
+                    html += `
+                            </div>
+                        </div>
+                    `;
+                });
+                
                 html += '</div>';
                 listDiv.innerHTML = html;
             } catch (error) {

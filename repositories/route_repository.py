@@ -35,6 +35,27 @@ class RouteRepository:
         return query.first()
     
     @staticmethod
+    def get_by_ids(db: Session, route_ids: List[int], include_deleted: bool = False) -> List[Route]:
+        """
+        Batch load multiple routes by IDs (optimized to avoid N+1 queries).
+        
+        Args:
+            db: Database session
+            route_ids: List of route IDs to fetch
+            include_deleted: If True, includes soft-deleted and inactive records
+        
+        Returns:
+            List of routes
+        """
+        if not route_ids:
+            return []
+        
+        query = db.query(Route).filter(Route.id.in_(route_ids))
+        if not include_deleted:
+            query = query.filter(Route.deleted_at.is_(None), Route.is_active == True)
+        return query.all()
+    
+    @staticmethod
     def get_all(db: Session, skip: int = 0, limit: int = 100, include_deleted: bool = False) -> List[Route]:
         """Get all routes with pagination (excludes soft-deleted and inactive by default)."""
         query = db.query(Route)

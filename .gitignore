@@ -120,3 +120,4 @@ sql/add_distributor_id_to_warehouses_simple.sql
 sql/add_distributor_id_to_warehouses.sql
 docs/API_FRONTEND_CATEGORIZATION.md
 tests/OLDdistributor_dashboard.html
+sql/optimize_performance_indexes.sql

@@ -397,12 +397,47 @@ class ShopVisitService:
                 # Visit is still created, but collection creation failed
                 raise ValueError(f"Failed to create collection: {str(e)}")
         
+        # Auto-link visit to visit task if shop_id and order_booker_id are provided
+        visit_task_id = None
+        if shop_id and order_booker_id:
+            try:
+                from repositories.visit_task_repository import VisitTaskRepository
+                # Get the visit date (use visit_date if available, otherwise today)
+                visit_date_obj = visit_date_datetime.date() if visit_date_datetime else date.today()
+                
+                # Find matching visit task
+                matching_task = VisitTaskRepository.check_existing_task(
+                    db=db,
+                    shop_id=shop_id,
+                    scheduled_date=visit_date_obj,
+                    assignee_type='order_booker',
+                    assignee_id=order_booker_id
+                )
+                
+                if matching_task and matching_task.status != 'completed':
+                    # Link visit to task and mark as completed
+                    VisitTaskRepository.update_status(
+                        db=db,
+                        task_id=matching_task.id,
+                        status='completed',
+                        shop_visit_id=visit.id,
+                        notes=f"Auto-linked to visit {visit.id}"
+                    )
+                    visit_task_id = matching_task.id
+            except Exception as e:
+                # Don't fail the visit registration if task linking fails
+                print(f"Warning: Failed to link visit to task: {e}")
+        
         # Format and return visit data
         result = ShopVisitService._format_visit_data(db, visit, include_linked_data=True)
         
         # Include collection credit info if collection was created
         if collection_credit_info:
             result.update(collection_credit_info)
+        
+        # Include visit_task_id if visit was linked to a task
+        if visit_task_id:
+            result['visit_task_id'] = visit_task_id
         
         return result
     
@@ -530,42 +565,34 @@ class ShopVisitService:
             List[Dict]: List of visits with shop, visitor, zone info, and linked order/collection IDs
         """
         if distributor_id:
-            # Filter visits by distributor: get visits by order bookers/delivery men belonging to this distributor
+            # OPTIMIZED: Filter visits by distributor using JOINs (more efficient than subqueries)
             from models.order_booker import OrderBooker
             from models.delivery_man import DeliveryMan
             from models.shop_visit import ShopVisit
             from sqlalchemy import or_
             
-            # Get order booker IDs for this distributor
-            order_booker_ids = db.query(OrderBooker.id).filter(
-                OrderBooker.distributor_id == distributor_id,
-                OrderBooker.deleted_at.is_(None),
-                OrderBooker.is_active == True
-            ).subquery()
-            
-            # Get delivery man IDs for this distributor
-            delivery_man_ids = db.query(DeliveryMan.id).filter(
-                DeliveryMan.distributor_id == distributor_id,
-                DeliveryMan.deleted_at.is_(None),
-                DeliveryMan.is_active == True
-            ).subquery()
-            
-            order_booker_id_list = [row[0] for row in db.query(order_booker_ids.c.id).all()]
-            delivery_man_id_list = [row[0] for row in db.query(delivery_man_ids.c.id).all()]
-            
-            # Filter visits by order booker or delivery man belonging to this distributor
-            conditions = []
-            if order_booker_id_list:
-                conditions.append(ShopVisit.order_booker_id.in_(order_booker_id_list))
-            if delivery_man_id_list:
-                conditions.append(ShopVisit.delivery_man_id.in_(delivery_man_id_list))
-            
-            if conditions:
-                visits = db.query(ShopVisit).filter(
-                    or_(*conditions)
-                ).offset(skip).limit(limit).all()
-            else:
-                visits = []
+            # Use JOINs to filter visits by order bookers/delivery men belonging to this distributor
+            # This is more efficient than subqueries + IN clauses
+            visits = db.query(ShopVisit).join(
+                OrderBooker,
+                (ShopVisit.order_booker_id == OrderBooker.id) &
+                (OrderBooker.distributor_id == distributor_id) &
+                (OrderBooker.deleted_at.is_(None)) &
+                (OrderBooker.is_active == True),
+                isouter=True
+            ).join(
+                DeliveryMan,
+                (ShopVisit.delivery_man_id == DeliveryMan.id) &
+                (DeliveryMan.distributor_id == distributor_id) &
+                (DeliveryMan.deleted_at.is_(None)) &
+                (DeliveryMan.is_active == True),
+                isouter=True
+            ).filter(
+                or_(
+                    OrderBooker.id.isnot(None),
+                    DeliveryMan.id.isnot(None)
+                )
+            ).order_by(ShopVisit.visit_date.desc()).offset(skip).limit(limit).all()
         else:
             visits = ShopVisitRepository.get_all(db, skip, limit)
         

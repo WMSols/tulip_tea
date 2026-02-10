@@ -17,7 +17,7 @@ FLOW:
 4. Distributor approves/rejects → Status: "approved"/"rejected"
 5. On approval, shop's credit_limit is updated
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from sqlalchemy.orm import Session
 from typing import List
 from config.database import get_db
@@ -108,21 +108,24 @@ async def create_credit_limit_request(
 
 @router.get("/pending", response_model=List[CreditLimitRequestResponse], tags=["Credit Limit Requests", "Distributor APIs", "Order Booker APIs"])
 async def get_pending_requests(
-    distributor_id: int = None,
+    distributor_id: int = Query(..., description="Distributor ID to filter pending requests"),
     db: Session = Depends(get_db)
 ):
     """
-    Get all pending credit limit requests.
+    Get all pending credit limit requests for shops belonging to the specified distributor.
     
     API: GET /credit-limit-requests/pending?distributor_id={id}
     
     FLOW:
     1. Distributor views dashboard
-    2. Service gets all pending requests
+    2. Service gets pending requests filtered to shops belonging to this distributor's order bookers
     3. Returns list with shop information
     
-    Note: Distributors are not assigned to zones, so distributor_id is accepted
-    but doesn't filter results. All pending requests are returned.
+    Query Parameters:
+        distributor_id: Required - Only returns requests for shops that:
+            - Were created by an order booker belonging to this distributor, OR
+            - Are assigned to an order booker belonging to this distributor, OR
+            - Were verified by this distributor
     
     Response (200):
         [

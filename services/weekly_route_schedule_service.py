@@ -42,6 +42,15 @@ class WeeklyRouteScheduleService:
                 raise ValueError("Order Booker not found")
             if assignee.distributor_id != distributor_id:
                 raise ValueError("Order Booker does not belong to this distributor")
+            
+            # Validate that route is assigned to this order booker
+            # Order bookers can only be scheduled on routes that are already assigned to them
+            if route.order_booker_id != assignee_id:
+                raise ValueError(
+                    f"Cannot create schedule: Route '{route.name}' (ID: {route_id}) is not assigned to "
+                    f"order booker '{assignee.name}' (ID: {assignee_id}). "
+                    f"Only routes assigned to the order booker can be scheduled."
+                )
         else:
             # For delivery_man, we'll add validation later
             # For now, just check if it exists
@@ -160,6 +169,22 @@ class WeeklyRouteScheduleService:
         # Validate day_of_week if provided
         if day_of_week is not None and (day_of_week < 0 or day_of_week > 6):
             raise ValueError("day_of_week must be between 0 (Monday) and 6 (Sunday)")
+        
+        # If updating route_id, validate that route is assigned to the order booker
+        if route_id is not None and schedule.assignee_type == 'order_booker':
+            new_route = RouteRepository.get_by_id(db, route_id)
+            if not new_route:
+                raise ValueError("Route not found")
+            
+            # Validate that the new route is assigned to this order booker
+            if new_route.order_booker_id != schedule.assignee_id:
+                order_booker = OrderBookerRepository.get_by_id(db, schedule.assignee_id)
+                order_booker_name = order_booker.name if order_booker else f"ID {schedule.assignee_id}"
+                raise ValueError(
+                    f"Cannot update schedule: Route '{new_route.name}' (ID: {route_id}) is not assigned to "
+                    f"order booker '{order_booker_name}' (ID: {schedule.assignee_id}). "
+                    f"Only routes assigned to the order booker can be scheduled."
+                )
         
         # Check for conflicts if updating route or day
         if route_id is not None or day_of_week is not None:

@@ -111,6 +111,135 @@ class CreditLimitRequestService:
         }
     
     @staticmethod
+    def get_all_requests(db: Session, distributor_id: int = None) -> List[Dict]:
+        """
+        Get all credit limit requests (pending, approved, rejected), optionally filtered by distributor.
+        
+        FLOW:
+        1. Gets all requests from repository (filtered by distributor if provided)
+        2. Batch loads all related entities (shops, order bookers, delivery men, distributors) to avoid N+1 queries
+        3. Includes shop information
+        4. Returns formatted list with all statuses
+        
+        Args:
+            db: Database session
+            distributor_id: Optional distributor ID - filters requests to shops belonging to this distributor's order bookers
+        
+        Returns:
+            List[Dict]: List of all requests with shop info (pending, approved, rejected)
+        
+        Note: When distributor_id is provided, only returns requests for shops that:
+            - Were created by an order booker belonging to this distributor, OR
+            - Are assigned to an order booker belonging to this distributor, OR
+            - Were verified by this distributor
+        """
+        requests = CreditLimitRequestRepository.get_all(db, distributor_id)
+        
+        if not requests:
+            return []
+        
+        # Batch load all related entities to avoid N+1 queries
+        # Collect all unique IDs
+        shop_ids = set()
+        order_booker_ids = set()
+        delivery_man_ids = set()
+        distributor_ids = set()
+        
+        for req in requests:
+            shop_ids.add(req.shop_id)
+            if req.requested_by_role == "order_booker":
+                order_booker_ids.add(req.requested_by_id)
+            elif req.requested_by_role == "delivery_man":
+                delivery_man_ids.add(req.requested_by_id)
+            if req.approved_by_distributor:
+                distributor_ids.add(req.approved_by_distributor)
+        
+        # Batch load shops (1 query for all shops)
+        shops_map = {}
+        if shop_ids:
+            shops = db.query(Shop).filter(
+                Shop.id.in_(shop_ids),
+                Shop.deleted_at.is_(None)
+            ).all()
+            shops_map = {shop.id: shop for shop in shops}
+        
+        # Batch load order bookers (1 query for all order bookers)
+        order_bookers_map = {}
+        if order_booker_ids:
+            order_bookers = db.query(OrderBooker).filter(
+                OrderBooker.id.in_(order_booker_ids),
+                OrderBooker.deleted_at.is_(None)
+            ).all()
+            order_bookers_map = {ob.id: ob for ob in order_bookers}
+        
+        # Batch load delivery men (1 query for all delivery men)
+        delivery_men_map = {}
+        if delivery_man_ids:
+            delivery_men = db.query(DeliveryMan).filter(
+                DeliveryMan.id.in_(delivery_man_ids),
+                DeliveryMan.deleted_at.is_(None)
+            ).all()
+            delivery_men_map = {dm.id: dm for dm in delivery_men}
+        
+        # Batch load distributors (1 query for all distributors)
+        distributors_map = {}
+        if distributor_ids:
+            distributors = db.query(Distributor).filter(
+                Distributor.id.in_(distributor_ids),
+                Distributor.deleted_at.is_(None)
+            ).all()
+            distributors_map = {d.id: d for d in distributors}
+        
+        # Build result using lookup maps (no additional queries)
+        result = []
+        for req in requests:
+            shop = shops_map.get(req.shop_id)
+            
+            # Get requester name from lookup map
+            requested_by_name = None
+            if req.requested_by_role == "order_booker":
+                requester = order_bookers_map.get(req.requested_by_id)
+                requested_by_name = requester.name if requester else None
+            elif req.requested_by_role == "delivery_man":
+                requester = delivery_men_map.get(req.requested_by_id)
+                requested_by_name = requester.name if requester else None
+            
+            # Get distributor name from lookup map
+            approved_by_distributor_name = None
+            if req.approved_by_distributor:
+                distributor = distributors_map.get(req.approved_by_distributor)
+                approved_by_distributor_name = distributor.name if distributor else None
+            
+            # For approved requests, final_credit_limit is the shop's current credit_limit
+            # For pending/disapproved requests, there's no final_credit_limit yet
+            final_credit_limit = None
+            status_value = req.status.value if hasattr(req.status, 'value') else str(req.status)
+            if status_value == "approved" and shop:
+                # For approved requests, use the shop's current credit_limit as the final value
+                final_credit_limit = float(shop.credit_limit) if shop.credit_limit else None
+            
+            result.append({
+                "id": req.id,
+                "shop_id": req.shop_id,
+                "shop_name": shop.name if shop else None,
+                "shop_owner": shop.owner_name if shop else None,
+                "requested_by_role": req.requested_by_role,
+                "requested_by_id": req.requested_by_id,
+                "requested_by_name": requested_by_name,
+                "old_credit_limit": float(req.old_credit_limit) if req.old_credit_limit else 0,
+                "requested_credit_limit": float(req.requested_credit_limit),
+                "status": status_value,
+                "remarks": req.remarks,
+                "approved_by_distributor": req.approved_by_distributor,
+                "approved_by_distributor_name": approved_by_distributor_name,
+                "approved_at": req.approved_at.isoformat() if req.approved_at else None,
+                "final_credit_limit": final_credit_limit,
+                "created_at": req.created_at.isoformat() if req.created_at else None
+            })
+        
+        return result
+    
+    @staticmethod
     def get_pending_requests(db: Session, distributor_id: int = None) -> List[Dict]:
         """
         Get all pending credit limit requests, optionally filtered by distributor.

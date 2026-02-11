@@ -197,7 +197,7 @@ class VisitTaskService:
             "completed_at": updated.completed_at.isoformat() if updated.completed_at else None,
             "notes": updated.notes
         }
-    
+
     @staticmethod
     def get_schedule_view_data(db: Session, order_booker_id: int, 
                                view_date: Optional[date] = None) -> Dict:

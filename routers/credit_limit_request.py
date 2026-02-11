@@ -106,6 +106,56 @@ async def create_credit_limit_request(
         )
 
 
+@router.get("/all", response_model=List[CreditLimitRequestResponse], tags=["Credit Limit Requests", "Distributor APIs"])
+async def get_all_requests(
+    distributor_id: int = Query(..., description="Distributor ID to filter all requests"),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all credit limit requests (pending, approved, rejected) for shops belonging to the specified distributor.
+    
+    API: GET /credit-limit-requests/all?distributor_id={id}
+    
+    FLOW:
+    1. Distributor views dashboard
+    2. Service gets all requests (all statuses) filtered to shops belonging to this distributor's order bookers
+    3. Returns list with shop information
+    4. Frontend can filter by status (pending/approved/rejected)
+    
+    Query Parameters:
+        distributor_id: Required - Only returns requests for shops that:
+            - Were created by an order booker belonging to this distributor, OR
+            - Are assigned to an order booker belonging to this distributor, OR
+            - Were verified by this distributor
+    
+    Response (200):
+        [
+            {
+                "id": 1,
+                "shop_id": 1,
+                "shop_name": "Ali General Store",
+                "shop_owner": "Ahmed Ali",
+                "old_credit_limit": 50000.00,
+                "requested_credit_limit": 75000.00,
+                "status": "pending",  // or "approved" or "rejected"
+                "final_credit_limit": null,  // Only set if approved
+                "approved_by_distributor": null,  // Only set if approved/rejected
+                "approved_at": null,  // Only set if approved/rejected
+                ...
+            },
+            ...
+        ]
+    """
+    try:
+        requests = CreditLimitRequestService.get_all_requests(db=db, distributor_id=distributor_id)
+        return requests
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching requests: {str(e)}"
+        )
+
+
 @router.get("/pending", response_model=List[CreditLimitRequestResponse], tags=["Credit Limit Requests", "Distributor APIs", "Order Booker APIs"])
 async def get_pending_requests(
     distributor_id: int = Query(..., description="Distributor ID to filter pending requests"),

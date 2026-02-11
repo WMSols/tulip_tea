@@ -792,7 +792,7 @@ async def reassign_shop_to_order_booker(
             "gps_lat": float(updated_shop.gps_lat) if updated_shop.gps_lat else None,
             "gps_lng": float(updated_shop.gps_lng) if updated_shop.gps_lng else None,
             "credit_limit": float(updated_shop.credit_limit) if updated_shop.credit_limit else 0,
-            "legacy_balance": float(updated_shop.legacy_balance) if updated_shop.legacy_balance else 0,
+            # legacy_balance removed (column no longer exists - was merged into outstanding_balance)
             "outstanding_balance": float(updated_shop.outstanding_balance) if updated_shop.outstanding_balance else 0,
             "is_registered": updated_shop.is_registered,
             "registration_status": updated_shop.registration_status,

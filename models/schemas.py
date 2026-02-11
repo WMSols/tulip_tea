@@ -1,6 +1,7 @@
 """
 Pydantic schemas for request/response validation.
 """
+from __future__ import annotations
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Optional, List, Dict, Any
 
@@ -578,6 +579,27 @@ class WarehouseResponse(BaseModel):
     zone_id: Optional[int] = None
     address: Optional[str] = None
     is_active: bool
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class WarehouseDetailsResponse(BaseModel):
+    """Warehouse with all related items (inventory, delivery men, etc.)"""
+    id: int
+    name: str
+    distributor_id: int
+    distributor_name: Optional[str] = None  # Added for super admin view
+    zone_id: Optional[int] = None
+    zone_name: Optional[str] = None
+    address: Optional[str] = None
+    is_active: bool
+    inventory: List[InventoryResponse] = []  # Forward reference - InventoryResponse defined later (works with __future__ annotations)
+    delivery_men: List[Dict] = []
+    inventory_count: int = 0
+    delivery_men_count: int = 0
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 

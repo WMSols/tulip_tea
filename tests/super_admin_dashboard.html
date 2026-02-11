@@ -256,6 +256,7 @@
                 <button class="tab" onclick="switchTab('shops')">Shops</button>
                 <button class="tab" onclick="switchTab('zones')">Zones</button>
                 <button class="tab" onclick="switchTab('routes')">Routes</button>
+                <button class="tab" onclick="switchTab('warehouses')">🏭 Warehouses</button>
                 <button class="tab" onclick="switchTab('wallets')">💵 Wallets</button>
             </div>
 
@@ -355,6 +356,28 @@
             <div id="routes" class="tab-content">
                 <h2>Routes</h2>
                 <div class="entity-list" id="routesList">Loading...</div>
+            </div>
+
+            <div id="warehouses" class="tab-content">
+                <h2>🏭 All Warehouses</h2>
+                <p style="color: #666; margin-bottom: 20px;">View all warehouses across all distributors with their inventory details.</p>
+                <button class="btn btn-success" onclick="loadAllWarehouses()" style="margin-bottom: 20px;">🔄 Refresh Warehouses</button>
+                
+                <h3 style="margin-top: 30px;">🔍 Get Specific Warehouse</h3>
+                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                    <div class="form-group">
+                        <label>Warehouse ID *</label>
+                        <input type="number" id="getWarehouseIdAdmin" placeholder="Enter warehouse ID" style="width: 200px; display: inline-block; margin-right: 10px;">
+                    </div>
+                    <div class="form-group">
+                        <label>Distributor ID (Optional)</label>
+                        <input type="number" id="getWarehouseDistributorIdAdmin" placeholder="Enter distributor ID (optional)" style="width: 200px; display: inline-block; margin-right: 10px;">
+                    </div>
+                    <button class="btn btn-primary" onclick="getSpecificWarehouseAdmin()">📦 Get Warehouse Details</button>
+                </div>
+                <div id="specificWarehouseResultAdmin" style="margin-top: 20px;"></div>
+                
+                <div class="entity-list" id="warehousesList">Click "Refresh Warehouses" to load warehouse data.</div>
             </div>
 
             <div id="wallets" class="tab-content">
@@ -467,6 +490,8 @@
             // Load data if not already loaded
             if (tabName === 'wallets') {
                 loadAllWallets();
+            } else if (tabName === 'warehouses') {
+                loadAllWarehouses();
             } else if (entitiesData) {
                 renderEntities(tabName);
             }
@@ -943,6 +968,154 @@
                 resultDiv.className = 'result error';
                 resultDiv.textContent = `Error: ${error.message}`;
             }
+        }
+
+        // Load All Warehouses (Super Admin)
+        async function loadAllWarehouses() {
+            const warehousesList = document.getElementById('warehousesList');
+            warehousesList.innerHTML = '<p>Loading warehouses...</p>';
+            
+            try {
+                const response = await fetch(`${API_BASE}/warehouses/all`, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || `HTTP error! status: ${response.status}`);
+                }
+                
+                const warehouses = await response.json();
+                
+                if (warehouses.length === 0) {
+                    warehousesList.innerHTML = '<p>No warehouses found.</p>';
+                    return;
+                }
+                
+                warehousesList.innerHTML = warehouses.map(warehouse => `
+                    <div class="entity-item" style="margin-bottom: 20px; padding: 20px; background: white; border-radius: 8px; border-left: 4px solid #667eea;">
+                        <div style="display: flex; justify-content: space-between; align-items: start;">
+                            <div style="flex: 1;">
+                                <h3 style="margin: 0 0 10px 0; color: #667eea;">📦 ${warehouse.name}</h3>
+                                <p><strong>ID:</strong> ${warehouse.id}</p>
+                                <p><strong>Distributor:</strong> ${warehouse.distributor_name || `ID: ${warehouse.distributor_id}`}</p>
+                                <p><strong>Zone:</strong> ${warehouse.zone_name || `Zone ${warehouse.zone_id || 'N/A'}`}</p>
+                                ${warehouse.address ? `<p><strong>Address:</strong> ${warehouse.address}</p>` : ''}
+                                <p><strong>Status:</strong> <span style="color: ${warehouse.is_active ? 'green' : 'red'}">${warehouse.is_active ? 'Active' : 'Inactive'}</span></p>
+                                <p><strong>Inventory Items:</strong> ${warehouse.inventory_count || 0}</p>
+                                <p><strong>Delivery Men:</strong> ${warehouse.delivery_men_count || 0}</p>
+                                
+                                ${warehouse.inventory && warehouse.inventory.length > 0 ? `
+                                    <div style="margin-top: 15px; padding: 10px; background: #f8f9fa; border-radius: 5px;">
+                                        <strong>📋 Inventory:</strong>
+                                        <div style="max-height: 200px; overflow-y: auto; margin-top: 10px;">
+                                            ${warehouse.inventory.map(item => `
+                                                <div style="background: white; padding: 8px; margin-bottom: 5px; border-radius: 3px; border-left: 2px solid #667eea;">
+                                                    <strong>${item.product_name || item.item_name || 'N/A'}</strong>
+                                                    ${item.product_code ? ` <span style="color: #667eea;">(${item.product_code})</span>` : ''}
+                                                    <br><small>Qty: <strong>${item.quantity || 0}</strong> ${item.unit || 'units'}</small>
+                                                </div>
+                                            `).join('')}
+                                        </div>
+                                    </div>
+                                ` : ''}
+                            </div>
+                            <div style="margin-left: 20px;">
+                                <button class="btn btn-primary" onclick="getSpecificWarehouseAdminById(${warehouse.id}, ${warehouse.distributor_id})" style="padding: 8px 15px; font-size: 14px;">📊 View Full Details</button>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                warehousesList.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+
+        // Get Specific Warehouse (Super Admin)
+        async function getSpecificWarehouseAdmin() {
+            const warehouseId = document.getElementById('getWarehouseIdAdmin').value;
+            const distributorId = document.getElementById('getWarehouseDistributorIdAdmin').value;
+            const resultDiv = document.getElementById('specificWarehouseResultAdmin');
+
+            if (!warehouseId) {
+                resultDiv.innerHTML = '<p style="color: red;">Please enter a warehouse ID</p>';
+                return;
+            }
+
+            let endpoint = `${API_BASE}/warehouses/${warehouseId}`;
+            if (distributorId) {
+                endpoint += `?distributor_id=${distributorId}`;
+            }
+
+            try {
+                const response = await fetch(endpoint, {
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Failed to load warehouse');
+                }
+
+                // Display warehouse details
+                const detailsHtml = `
+                    <div style="background: white; padding: 20px; border-radius: 8px; border: 2px solid #667eea; margin-top: 20px;">
+                        <h3 style="color: #667eea; margin-bottom: 15px;">📦 ${data.name}</h3>
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                            <p><strong>Warehouse ID:</strong> ${data.id}</p>
+                            <p><strong>Distributor:</strong> ${data.distributor_name || `ID: ${data.distributor_id}`}</p>
+                            <p><strong>Zone:</strong> ${data.zone_name || `Zone ${data.zone_id || 'N/A'}`}</p>
+                            ${data.address ? `<p><strong>Address:</strong> ${data.address}</p>` : ''}
+                            <p><strong>Status:</strong> <span style="color: ${data.is_active ? 'green' : 'red'}">${data.is_active ? 'Active' : 'Inactive'}</span></p>
+                            <p><strong>Inventory Items:</strong> ${data.inventory_count || 0}</p>
+                            <p><strong>Delivery Men:</strong> ${data.delivery_men_count || 0}</p>
+                        </div>
+                        ${data.inventory && data.inventory.length > 0 ? `
+                            <div style="margin-bottom: 15px;">
+                                <h4 style="color: #333; margin-bottom: 10px;">📋 Inventory (${data.inventory.length})</h4>
+                                <div style="max-height: 300px; overflow-y: auto;">
+                                    ${data.inventory.map(item => `
+                                        <div style="background: white; padding: 10px; margin-bottom: 8px; border-radius: 5px; border-left: 3px solid #667eea;">
+                                            <strong>${item.product_name || item.item_name || 'N/A'}</strong>
+                                            ${item.product_code ? ` <span style="color: #667eea;">(${item.product_code})</span>` : ''}<br>
+                                            <small>Quantity: <strong>${item.quantity || 0}</strong> ${item.unit || 'units'}</small>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : '<p style="color: #999;">No inventory items.</p>'}
+                        ${data.delivery_men && data.delivery_men.length > 0 ? `
+                            <div>
+                                <h4 style="color: #333; margin-bottom: 10px;">🚚 Delivery Men (${data.delivery_men.length})</h4>
+                                <div style="max-height: 200px; overflow-y: auto;">
+                                    ${data.delivery_men.map(dm => `
+                                        <div style="background: white; padding: 10px; margin-bottom: 8px; border-radius: 5px; border-left: 3px solid #28a745;">
+                                            <strong>${dm.name || 'N/A'}</strong><br>
+                                            <small>Phone: ${dm.phone || 'N/A'}</small>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : '<p style="color: #999;">No delivery men assigned.</p>'}
+                    </div>
+                `;
+
+                resultDiv.innerHTML = detailsHtml;
+            } catch (error) {
+                resultDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+
+        // Get Specific Warehouse by ID (helper function)
+        async function getSpecificWarehouseAdminById(warehouseId, distributorId) {
+            document.getElementById('getWarehouseIdAdmin').value = warehouseId;
+            if (distributorId) {
+                document.getElementById('getWarehouseDistributorIdAdmin').value = distributorId;
+            }
+            await getSpecificWarehouseAdmin();
         }
 
         // Load All Wallets

@@ -253,6 +253,67 @@ class CreditLimitRequestRepository:
         return query.order_by(CreditLimitRequest.created_at.asc()).all()
     
     @staticmethod
+    def get_all(db: Session, distributor_id: int = None) -> List[CreditLimitRequest]:
+        """
+        Get all credit limit requests (pending, approved, rejected), optionally filtered by distributor.
+        OPTIMIZED: Uses JOINs instead of multiple queries for better performance.
+        
+        FLOW:
+        1. Queries credit_limit_requests table with JOINs
+        2. Filters by all statuses (no status filter)
+        3. If distributor_id is provided, filters to only shops belonging to that distributor's order bookers
+        4. Returns list of all requests
+        
+        Args:
+            db: SQLAlchemy database session
+            distributor_id: Optional distributor ID - filters requests to shops belonging to this distributor's order bookers
+        
+        Returns:
+            List[CreditLimitRequest]: List of all request instances (pending, approved, rejected)
+        
+        Note: When distributor_id is provided, only returns requests for shops that:
+            - Were created by an order booker belonging to this distributor, OR
+            - Are assigned to an order booker belonging to this distributor, OR
+            - Were verified by this distributor
+        """
+        # Base query with JOIN to shops for efficient filtering
+        query = db.query(CreditLimitRequest).join(
+            Shop, CreditLimitRequest.shop_id == Shop.id
+        )
+        
+        # Filter by active shops (no status filter - get all statuses)
+        query = query.filter(
+            CreditLimitRequest.deleted_at.is_(None),  # Exclude soft-deleted requests
+            Shop.deleted_at.is_(None),
+            Shop.is_active == True
+        )
+        
+        # If distributor_id is provided, add JOINs to filter by distributor
+        if distributor_id:
+            # LEFT JOIN with order_bookers for created_by and assigned_to filtering
+            # Use distinct() to avoid duplicate results from multiple JOINs
+            query = query.outerjoin(
+                OrderBooker,
+                or_(
+                    (Shop.created_by_order_booker == OrderBooker.id),
+                    (Shop.assigned_to_order_booker == OrderBooker.id)
+                )
+            ).filter(
+                or_(
+                    # Shop created by or assigned to order booker belonging to this distributor
+                    (
+                        (OrderBooker.distributor_id == distributor_id) &
+                        (OrderBooker.deleted_at.is_(None)) &
+                        (OrderBooker.is_active == True)
+                    ),
+                    # Shop verified by this distributor
+                    (Shop.verified_by_distributor == distributor_id)
+                )
+            ).distinct()
+        
+        return query.order_by(CreditLimitRequest.created_at.desc()).all()
+    
+    @staticmethod
     def update(db: Session, request_id: int, **kwargs) -> Optional[CreditLimitRequest]:
         """
         Update credit limit request fields.

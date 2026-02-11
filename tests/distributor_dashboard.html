@@ -666,7 +666,6 @@
                     
                     <div style="margin-bottom: 20px;">
                         <button class="btn btn-success" onclick="loadAllShopsWithCreditLimits()" style="margin-right: 10px;">Refresh All Credit Limits</button>
-                        <button class="btn btn-primary" onclick="loadPendingCreditLimitRequests()">View Pending Requests Only</button>
                     </div>
                     
                     <!-- Filter by Zone -->
@@ -679,8 +678,17 @@
                     
                     <div id="creditLimitsList" style="margin-top: 20px;"></div>
                     
-                    <!-- Pending Credit Limit Requests Section -->
-                    <h2 style="margin-top: 40px; color: #e74c3c;">Pending Credit Limit Requests <span id="creditRequestsBadgeInline" style="background: #e74c3c; color: white; padding: 2px 8px; border-radius: 10px; font-size: 14px;">0</span></h2>
+                    <!-- All Credit Limit Requests Section -->
+                    <h2 style="margin-top: 40px;">📋 All Credit Limit Requests</h2>
+                    <div style="margin-bottom: 20px;">
+                        <button class="btn btn-success" onclick="loadAllCreditLimitRequests()" style="margin-right: 10px;">🔄 Refresh All Requests</button>
+                        <div style="display: inline-flex; gap: 10px; margin-left: 20px;">
+                            <button id="filterAllRequests" class="btn btn-primary" onclick="filterCreditRequestsByStatus('all')" style="padding: 8px 15px;">All</button>
+                            <button id="filterPendingRequests" class="btn" onclick="filterCreditRequestsByStatus('pending')" style="padding: 8px 15px; background: #ffc107; color: #000;">Pending <span id="pendingCountBadge" style="background: #e74c3c; color: white; padding: 2px 6px; border-radius: 10px; font-size: 12px; margin-left: 5px;">0</span></button>
+                            <button id="filterApprovedRequests" class="btn" onclick="filterCreditRequestsByStatus('approved')" style="padding: 8px 15px; background: #28a745; color: white;">Approved <span id="approvedCountBadge" style="background: #155724; color: white; padding: 2px 6px; border-radius: 10px; font-size: 12px; margin-left: 5px;">0</span></button>
+                            <button id="filterRejectedRequests" class="btn" onclick="filterCreditRequestsByStatus('rejected')" style="padding: 8px 15px; background: #dc3545; color: white;">Rejected <span id="rejectedCountBadge" style="background: #721c24; color: white; padding: 2px 6px; border-radius: 10px; font-size: 12px; margin-left: 5px;">0</span></button>
+                        </div>
+                    </div>
                     <div id="creditLimitRequestsList" style="margin-top: 20px;"></div>
                 </div>
 
@@ -698,29 +706,27 @@
 
                 <!-- Warehouses Tab -->
                 <div id="warehousesTab" class="tab-content">
-                    <h2>🏭 Create Warehouse</h2>
-                    <form id="warehouseForm" onsubmit="createWarehouse(event)">
-                        <div class="form-group">
-                            <label>Warehouse Name *</label>
-                            <input type="text" id="warehouseName" required placeholder="e.g., Islamabad Main Warehouse">
-                        </div>
-                        <div class="form-group">
-                            <label>Zone *</label>
-                            <select id="warehouseZoneId" required>
-                                <option value="">Select Zone</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>Address</label>
-                            <textarea id="warehouseAddress" rows="3" placeholder="Warehouse physical address"></textarea>
-                        </div>
-                        <button type="submit" class="btn btn-primary">Create Warehouse</button>
-                    </form>
-                    <div id="warehouseResult" class="result"></div>
+                    <div style="background: #e7f3ff; padding: 15px; border-radius: 8px; border-left: 4px solid #2196F3; margin-bottom: 20px;">
+                        <p style="margin: 0; color: #1976D2;"><strong>ℹ️ Note:</strong> Warehouses are automatically created when distributors are created. Each distributor has one warehouse. You can manage your warehouse below.</p>
+                    </div>
                     
-                    <h2 style="margin-top: 40px;">Existing Warehouses</h2>
-                    <button class="btn btn-success" onclick="loadWarehouses()">Refresh List</button>
+                    <h2 style="margin-top: 20px;">🏭 My Warehouse</h2>
+                    <button class="btn btn-success" onclick="loadWarehouses()">🔄 Refresh List</button>
                     <div id="warehousesList" style="margin-top: 20px;"></div>
+                    
+                    <h2 style="margin-top: 40px;">🔍 Get Specific Warehouse</h2>
+                    <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                        <div class="form-group">
+                            <label>Warehouse ID *</label>
+                            <input type="number" id="getWarehouseId" placeholder="Enter warehouse ID" style="width: 200px; display: inline-block; margin-right: 10px;">
+                        </div>
+                        <div class="form-group">
+                            <label>Distributor ID (Optional - for super admin)</label>
+                            <input type="number" id="getWarehouseDistributorId" placeholder="Enter distributor ID (optional)" style="width: 200px; display: inline-block; margin-right: 10px;">
+                        </div>
+                        <button class="btn btn-primary" onclick="getSpecificWarehouse()">📦 Get Warehouse Details</button>
+                    </div>
+                    <div id="specificWarehouseResult" style="margin-top: 20px;"></div>
                 </div>
 
                 <!-- Products Tab -->
@@ -941,8 +947,8 @@
                     <textarea id="editCreditRequestRemarks" rows="3"></textarea>
                 </div>
                 <button type="submit" class="btn btn-primary">Update Request</button>
-                <button type="button" class="btn btn-success" onclick="approveCreditRequest()">Approve</button>
-                <button type="button" class="btn btn-danger" onclick="rejectCreditRequest()">Reject</button>
+                <button type="button" class="btn btn-success" onclick="approveCreditRequestFromModal()">Approve</button>
+                <button type="button" class="btn btn-danger" onclick="rejectCreditRequestFromModal()">Reject</button>
             </form>
             <div id="editCreditRequestResult" class="result"></div>
         </div>
@@ -1140,7 +1146,7 @@
                     loadPendingShops();
                 } else if (tabName === 'creditLimits') {
                     loadAllShopsWithCreditLimits();
-                    loadPendingCreditLimitRequests();
+                    loadAllCreditLimitRequests();
                 } else if (tabName === 'subsidyApprovals') {
                     loadPendingSubsidyApprovals();
                 } else if (tabName === 'visits') {
@@ -1207,7 +1213,7 @@
                 loadAllShops();
                 loadPendingShops();
                 loadAllShopsWithCreditLimits();
-                loadPendingCreditLimitRequests();
+                loadAllCreditLimitRequests();
                 loadPendingSubsidyApprovals();
                 loadWalletBalance();
             } catch (error) {
@@ -2438,16 +2444,20 @@
             }
         }
 
-        // Load Pending Credit Limit Requests
-        async function loadPendingCreditLimitRequests() {
+        // Store all credit limit requests for filtering
+        let allCreditLimitRequests = [];
+        let currentCreditRequestFilter = 'all';
+
+        // Load All Credit Limit Requests (pending, approved, rejected)
+        async function loadAllCreditLimitRequests() {
             const listDiv = document.getElementById('creditLimitRequestsList');
             if (!currentDistributorId) {
                 listDiv.innerHTML = '<p>Please login first</p>';
                 return;
             }
 
-            const endpoint = `${API_BASE}/credit-limit-requests/pending?distributor_id=${currentDistributorId}`;
-            showApiCall('GET', endpoint, 'Load Pending Credit Limit Requests', 'loading');
+            const endpoint = `${API_BASE}/credit-limit-requests/all?distributor_id=${currentDistributorId}`;
+            showApiCall('GET', endpoint, 'Load All Credit Limit Requests', 'loading');
 
             try {
                 const response = await fetch(endpoint, {
@@ -2455,40 +2465,123 @@
                 });
                 const data = await response.json();
                 if (!response.ok) {
-                    showApiCall('GET', endpoint, 'Load Pending Credit Limit Requests', 'error');
+                    showApiCall('GET', endpoint, 'Load All Credit Limit Requests', 'error');
                     throw new Error(data.detail || 'Failed to load credit limit requests');
                 }
 
-                if (data.length === 0) {
-                    listDiv.innerHTML = '<p>No pending credit limit requests.</p>';
-                    updateCreditRequestsBadge(0);
-                    showApiCall('GET', endpoint, 'Load Pending Credit Limit Requests', 'success');
-                    return;
+                // Store all requests for filtering
+                allCreditLimitRequests = data;
+
+                // Update count badges
+                const pendingCount = data.filter(r => r.status === 'pending').length;
+                const approvedCount = data.filter(r => r.status === 'approved').length;
+                const rejectedCount = data.filter(r => r.status === 'rejected').length;
+
+                document.getElementById('pendingCountBadge').textContent = pendingCount;
+                document.getElementById('approvedCountBadge').textContent = approvedCount;
+                document.getElementById('rejectedCountBadge').textContent = rejectedCount;
+
+                // Display filtered requests
+                filterCreditRequestsByStatus(currentCreditRequestFilter);
+
+                showApiCall('GET', endpoint, 'Load All Credit Limit Requests', 'success');
+            } catch (error) {
+                listDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+                showApiCall('GET', endpoint, 'Load All Credit Limit Requests', 'error');
+            }
+        }
+
+        // Filter Credit Requests by Status
+        function filterCreditRequestsByStatus(status) {
+            currentCreditRequestFilter = status;
+            const listDiv = document.getElementById('creditLimitRequestsList');
+
+            // Update button styles
+            document.getElementById('filterAllRequests').classList.remove('btn-primary');
+            document.getElementById('filterPendingRequests').classList.remove('btn-primary');
+            document.getElementById('filterApprovedRequests').classList.remove('btn-primary');
+            document.getElementById('filterRejectedRequests').classList.remove('btn-primary');
+
+            if (status === 'all') {
+                document.getElementById('filterAllRequests').classList.add('btn-primary');
+            } else if (status === 'pending') {
+                document.getElementById('filterPendingRequests').classList.add('btn-primary');
+            } else if (status === 'approved') {
+                document.getElementById('filterApprovedRequests').classList.add('btn-primary');
+            } else if (status === 'rejected') {
+                document.getElementById('filterRejectedRequests').classList.add('btn-primary');
+            }
+
+            // Filter requests
+            let filteredRequests = allCreditLimitRequests;
+            if (status !== 'all') {
+                filteredRequests = allCreditLimitRequests.filter(req => req.status === status);
+            }
+
+            if (filteredRequests.length === 0) {
+                listDiv.innerHTML = `<p>No ${status === 'all' ? '' : status} credit limit requests found.</p>`;
+                return;
+            }
+
+            // Display filtered requests
+            listDiv.innerHTML = filteredRequests.map(req => {
+                // Escape single quotes in strings to prevent JavaScript errors
+                const shopName = (req.shop_name || 'N/A').replace(/'/g, "\\'");
+                const remarks = (req.remarks || '').replace(/'/g, "\\'");
+                
+                // Determine status color and icon
+                let statusColor = '#6c757d';
+                let statusIcon = '📋';
+                if (req.status === 'pending') {
+                    statusColor = '#ffc107';
+                    statusIcon = '⏳';
+                } else if (req.status === 'approved') {
+                    statusColor = '#28a745';
+                    statusIcon = '✅';
+                } else if (req.status === 'rejected') {
+                    statusColor = '#dc3545';
+                    statusIcon = '❌';
                 }
 
-                updateCreditRequestsBadge(data.length);
-                listDiv.innerHTML = data.map(req => {
-                    // Escape single quotes in strings to prevent JavaScript errors
-                    const shopName = (req.shop_name || 'N/A').replace(/'/g, "\\'");
-                    const remarks = (req.remarks || '').replace(/'/g, "\\'");
-                    return `
-                    <div class="list-item" onclick="openEditCreditRequestModal(${req.id}, ${req.shop_id}, '${shopName}', ${req.old_credit_limit || 0}, ${req.requested_credit_limit || 0}, '${remarks}', '${(req.created_at || '').replace(/'/g, "\\'")}', '${req.requested_by_role}', ${req.requested_by_id})">
+                // Only allow editing if status is pending
+                const onClickAction = req.status === 'pending' 
+                    ? `onclick="openEditCreditRequestModal(${req.id}, ${req.shop_id}, '${shopName}', ${req.old_credit_limit || 0}, ${req.requested_credit_limit || 0}, '${remarks}', '${(req.created_at || '').replace(/'/g, "\\'")}', '${req.requested_by_role}', ${req.requested_by_id})"`
+                    : '';
+
+                return `
+                    <div class="list-item" ${onClickAction} style="border-left: 4px solid ${statusColor}; ${req.status !== 'pending' ? 'opacity: 0.8;' : ''}">
                         <div class="list-item-info">
-                            <strong>Shop: ${req.shop_name || 'N/A'}</strong><br>
-                            Current Limit: Rs. ${(req.old_credit_limit || 0).toLocaleString()}<br>
-                            Requested Limit: Rs. ${(req.requested_credit_limit || 0).toLocaleString()}<br>
-                            Requested By: ${req.requested_by_role} (ID: ${req.requested_by_id})<br>
-                            ${req.remarks ? `Remarks: ${req.remarks}<br>` : ''}
-                            <small>Request ID: ${req.id} | Created: ${new Date(req.created_at).toLocaleString()}</small>
+                            <div style="display: flex; justify-content: space-between; align-items: start;">
+                                <div style="flex: 1;">
+                                    <strong>${statusIcon} Shop: ${req.shop_name || 'N/A'}</strong>
+                                    <span style="background: ${statusColor}; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 10px; text-transform: uppercase;">${req.status}</span><br>
+                                    <strong>Current Limit:</strong> Rs. ${(req.old_credit_limit || 0).toLocaleString()}<br>
+                                    <strong>Requested Limit:</strong> Rs. ${(req.requested_credit_limit || 0).toLocaleString()}<br>
+                                    ${req.status === 'approved' && req.final_credit_limit ? `<strong>Final Approved Limit:</strong> Rs. ${req.final_credit_limit.toLocaleString()}<br>` : ''}
+                                    <strong>Requested By:</strong> ${req.requested_by_name || req.requested_by_role} (${req.requested_by_role})<br>
+                                    ${req.approved_by_distributor_name ? `<strong>${req.status === 'approved' ? 'Approved' : 'Rejected'} By:</strong> ${req.approved_by_distributor_name}<br>` : ''}
+                                    ${req.approved_at ? `<strong>${req.status === 'approved' ? 'Approved' : 'Rejected'} At:</strong> ${new Date(req.approved_at).toLocaleString()}<br>` : ''}
+                                    ${req.remarks ? `<strong>Remarks:</strong> ${req.remarks}<br>` : ''}
+                                    <small>Request ID: ${req.id} | Created: ${new Date(req.created_at).toLocaleString()}</small>
+                                </div>
+                                ${req.status === 'pending' ? `
+                                    <div style="margin-left: 20px;">
+                                        <button class="btn btn-success" onclick="event.stopPropagation(); approveCreditRequest(${req.id}, ${req.shop_id}, '${shopName}', ${req.requested_credit_limit || 0})" style="padding: 8px 15px; font-size: 14px; margin-bottom: 5px;">✅ Approve</button><br>
+                                        <button class="btn btn-danger" onclick="event.stopPropagation(); rejectCreditRequest(${req.id}, ${req.shop_id}, '${shopName}')" style="padding: 8px 15px; font-size: 14px;">❌ Reject</button>
+                                    </div>
+                                ` : ''}
+                            </div>
                         </div>
                     </div>
                 `;
-                }).join('');
+            }).join('');
+        }
 
-                showApiCall('GET', endpoint, 'Load Pending Credit Limit Requests', 'success');
-            } catch (error) {
-                listDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
-            }
+        // Load Pending Credit Limit Requests (kept for backward compatibility)
+        async function loadPendingCreditLimitRequests() {
+            // Just load all and filter to pending
+            await loadAllCreditLimitRequests();
+            filterCreditRequestsByStatus('pending');
         }
 
         // Open Edit Shop Modal
@@ -2788,8 +2881,8 @@
             resultDiv.textContent = 'Use Approve/Reject buttons to finalize changes. The values you entered will be used when you click Approve or Reject.';
         }
 
-        // Approve Credit Request
-        async function approveCreditRequest() {
+        // Approve Credit Request (from modal - no parameters)
+        async function approveCreditRequestFromModal() {
             const resultDiv = document.getElementById('editCreditRequestResult');
             const requestId = document.getElementById('editCreditRequestId').value;
             const finalCreditLimit = parseFloat(document.getElementById('editCreditRequestNewLimit').value);
@@ -2799,6 +2892,31 @@
                 return;
             }
 
+            await approveCreditRequestById(requestId, finalCreditLimit, remarks, resultDiv);
+        }
+
+        // Approve Credit Request (inline - with parameters)
+        async function approveCreditRequest(requestId, shopId, shopName, requestedLimit) {
+            const finalCreditLimit = prompt(`Enter final credit limit (default: ${requestedLimit.toLocaleString()}):`, requestedLimit);
+            if (!finalCreditLimit) return;
+            
+            const finalLimit = parseFloat(finalCreditLimit);
+            if (isNaN(finalLimit) || finalLimit < 0) {
+                alert('Invalid credit limit amount');
+                return;
+            }
+
+            const remarks = prompt('Enter remarks (optional):') || null;
+
+            if (!confirm(`Approve credit limit request for ${shopName}? Final credit limit will be set to Rs. ${finalLimit.toLocaleString()}`)) {
+                return;
+            }
+
+            await approveCreditRequestById(requestId, finalLimit, remarks, null);
+        }
+
+        // Approve Credit Request by ID (shared logic)
+        async function approveCreditRequestById(requestId, finalCreditLimit, remarks, resultDiv = null) {
             const endpoint = `${API_BASE}/credit-limit-requests/${requestId}/approve?distributor_id=${currentDistributorId}`;
             showApiCall('POST', endpoint, 'Approve Credit Limit Request', 'loading');
 
@@ -2822,27 +2940,36 @@
                     throw new Error(data.detail || 'Failed to approve request');
                 }
 
-                resultDiv.className = 'result success';
-                resultDiv.innerHTML = `
-                    <strong>Credit limit request approved!</strong><br>
-                    Shop credit limit updated to Rs. ${finalCreditLimit.toLocaleString()}<br>
-                    <small>This request will be removed from pending list.</small>
-                `;
+                if (resultDiv) {
+                    resultDiv.className = 'result success';
+                    resultDiv.innerHTML = `
+                        <strong>Credit limit request approved!</strong><br>
+                        Shop credit limit updated to Rs. ${finalCreditLimit.toLocaleString()}<br>
+                        <small>This request will be removed from pending list.</small>
+                    `;
+                }
                 showApiCall('POST', endpoint, 'Approve Credit Limit Request', 'success');
                 
-                // Reload pending requests - this will remove the approved request from the list
+                // Reload all requests to show updated status
                 setTimeout(() => {
-                    loadPendingCreditLimitRequests();
-                    setTimeout(closeEditCreditRequestModal, 1000);
+                    loadAllCreditLimitRequests();
+                    if (resultDiv) {
+                        setTimeout(closeEditCreditRequestModal, 1000);
+                    }
                 }, 1500);
             } catch (error) {
-                resultDiv.className = 'result error';
-                resultDiv.textContent = `Error: ${error.message}`;
+                if (resultDiv) {
+                    resultDiv.className = 'result error';
+                    resultDiv.textContent = `Error: ${error.message}`;
+                } else {
+                    alert(`Error: ${error.message}`);
+                }
+                showApiCall('POST', endpoint, 'Approve Credit Limit Request', 'error');
             }
         }
 
-        // Reject Credit Request
-        async function rejectCreditRequest() {
+        // Reject Credit Request (from modal - no parameters)
+        async function rejectCreditRequestFromModal() {
             const resultDiv = document.getElementById('editCreditRequestResult');
             const requestId = document.getElementById('editCreditRequestId').value;
             const remarks = prompt('Enter reason for rejection:') || 'Rejected by distributor';
@@ -2851,6 +2978,22 @@
                 return;
             }
 
+            await rejectCreditRequestById(requestId, remarks, resultDiv);
+        }
+
+        // Reject Credit Request (inline - with parameters)
+        async function rejectCreditRequest(requestId, shopId, shopName) {
+            const remarks = prompt(`Enter reason for rejecting credit limit request for ${shopName}:`) || 'Rejected by distributor';
+
+            if (!confirm(`Reject credit limit request for ${shopName}?`)) {
+                return;
+            }
+
+            await rejectCreditRequestById(requestId, remarks, null);
+        }
+
+        // Reject Credit Request by ID (shared logic)
+        async function rejectCreditRequestById(requestId, remarks, resultDiv = null) {
             const endpoint = `${API_BASE}/credit-limit-requests/${requestId}/reject?distributor_id=${currentDistributorId}`;
             showApiCall('POST', endpoint, 'Reject Credit Limit Request', 'loading');
 
@@ -2873,22 +3016,31 @@
                     throw new Error(data.detail || 'Failed to reject request');
                 }
 
-                resultDiv.className = 'result success';
-                resultDiv.innerHTML = `
-                    <strong>Credit limit request rejected.</strong><br>
-                    ${remarks ? `Reason: ${remarks}<br>` : ''}
-                    <small>This request will be removed from pending list.</small>
-                `;
+                if (resultDiv) {
+                    resultDiv.className = 'result success';
+                    resultDiv.innerHTML = `
+                        <strong>Credit limit request rejected.</strong><br>
+                        ${remarks ? `Reason: ${remarks}<br>` : ''}
+                        <small>This request will be removed from pending list.</small>
+                    `;
+                }
                 showApiCall('POST', endpoint, 'Reject Credit Limit Request', 'success');
                 
-                // Reload pending requests - this will remove the rejected request from the list
+                // Reload all requests to show updated status
                 setTimeout(() => {
-                    loadPendingCreditLimitRequests();
-                    setTimeout(closeEditCreditRequestModal, 1000);
+                    loadAllCreditLimitRequests();
+                    if (resultDiv) {
+                        setTimeout(closeEditCreditRequestModal, 1000);
+                    }
                 }, 1500);
             } catch (error) {
-                resultDiv.className = 'result error';
-                resultDiv.textContent = `Error: ${error.message}`;
+                if (resultDiv) {
+                    resultDiv.className = 'result error';
+                    resultDiv.textContent = `Error: ${error.message}`;
+                } else {
+                    alert(`Error: ${error.message}`);
+                }
+                showApiCall('POST', endpoint, 'Reject Credit Limit Request', 'error');
             }
         }
 
@@ -5113,7 +5265,8 @@
                 return;
             }
 
-            const endpoint = `${API_BASE}/warehouses/?distributor_id=${currentDistributorId}`;
+            // Endpoint now uses authentication to determine distributor - no query param needed
+            const endpoint = `${API_BASE}/warehouses/`;
             showApiCall('GET', endpoint, 'Load Warehouses', 'loading');
 
             try {
@@ -5160,6 +5313,7 @@
                                 <small>ID: ${warehouse.id} | Created: ${new Date(warehouse.created_at).toLocaleDateString()}</small>
                             </div>
                             <div style="display: flex; align-items: center; gap: 10px;">
+                                <button class="btn btn-success" onclick="event.stopPropagation(); loadWarehouseFullDetails(${warehouse.id})" style="padding: 8px 15px; font-size: 14px;">📊 View Details</button>
                                 <button class="btn btn-primary" onclick="event.stopPropagation(); openWarehouseDetailsModal(${warehouse.id}, '${(warehouse.name || '').replace(/'/g, "\\'")}', ${warehouse.zone_id || 'null'}, '${(warehouse.address || '').replace(/'/g, "\\'")}', ${warehouse.is_active ? 'true' : 'false'})" style="padding: 8px 15px; font-size: 14px;">📦 Manage</button>
                                 <button class="btn btn-danger" onclick="event.stopPropagation(); if(confirm('Delete warehouse ${(warehouse.name || '').replace(/'/g, "\\'")}? This will soft delete the warehouse.')) { deleteWarehouse(${warehouse.id}); }" style="padding: 8px 15px; font-size: 14px;">🗑️ Delete</button>
                             </div>
@@ -5190,6 +5344,171 @@
             await loadWarehouseDetails(warehouseId);
         }
 
+        // Get Specific Warehouse (with optional distributor_id)
+        async function getSpecificWarehouse() {
+            const warehouseId = document.getElementById('getWarehouseId').value;
+            const distributorId = document.getElementById('getWarehouseDistributorId').value;
+            const resultDiv = document.getElementById('specificWarehouseResult');
+
+            if (!warehouseId) {
+                resultDiv.innerHTML = '<p style="color: red;">Please enter a warehouse ID</p>';
+                return;
+            }
+
+            let endpoint = `${API_BASE}/warehouses/${warehouseId}`;
+            if (distributorId) {
+                endpoint += `?distributor_id=${distributorId}`;
+            }
+
+            showApiCall('GET', endpoint, 'Get Specific Warehouse', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showApiCall('GET', endpoint, 'Get Specific Warehouse', 'error');
+                    throw new Error(data.detail || 'Failed to load warehouse');
+                }
+
+                showApiCall('GET', endpoint, 'Get Specific Warehouse', 'success');
+
+                // Display warehouse details
+                const detailsHtml = `
+                    <div style="background: white; padding: 20px; border-radius: 8px; border: 2px solid #667eea; margin-top: 20px;">
+                        <h3 style="color: #667eea; margin-bottom: 15px;">📦 ${data.name}</h3>
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                            <p><strong>Warehouse ID:</strong> ${data.id}</p>
+                            <p><strong>Distributor:</strong> ${data.distributor_name || `ID: ${data.distributor_id}`}</p>
+                            <p><strong>Zone:</strong> ${data.zone_name || `Zone ${data.zone_id || 'N/A'}`}</p>
+                            ${data.address ? `<p><strong>Address:</strong> ${data.address}</p>` : ''}
+                            <p><strong>Status:</strong> <span style="color: ${data.is_active ? 'green' : 'red'}">${data.is_active ? 'Active' : 'Inactive'}</span></p>
+                            <p><strong>Inventory Items:</strong> ${data.inventory_count || 0}</p>
+                            <p><strong>Delivery Men:</strong> ${data.delivery_men_count || 0}</p>
+                        </div>
+                        ${data.inventory && data.inventory.length > 0 ? `
+                            <div style="margin-bottom: 15px;">
+                                <h4 style="color: #333; margin-bottom: 10px;">📋 Inventory (${data.inventory.length})</h4>
+                                <div style="max-height: 300px; overflow-y: auto;">
+                                    ${data.inventory.map(item => `
+                                        <div style="background: white; padding: 10px; margin-bottom: 8px; border-radius: 5px; border-left: 3px solid #667eea;">
+                                            <strong>${item.product_name || item.item_name || 'N/A'}</strong>
+                                            ${item.product_code ? ` <span style="color: #667eea;">(${item.product_code})</span>` : ''}<br>
+                                            <small>Quantity: <strong>${item.quantity || 0}</strong> ${item.unit || 'units'}</small>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : '<p style="color: #999;">No inventory items.</p>'}
+                        ${data.delivery_men && data.delivery_men.length > 0 ? `
+                            <div>
+                                <h4 style="color: #333; margin-bottom: 10px;">🚚 Delivery Men (${data.delivery_men.length})</h4>
+                                <div style="max-height: 200px; overflow-y: auto;">
+                                    ${data.delivery_men.map(dm => `
+                                        <div style="background: white; padding: 10px; margin-bottom: 8px; border-radius: 5px; border-left: 3px solid #28a745;">
+                                            <strong>${dm.name || 'N/A'}</strong><br>
+                                            <small>Phone: ${dm.phone || 'N/A'}</small>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : '<p style="color: #999;">No delivery men assigned.</p>'}
+                    </div>
+                `;
+
+                resultDiv.innerHTML = detailsHtml;
+            } catch (error) {
+                showApiCall('GET', endpoint, 'Get Specific Warehouse', 'error');
+                resultDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+
+        // Load Warehouse Full Details (using new /details endpoint)
+        async function loadWarehouseFullDetails(warehouseId) {
+            const endpoint = `${API_BASE}/warehouses/${warehouseId}/details`;
+            showApiCall('GET', endpoint, 'Load Warehouse Full Details', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showApiCall('GET', endpoint, 'Load Warehouse Full Details', 'error');
+                    throw new Error(data.detail || 'Failed to load warehouse details');
+                }
+
+                showApiCall('GET', endpoint, 'Load Warehouse Full Details', 'success');
+
+                // Display warehouse details in a modal or alert
+                const detailsHtml = `
+                    <div style="max-width: 600px; padding: 20px;">
+                        <h2 style="color: #667eea; margin-bottom: 20px;">📦 ${data.name}</h2>
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                            <p><strong>Zone:</strong> ${data.zone_name || `Zone ${data.zone_id || 'N/A'}`}</p>
+                            ${data.address ? `<p><strong>Address:</strong> ${data.address}</p>` : ''}
+                            <p><strong>Status:</strong> <span style="color: ${data.is_active ? 'green' : 'red'}">${data.is_active ? 'Active' : 'Inactive'}</span></p>
+                            <p><strong>Inventory Items:</strong> ${data.inventory_count || 0}</p>
+                            <p><strong>Delivery Men:</strong> ${data.delivery_men_count || 0}</p>
+                        </div>
+                        ${data.inventory && data.inventory.length > 0 ? `
+                            <div style="margin-bottom: 15px;">
+                                <h3 style="color: #333; margin-bottom: 10px;">📋 Inventory (${data.inventory.length})</h3>
+                                <div style="max-height: 200px; overflow-y: auto;">
+                                    ${data.inventory.map(item => `
+                                        <div style="background: white; padding: 10px; margin-bottom: 8px; border-radius: 5px; border-left: 3px solid #667eea;">
+                                            <strong>${item.product_name || item.item_name || 'N/A'}</strong>
+                                            ${item.product_code ? ` <span style="color: #667eea;">(${item.product_code})</span>` : ''}<br>
+                                            <small>Quantity: <strong>${item.quantity || 0}</strong> ${item.unit || 'units'}</small>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : '<p style="color: #999;">No inventory items.</p>'}
+                        ${data.delivery_men && data.delivery_men.length > 0 ? `
+                            <div>
+                                <h3 style="color: #333; margin-bottom: 10px;">🚚 Delivery Men (${data.delivery_men.length})</h3>
+                                <div style="max-height: 150px; overflow-y: auto;">
+                                    ${data.delivery_men.map(dm => `
+                                        <div style="background: white; padding: 10px; margin-bottom: 8px; border-radius: 5px; border-left: 3px solid #28a745;">
+                                            <strong>${dm.name || 'N/A'}</strong><br>
+                                            <small>Phone: ${dm.phone || 'N/A'}</small>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : '<p style="color: #999;">No delivery men assigned.</p>'}
+                    </div>
+                `;
+
+                // Create and show modal
+                const modal = document.createElement('div');
+                modal.id = 'warehouseFullDetailsModal';
+                modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 10000;';
+                modal.innerHTML = `
+                    <div style="background: white; border-radius: 10px; max-width: 700px; max-height: 80vh; overflow-y: auto; position: relative; padding: 30px; margin: 20px;">
+                        <button onclick="this.closest('#warehouseFullDetailsModal').remove()" style="position: absolute; top: 10px; right: 10px; background: #dc3545; color: white; border: none; border-radius: 50%; width: 30px; height: 30px; cursor: pointer; font-size: 18px;">×</button>
+                        ${detailsHtml}
+                        <div style="margin-top: 20px; text-align: center;">
+                            <button onclick="openWarehouseDetailsModal(${warehouseId}, '${(data.name || '').replace(/'/g, "\\'")}', ${data.zone_id || 'null'}, '${(data.address || '').replace(/'/g, "\\'")}', ${data.is_active ? 'true' : 'false'}); this.closest('#warehouseFullDetailsModal').remove();" class="btn btn-primary" style="padding: 10px 20px;">📦 Manage Warehouse</button>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+                modal.onclick = (e) => {
+                    if (e.target === modal) modal.remove();
+                };
+            } catch (error) {
+                showApiCall('GET', endpoint, 'Load Warehouse Full Details', 'error');
+                alert(`Error: ${error.message}`);
+            }
+        }
+
         // Load Warehouse Details (Inventory and Delivery Men)
         async function loadWarehouseDetails(warehouseId) {
             const inventoryDiv = document.getElementById('warehouseInventoryList');
@@ -5198,7 +5517,7 @@
             inventoryDiv.innerHTML = '<p style="color: #999;">Loading inventory...</p>';
             deliveryMenDiv.innerHTML = '<p style="color: #999;">Loading delivery men...</p>';
 
-            // Load inventory
+            // Load inventory (now validates distributor ownership automatically)
             try {
                 const inventoryResponse = await fetch(`${API_BASE}/warehouses/${warehouseId}/inventory`, {
                     headers: { 'Authorization': `Bearer ${currentToken}` }
@@ -5208,14 +5527,15 @@
                     const inventory = await inventoryResponse.json();
                     displayInventory(inventory, inventoryDiv);
                 } else {
-                    inventoryDiv.innerHTML = '<p style="color: #999;">No inventory items found.</p>';
+                    const errorData = await inventoryResponse.json();
+                    inventoryDiv.innerHTML = `<p style="color: red;">Error: ${errorData.detail || 'Failed to load inventory'}</p>`;
                 }
             } catch (error) {
                 console.error('Error loading inventory:', error);
                 inventoryDiv.innerHTML = '<p style="color: red;">Error loading inventory.</p>';
             }
 
-            // Load assigned delivery men
+            // Load assigned delivery men (now validates distributor ownership automatically)
             try {
                 const deliveryMenResponse = await fetch(`${API_BASE}/warehouses/${warehouseId}/delivery-men`, {
                     headers: { 'Authorization': `Bearer ${currentToken}` }
@@ -5225,7 +5545,8 @@
                     const deliveryMen = await deliveryMenResponse.json();
                     displayWarehouseDeliveryMen(deliveryMen, deliveryMenDiv, warehouseId);
                 } else {
-                    deliveryMenDiv.innerHTML = '<p style="color: #999;">No delivery men assigned.</p>';
+                    const errorData = await deliveryMenResponse.json();
+                    deliveryMenDiv.innerHTML = `<p style="color: red;">Error: ${errorData.detail || 'Failed to load delivery men'}</p>`;
                 }
             } catch (error) {
                 console.error('Error loading delivery men:', error);

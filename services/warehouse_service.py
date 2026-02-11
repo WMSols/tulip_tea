@@ -14,6 +14,19 @@ class WarehouseService:
     """Service for Warehouse business logic."""
     
     @staticmethod
+    def validate_warehouse_ownership(db: Session, warehouse_id: int, distributor_id: int) -> bool:
+        """
+        Validate that a warehouse belongs to a specific distributor.
+        Raises ValueError if warehouse doesn't exist or doesn't belong to distributor.
+        """
+        warehouse = WarehouseRepository.get_by_id(db, warehouse_id)
+        if not warehouse:
+            raise ValueError(f"Warehouse with ID {warehouse_id} not found")
+        if warehouse.distributor_id != distributor_id:
+            raise ValueError(f"Warehouse {warehouse_id} does not belong to distributor {distributor_id}")
+        return True
+    
+    @staticmethod
     def create_warehouse(db: Session, name: str, distributor_id: int, zone_id: int = None, address: str = None) -> Dict:
         """
         Create a new warehouse for a distributor.
@@ -72,6 +85,52 @@ class WarehouseService:
         return result
     
     @staticmethod
+    def get_all_warehouses_with_inventory(db: Session) -> List[Dict]:
+        """
+        Get all warehouses with their active inventory details.
+        Used by super admin to view all warehouses across all distributors.
+        """
+        warehouses = WarehouseRepository.get_all(db)
+        
+        result = []
+        for warehouse in warehouses:
+            # Get inventory for this warehouse (no distributor validation for super admin)
+            inventory = WarehouseService.get_warehouse_inventory(db, warehouse.id, distributor_id=None)
+            
+            # Get delivery men count (no distributor validation for super admin)
+            delivery_men = WarehouseService.get_warehouse_delivery_men(db, warehouse.id, distributor_id=None)
+            
+            # Get zone name if exists
+            zone_name = None
+            if warehouse.zone_id:
+                zone = ZoneRepository.get_by_id(db, warehouse.zone_id)
+                if zone:
+                    zone_name = zone.name
+            
+            # Get distributor name
+            from repositories.distributor_repository import DistributorRepository
+            distributor = DistributorRepository.get_by_id(db, warehouse.distributor_id)
+            distributor_name = distributor.name if distributor else None
+            
+            result.append({
+                "id": warehouse.id,
+                "name": warehouse.name,
+                "distributor_id": warehouse.distributor_id,
+                "distributor_name": distributor_name,
+                "zone_id": warehouse.zone_id,
+                "zone_name": zone_name,
+                "address": warehouse.address,
+                "is_active": warehouse.is_active,
+                "inventory": inventory,  # Full inventory list
+                "inventory_count": len(inventory),
+                "delivery_men_count": len(delivery_men),
+                "created_at": warehouse.created_at.isoformat() if warehouse.created_at else None,
+                "updated_at": warehouse.updated_at.isoformat() if warehouse.updated_at else None
+            })
+        
+        return result
+    
+    @staticmethod
     def get_warehouses_by_distributor(db: Session, distributor_id: int) -> List[Dict]:
         """Get warehouses for a specific distributor."""
         warehouse = WarehouseRepository.get_by_distributor(db, distributor_id)
@@ -91,14 +150,80 @@ class WarehouseService:
         }]
     
     @staticmethod
-    def get_warehouse_inventory(db: Session, warehouse_id: int) -> List[Dict]:
-        """Get all inventory items for a warehouse."""
+    def get_warehouse_by_id(db: Session, warehouse_id: int, distributor_id: int) -> Dict:
+        """Get a specific warehouse by ID, ensuring it belongs to the distributor."""
+        # Validate ownership
+        WarehouseService.validate_warehouse_ownership(db, warehouse_id, distributor_id)
+        
+        warehouse = WarehouseRepository.get_by_id(db, warehouse_id)
+        return {
+            "id": warehouse.id,
+            "name": warehouse.name,
+            "distributor_id": warehouse.distributor_id,
+            "zone_id": warehouse.zone_id,
+            "address": warehouse.address,
+            "is_active": warehouse.is_active,
+            "created_at": warehouse.created_at.isoformat() if warehouse.created_at else None,
+            "updated_at": warehouse.updated_at.isoformat() if warehouse.updated_at else None
+        }
+    
+    @staticmethod
+    def get_warehouse_with_details(db: Session, warehouse_id: int, distributor_id: Optional[int] = None) -> Dict:
+        """
+        Get warehouse with all related items: inventory, delivery men, etc.
+        If distributor_id is provided, validates ownership.
+        If distributor_id is None, skips validation (for super admin).
+        """
+        # Validate ownership only if distributor_id is provided
+        if distributor_id is not None:
+            WarehouseService.validate_warehouse_ownership(db, warehouse_id, distributor_id)
+        
+        warehouse = WarehouseRepository.get_by_id(db, warehouse_id)
+        
+        # Get inventory (ownership already validated above)
+        inventory = WarehouseService.get_warehouse_inventory(db, warehouse_id, distributor_id)
+        
+        # Get delivery men (ownership already validated above)
+        delivery_men = WarehouseService.get_warehouse_delivery_men(db, warehouse_id, distributor_id)
+        
+        # Get zone info if exists
+        zone_name = None
+        if warehouse.zone_id:
+            zone = ZoneRepository.get_by_id(db, warehouse.zone_id)
+            if zone:
+                zone_name = zone.name
+        
+        return {
+            "id": warehouse.id,
+            "name": warehouse.name,
+            "distributor_id": warehouse.distributor_id,
+            "zone_id": warehouse.zone_id,
+            "zone_name": zone_name,
+            "address": warehouse.address,
+            "is_active": warehouse.is_active,
+            "inventory": inventory,
+            "delivery_men": delivery_men,
+            "inventory_count": len(inventory),
+            "delivery_men_count": len(delivery_men),
+            "created_at": warehouse.created_at.isoformat() if warehouse.created_at else None,
+            "updated_at": warehouse.updated_at.isoformat() if warehouse.updated_at else None
+        }
+    
+    @staticmethod
+    def get_warehouse_inventory(db: Session, warehouse_id: int, distributor_id: int = None) -> List[Dict]:
+        """
+        Get all inventory items for a warehouse.
+        If distributor_id is provided, validates ownership.
+        """
         from repositories.product_repository import ProductRepository
         
-        # Verify warehouse exists
-        warehouse = WarehouseRepository.get_by_id(db, warehouse_id)
-        if not warehouse:
-            raise ValueError(f"Warehouse with ID {warehouse_id} not found")
+        # Verify warehouse exists and optionally validate ownership
+        if distributor_id:
+            WarehouseService.validate_warehouse_ownership(db, warehouse_id, distributor_id)
+        else:
+            warehouse = WarehouseRepository.get_by_id(db, warehouse_id)
+            if not warehouse:
+                raise ValueError(f"Warehouse with ID {warehouse_id} not found")
         
         inventory_items = InventoryRepository.get_by_warehouse(db, warehouse_id)
         result = []
@@ -131,14 +256,20 @@ class WarehouseService:
     
     @staticmethod
     def add_inventory_item(db: Session, warehouse_id: int, product_id: int, 
-                          quantity: int = 0) -> Dict:
-        """Add inventory item to warehouse from active product."""
+                          quantity: int = 0, distributor_id: int = None) -> Dict:
+        """
+        Add inventory item to warehouse from active product.
+        If distributor_id is provided, validates ownership.
+        """
         from repositories.product_repository import ProductRepository
         
-        # Verify warehouse exists
-        warehouse = WarehouseRepository.get_by_id(db, warehouse_id)
-        if not warehouse:
-            raise ValueError(f"Warehouse with ID {warehouse_id} not found")
+        # Verify warehouse exists and optionally validate ownership
+        if distributor_id:
+            WarehouseService.validate_warehouse_ownership(db, warehouse_id, distributor_id)
+        else:
+            warehouse = WarehouseRepository.get_by_id(db, warehouse_id)
+            if not warehouse:
+                raise ValueError(f"Warehouse with ID {warehouse_id} not found")
         
         # Verify product exists and is active
         product = ProductRepository.get_by_id(db, product_id, include_deleted=False)
@@ -179,14 +310,20 @@ class WarehouseService:
     
     @staticmethod
     def update_inventory_item(db: Session, warehouse_id: int, inventory_id: int,
-                             product_id: int = None, quantity: int = None) -> Dict:
-        """Update inventory item (can change product or quantity)."""
+                             product_id: int = None, quantity: int = None, distributor_id: int = None) -> Dict:
+        """
+        Update inventory item (can change product or quantity).
+        If distributor_id is provided, validates ownership.
+        """
         from repositories.product_repository import ProductRepository
         
-        # Verify warehouse exists
-        warehouse = WarehouseRepository.get_by_id(db, warehouse_id)
-        if not warehouse:
-            raise ValueError(f"Warehouse with ID {warehouse_id} not found")
+        # Verify warehouse exists and optionally validate ownership
+        if distributor_id:
+            WarehouseService.validate_warehouse_ownership(db, warehouse_id, distributor_id)
+        else:
+            warehouse = WarehouseRepository.get_by_id(db, warehouse_id)
+            if not warehouse:
+                raise ValueError(f"Warehouse with ID {warehouse_id} not found")
         
         # Verify inventory item exists and belongs to warehouse
         inventory = InventoryRepository.get_by_id(db, inventory_id)
@@ -254,12 +391,18 @@ class WarehouseService:
         }
     
     @staticmethod
-    def delete_inventory_item(db: Session, warehouse_id: int, inventory_id: int) -> bool:
-        """Delete inventory item."""
-        # Verify warehouse exists
-        warehouse = WarehouseRepository.get_by_id(db, warehouse_id)
-        if not warehouse:
-            raise ValueError(f"Warehouse with ID {warehouse_id} not found")
+    def delete_inventory_item(db: Session, warehouse_id: int, inventory_id: int, distributor_id: int = None) -> bool:
+        """
+        Delete inventory item.
+        If distributor_id is provided, validates ownership.
+        """
+        # Verify warehouse exists and optionally validate ownership
+        if distributor_id:
+            WarehouseService.validate_warehouse_ownership(db, warehouse_id, distributor_id)
+        else:
+            warehouse = WarehouseRepository.get_by_id(db, warehouse_id)
+            if not warehouse:
+                raise ValueError(f"Warehouse with ID {warehouse_id} not found")
         
         # Verify inventory item exists and belongs to warehouse
         inventory = InventoryRepository.get_by_id(db, inventory_id)
@@ -271,12 +414,18 @@ class WarehouseService:
         return InventoryRepository.soft_delete(db, inventory_id)
     
     @staticmethod
-    def get_warehouse_delivery_men(db: Session, warehouse_id: int) -> List[Dict]:
-        """Get all delivery men assigned to a warehouse."""
-        # Verify warehouse exists
-        warehouse = WarehouseRepository.get_by_id(db, warehouse_id)
-        if not warehouse:
-            raise ValueError(f"Warehouse with ID {warehouse_id} not found")
+    def get_warehouse_delivery_men(db: Session, warehouse_id: int, distributor_id: int = None) -> List[Dict]:
+        """
+        Get all delivery men assigned to a warehouse.
+        If distributor_id is provided, validates ownership.
+        """
+        # Verify warehouse exists and optionally validate ownership
+        if distributor_id:
+            WarehouseService.validate_warehouse_ownership(db, warehouse_id, distributor_id)
+        else:
+            warehouse = WarehouseRepository.get_by_id(db, warehouse_id)
+            if not warehouse:
+                raise ValueError(f"Warehouse with ID {warehouse_id} not found")
         
         assignments = DeliveryManWarehouseRepository.get_by_warehouse(db, warehouse_id)
         
@@ -295,12 +444,18 @@ class WarehouseService:
         return result
     
     @staticmethod
-    def assign_delivery_man(db: Session, warehouse_id: int, delivery_man_id: int) -> Dict:
-        """Assign a delivery man to a warehouse."""
-        # Verify warehouse exists
-        warehouse = WarehouseRepository.get_by_id(db, warehouse_id)
-        if not warehouse:
-            raise ValueError(f"Warehouse with ID {warehouse_id} not found")
+    def assign_delivery_man(db: Session, warehouse_id: int, delivery_man_id: int, distributor_id: int = None) -> Dict:
+        """
+        Assign a delivery man to a warehouse.
+        If distributor_id is provided, validates ownership.
+        """
+        # Verify warehouse exists and optionally validate ownership
+        if distributor_id:
+            WarehouseService.validate_warehouse_ownership(db, warehouse_id, distributor_id)
+        else:
+            warehouse = WarehouseRepository.get_by_id(db, warehouse_id)
+            if not warehouse:
+                raise ValueError(f"Warehouse with ID {warehouse_id} not found")
         
         # Verify delivery man exists
         delivery_man = DeliveryManRepository.get_by_id(db, delivery_man_id)
@@ -321,12 +476,18 @@ class WarehouseService:
         }
     
     @staticmethod
-    def unassign_delivery_man(db: Session, warehouse_id: int, delivery_man_id: int) -> bool:
-        """Unassign a delivery man from a warehouse."""
-        # Verify warehouse exists
-        warehouse = WarehouseRepository.get_by_id(db, warehouse_id)
-        if not warehouse:
-            raise ValueError(f"Warehouse with ID {warehouse_id} not found")
+    def unassign_delivery_man(db: Session, warehouse_id: int, delivery_man_id: int, distributor_id: int = None) -> bool:
+        """
+        Unassign a delivery man from a warehouse.
+        If distributor_id is provided, validates ownership.
+        """
+        # Verify warehouse exists and optionally validate ownership
+        if distributor_id:
+            WarehouseService.validate_warehouse_ownership(db, warehouse_id, distributor_id)
+        else:
+            warehouse = WarehouseRepository.get_by_id(db, warehouse_id)
+            if not warehouse:
+                raise ValueError(f"Warehouse with ID {warehouse_id} not found")
         
         return DeliveryManWarehouseRepository.unassign(
             db=db,

@@ -138,15 +138,35 @@ class DeliveryManService:
     
     @staticmethod
     def get_delivery_men_by_distributor(db: Session, distributor_id: int) -> List[Dict]:
-        """Get all delivery men for a distributor (zone-based, not route-based)."""
+        """
+        Get all delivery men for a distributor (zone-based, not route-based).
+        OPTIMIZED: Uses batch loading to avoid N+1 queries.
+        """
         try:
             delivery_men = DeliveryManRepository.get_by_distributor(db, distributor_id)
+            
+            if not delivery_men:
+                return []
+            
+            # Batch load all routes by zone (1 query per unique zone instead of N queries)
+            from models.route import Route
+            zone_ids = list(set([dm.zone_id for dm in delivery_men if dm.zone_id]))
+            routes_by_zone = {}
+            if zone_ids:
+                routes = db.query(Route).filter(
+                    Route.zone_id.in_(zone_ids),
+                    Route.deleted_at.is_(None)
+                ).all()
+                # Group routes by zone_id
+                for route in routes:
+                    if route.zone_id not in routes_by_zone:
+                        routes_by_zone[route.zone_id] = []
+                    routes_by_zone[route.zone_id].append(route.id)
+            
+            # Build result using lookup map (no additional queries)
             result = []
             for dm in delivery_men:
-                # Get routes in the delivery man's zone (for display purposes)
-                from repositories.route_repository import RouteRepository
-                routes_in_zone = RouteRepository.get_by_zone(db, dm.zone_id) if dm.zone_id else []
-                route_ids = [r.id for r in routes_in_zone]
+                route_ids = routes_by_zone.get(dm.zone_id, []) if dm.zone_id else []
                 
                 result.append({
                     "id": dm.id,

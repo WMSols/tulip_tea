@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy import text
 from config.database import settings, engine, Base
+from middleware.request_logger import RequestLoggerMiddleware
 import traceback
 import os
 
@@ -16,7 +17,7 @@ from models import distributor, order_booker, delivery_man, zone, route, shop, c
 
 # Import routers
 from routers import auth, distributor as distributor_router, order_booker, delivery_man, zone, route, shop
-from routers import credit_limit_request as credit_limit_request_router, daily_collection as daily_collection_router, shop_visit as shop_visit_router, order as order_router, super_admin as super_admin_router, warehouse as warehouse_router, product as product_router, activity_log as activity_log_router, delivery as delivery_router, subsidy as subsidy_router, wallet as wallet_router, weekly_route_schedule as weekly_route_schedule_router, visit_task as visit_task_router
+from routers import credit_limit_request as credit_limit_request_router, daily_collection as daily_collection_router, shop_visit as shop_visit_router, order as order_router, super_admin as super_admin_router, warehouse as warehouse_router, product as product_router, activity_log as activity_log_router, delivery as delivery_router, subsidy as subsidy_router, wallet as wallet_router, weekly_route_schedule as weekly_route_schedule_router, visit_task as visit_task_router, request_logs as request_logs_router
 
 # Define OpenAPI tags with categories for frontend dashboards
 tags_metadata = [
@@ -215,6 +216,10 @@ else:
     allowed_origins = ["*"]
     allow_credentials = False
 
+# Request logging middleware (must be before CORS)
+app.add_middleware(RequestLoggerMiddleware)
+
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
@@ -272,6 +277,7 @@ app.include_router(subsidy_router.router)
 app.include_router(wallet_router.router)
 app.include_router(weekly_route_schedule_router.router)
 app.include_router(visit_task_router.router)
+app.include_router(request_logs_router.router)
 
 
 @app.get("/")

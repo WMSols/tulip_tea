@@ -35,19 +35,52 @@ class ZoneService:
     
     @staticmethod
     def get_all_zones(db: Session) -> List[Dict]:
-        """Get all zones."""
+        """
+        Get all zones.
+        OPTIMIZED: Uses batch loading to avoid N+1 queries.
+        """
         zones = ZoneRepository.get_all(db)
+        
+        if not zones:
+            return []
+        
+        # Batch load all routes and shops (2 queries instead of 2N queries)
+        from models.route import Route
+        from models.shop import Shop
+        
+        zone_ids = [zone.id for zone in zones]
+        
+        # Get all routes for all zones in one query
+        routes = db.query(Route).filter(
+            Route.zone_id.in_(zone_ids),
+            Route.deleted_at.is_(None)
+        ).all()
+        
+        # Get all shops for all zones in one query
+        shops = db.query(Shop).filter(
+            Shop.zone_id.in_(zone_ids),
+            Shop.deleted_at.is_(None)
+        ).all()
+        
+        # Count routes and shops per zone
+        routes_count = {}
+        for route in routes:
+            if route.zone_id:
+                routes_count[route.zone_id] = routes_count.get(route.zone_id, 0) + 1
+        
+        shops_count = {}
+        for shop in shops:
+            if shop.zone_id:
+                shops_count[shop.zone_id] = shops_count.get(shop.zone_id, 0) + 1
+        
+        # Build result using pre-calculated counts (no additional queries)
         result = []
         for zone in zones:
-            # Get counts for each zone
-            routes = RouteRepository.get_by_zone(db, zone.id, include_deleted=False)
-            shops = ShopRepository.get_by_zone(db, zone.id, include_deleted=False)
-            
             result.append({
                 "id": zone.id,
                 "name": zone.name,
-                "route_count": len(routes) if routes else 0,
-                "shop_count": len(shops) if shops else 0,
+                "route_count": routes_count.get(zone.id, 0),
+                "shop_count": shops_count.get(zone.id, 0),
                 "created_at": zone.created_at.isoformat() if zone.created_at else None
             })
         return result

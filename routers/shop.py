@@ -241,19 +241,36 @@ async def list_pending_shops(
             Shop.is_active == True,
             Shop.created_by_order_booker.in_(db.query(order_booker_ids.c.id))
         ).all()
+        
+        if not shops:
+            return []
+        
+        # Batch load all order bookers (1 query instead of 2N queries)
+        from models.order_booker import OrderBooker
+        order_booker_ids_set = set()
+        for shop in shops:
+            if shop.created_by_order_booker:
+                order_booker_ids_set.add(shop.created_by_order_booker)
+            if shop.assigned_to_order_booker:
+                order_booker_ids_set.add(shop.assigned_to_order_booker)
+        
+        order_bookers_map = {}
+        if order_booker_ids_set:
+            order_bookers = db.query(OrderBooker).filter(OrderBooker.id.in_(list(order_booker_ids_set))).all()
+            order_bookers_map = {ob.id: ob for ob in order_bookers}
+        
+        # Build result using lookup map (no additional queries)
         result = []
         for shop in shops:
             # Get order booker name who created the shop (historical)
             created_by_name = None
-            if shop.created_by_order_booker:
-                order_booker = OrderBookerRepository.get_by_id(db, shop.created_by_order_booker)
-                created_by_name = order_booker.name if order_booker else None
+            if shop.created_by_order_booker and shop.created_by_order_booker in order_bookers_map:
+                created_by_name = order_bookers_map[shop.created_by_order_booker].name
             
             # Get order booker name currently assigned to the shop
             assigned_to_name = None
-            if shop.assigned_to_order_booker:
-                assigned_order_booker = OrderBookerRepository.get_by_id(db, shop.assigned_to_order_booker)
-                assigned_to_name = assigned_order_booker.name if assigned_order_booker else None
+            if shop.assigned_to_order_booker and shop.assigned_to_order_booker in order_bookers_map:
+                assigned_to_name = order_bookers_map[shop.assigned_to_order_booker].name
             
             result.append({
                 "id": shop.id,

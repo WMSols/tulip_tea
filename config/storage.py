@@ -96,6 +96,10 @@ class SupabaseStorage:
         try:
             print(f"INFO: Attempting to upload {len(file_content)} bytes to {bucket_name}/{file_path}")
             
+            # Track Supabase call timing
+            import time
+            supabase_start = time.time()
+            
             # Supabase Python client upload method
             # The upload method signature: upload(path, file, file_options=None)
             # file_options should only contain "content-type" as a string
@@ -109,6 +113,9 @@ class SupabaseStorage:
                         "content-type": content_type
                     }
                 )
+                
+                # Track upload time
+                supabase_upload_time = (time.time() - supabase_start) * 1000
                 
                 print(f"INFO: Upload response type: {type(response)}")
                 print(f"INFO: Upload response: {response}")
@@ -133,8 +140,11 @@ class SupabaseStorage:
                     # Assume success and use original path
                     uploaded_path = file_path
                 
-                # Get public URL
+                # Get public URL (track timing)
+                url_start = time.time()
                 url_response = self.client.storage.from_(bucket_name).get_public_url(uploaded_path)
+                supabase_url_time = (time.time() - url_start) * 1000
+                supabase_total_time = supabase_upload_time + supabase_url_time
                 
                 # Handle different response types from get_public_url
                 if isinstance(url_response, dict):
@@ -147,7 +157,18 @@ class SupabaseStorage:
                     url = str(url_response) if url_response else None
                 
                 if url:
-                    print(f"INFO: Generated public URL: {url}")
+                    print(f"INFO: Generated public URL: {url} (Supabase time: {supabase_total_time:.2f}ms)")
+                    # Store Supabase timing in thread-local storage for middleware to pick up
+                    try:
+                        import threading
+                        if not hasattr(threading.current_thread(), 'supabase_calls'):
+                            threading.current_thread().supabase_calls = []
+                        threading.current_thread().supabase_calls.append({
+                            "operation": f"upload_image:{bucket_name}",
+                            "time_ms": supabase_total_time
+                        })
+                    except:
+                        pass  # Ignore if tracking fails
                     return url
                 else:
                     print(f"ERROR: Could not get public URL. Response: {url_response}")
@@ -165,6 +186,7 @@ class SupabaseStorage:
                 # Try alternative method signature (positional args with file_options)
                 try:
                     print(f"INFO: Trying alternative upload method (positional args, content-type only)...")
+                    alt_start = time.time()
                     response = self.client.storage.from_(bucket_name).upload(
                         file_path,
                         file_content,
@@ -172,6 +194,7 @@ class SupabaseStorage:
                             "content-type": content_type
                         }
                     )
+                    alt_upload_time = (time.time() - alt_start) * 1000
                     
                     print(f"INFO: Alternative upload response: {response}")
                     
@@ -184,8 +207,12 @@ class SupabaseStorage:
                         print(f"ERROR: Alternative method failed: {response.get('error')}")
                         return None
                     
-                    # Get URL
+                    # Get URL (track timing)
+                    url_start = time.time()
                     url_response = self.client.storage.from_(bucket_name).get_public_url(file_path)
+                    alt_url_time = (time.time() - url_start) * 1000
+                    alt_total_time = alt_upload_time + alt_url_time
+                    
                     if isinstance(url_response, dict):
                         url = url_response.get('publicUrl') or url_response.get('public_url')
                     elif hasattr(url_response, 'publicUrl'):
@@ -194,7 +221,18 @@ class SupabaseStorage:
                         url = str(url_response) if url_response else None
                     
                     if url:
-                        print(f"INFO: Alternative method succeeded. URL: {url}")
+                        print(f"INFO: Alternative method succeeded. URL: {url} (Supabase time: {alt_total_time:.2f}ms)")
+                        # Store Supabase timing in thread-local storage
+                        try:
+                            import threading
+                            if not hasattr(threading.current_thread(), 'supabase_calls'):
+                                threading.current_thread().supabase_calls = []
+                            threading.current_thread().supabase_calls.append({
+                                "operation": f"upload_image:{bucket_name}",
+                                "time_ms": alt_total_time
+                            })
+                        except:
+                            pass
                         return url
                     else:
                         # Fallback URL

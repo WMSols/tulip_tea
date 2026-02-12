@@ -33,10 +33,23 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-# Create SQLAlchemy engine
+# Create SQLAlchemy engine with optimized connection pooling
+# Pool configuration optimized for concurrent requests:
+# - pool_size: Base number of connections to maintain (20 = handles ~20 concurrent requests)
+# - max_overflow: Additional connections allowed during peak (40 = up to 60 total connections)
+# - pool_recycle: Recycle connections after 1 hour to prevent stale connections
+# - pool_pre_ping: Verify connections are alive before using (prevents connection errors)
+# - connect_args: Connection timeout and query timeout to prevent hanging
 engine = create_engine(
     settings.database_url,
-    pool_pre_ping=True,  # Verify connections before using
+    pool_size=20,  # Base pool size - handles normal concurrent load
+    max_overflow=40,  # Additional connections during peak (total max: 60 connections)
+    pool_recycle=3600,  # Recycle connections after 1 hour (prevents stale connections)
+    pool_pre_ping=True,  # Verify connections before using (prevents connection errors)
+    connect_args={
+        "connect_timeout": 10,  # 10 second connection timeout
+        "options": "-c statement_timeout=30000"  # 30 second query timeout (in milliseconds)
+    },
     echo=settings.debug  # Log SQL queries in debug mode
 )
 

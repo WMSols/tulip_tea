@@ -118,20 +118,34 @@ class OrderBookerService:
     
     @staticmethod
     def get_order_bookers_by_distributor(db: Session, distributor_id: int) -> List[Dict]:
-        """Get all order bookers for a distributor."""
+        """
+        Get all order bookers for a distributor.
+        OPTIMIZED: Uses batch loading to avoid N+1 queries.
+        """
         try:
             order_bookers = OrderBookerRepository.get_by_distributor(db, distributor_id)
+            
+            if not order_bookers:
+                return []
+            
+            # Batch load all zones (1 query instead of N queries)
+            from models.zone import Zone
+            zone_ids = list(set([ob.zone_id for ob in order_bookers if ob.zone_id]))
+            zones_map = {}
+            if zone_ids:
+                zones = db.query(Zone).filter(Zone.id.in_(zone_ids)).all()
+                zones_map = {zone.id: zone for zone in zones}
+            
             # Get distributor name once
             distributor = DistributorRepository.get_by_id(db, distributor_id)
             distributor_name = distributor.name if distributor else None
             
+            # Build result using lookup map (no additional queries)
             result = []
             for ob in order_bookers:
-                # Get zone name
                 zone_name = None
-                if ob.zone_id:
-                    zone = ZoneRepository.get_by_id(db, ob.zone_id)
-                    zone_name = zone.name if zone else None
+                if ob.zone_id and ob.zone_id in zones_map:
+                    zone_name = zones_map[ob.zone_id].name
                 
                 result.append({
                     "id": ob.id,

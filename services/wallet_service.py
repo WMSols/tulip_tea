@@ -3,6 +3,7 @@ Wallet business logic service.
 """
 from sqlalchemy.orm import Session
 from repositories.wallet_repository import WalletRepository
+from models.wallet import Wallet
 from decimal import Decimal
 from typing import Dict, List, Optional
 from datetime import datetime
@@ -479,6 +480,213 @@ class WalletService:
         
         transactions = WalletRepository.get_transactions(db, wallet.id, limit)
         
+        if not transactions:
+            return []
+        
+        # OPTIMIZED: Batch load all related entities to avoid N+1 queries
+        # Collect all IDs that need to be loaded
+        collection_ids = [
+            t.reference_id for t in transactions 
+            if t.reference_type == "daily_collection" and t.reference_id
+        ]
+        order_booker_ids = []
+        delivery_man_ids = []
+        shop_ids = []
+        
+        # Batch load all daily collections (1 query instead of N queries)
+        collections_map = {}
+        if collection_ids:
+            from models.daily_collection import DailyCollection
+            collections = db.query(DailyCollection).filter(
+                DailyCollection.id.in_(collection_ids)
+            ).all()
+            collections_map = {c.id: c for c in collections}
+            
+            # Collect order booker, delivery man, and shop IDs from collections
+            for collection in collections:
+                if collection.collected_by_order_booker:
+                    order_booker_ids.append(collection.collected_by_order_booker)
+                if collection.collected_by_delivery_man:
+                    delivery_man_ids.append(collection.collected_by_delivery_man)
+                if collection.shop_id:
+                    shop_ids.append(collection.shop_id)
+        
+        # Batch load all order bookers (1 query instead of N queries)
+        order_bookers_map = {}
+        if order_booker_ids:
+            from models.order_booker import OrderBooker
+            order_bookers = db.query(OrderBooker).filter(
+                OrderBooker.id.in_(list(set(order_booker_ids)))
+            ).all()
+            order_bookers_map = {ob.id: ob for ob in order_bookers}
+        
+        # Batch load all delivery men (1 query instead of N queries)
+        delivery_men_map = {}
+        if delivery_man_ids:
+            from models.delivery_man import DeliveryMan
+            delivery_men = db.query(DeliveryMan).filter(
+                DeliveryMan.id.in_(list(set(delivery_man_ids)))
+            ).all()
+            delivery_men_map = {dm.id: dm for dm in delivery_men}
+        
+        # OPTIMIZED: Parse metadata ONCE and cache it (avoids parsing twice)
+        # This also collects shop IDs and transfer collection IDs for batch loading
+        parsed_metadata_map = {}
+        transfer_collection_ids_map = {}  # Map transaction_id -> list of collection transaction IDs
+        related_wallet_ids = []
+        
+        for transaction in transactions:
+            try:
+                metadata_raw = getattr(transaction, 'transaction_metadata', None)
+                metadata = {}
+                
+                if metadata_raw:
+                    if isinstance(metadata_raw, dict):
+                        metadata = metadata_raw
+                    elif isinstance(metadata_raw, str):
+                        if metadata_raw.lower() not in ['null', 'none', '']:
+                            try:
+                                metadata = json.loads(metadata_raw)
+                                if not isinstance(metadata, dict):
+                                    metadata = {}
+                            except (json.JSONDecodeError, TypeError):
+                                metadata = {}
+                        else:
+                            metadata = {}
+                    else:
+                        metadata = {}
+                
+                parsed_metadata_map[transaction.id] = metadata
+                
+                # Collect shop IDs from metadata
+                shop_id = metadata.get("shop_id")
+                if shop_id:
+                    shop_ids.append(shop_id)
+                
+                # Collect transfer collection transaction IDs for batch loading
+                if transaction.reference_type == "transfer" and not metadata.get("shop_name"):
+                    collection_ids = metadata.get("source_collection_transaction_ids", [])
+                    if collection_ids:
+                        transfer_collection_ids_map[transaction.id] = collection_ids
+                
+                # Collect related wallet IDs
+                if transaction.related_wallet_id:
+                    related_wallet_ids.append(transaction.related_wallet_id)
+            except Exception as e:
+                parsed_metadata_map[transaction.id] = {}
+                print(f"Warning: Error parsing metadata for transaction {transaction.id}: {str(e)}")
+        
+        # Batch load shops that need lookup (1 query instead of N queries)
+        shops_map = {}
+        if shop_ids:
+            from models.shop import Shop
+            shops = db.query(Shop).filter(Shop.id.in_(list(set(shop_ids)))).all()
+            shops_map = {s.id: s for s in shops}
+        
+        # Collect initiated_by IDs for batch loading
+        initiated_by_order_booker_ids = []
+        initiated_by_delivery_man_ids = []
+        initiated_by_distributor_ids = []
+        for transaction in transactions:
+            if transaction.initiated_by_type == 'order_booker' and transaction.initiated_by_id:
+                initiated_by_order_booker_ids.append(transaction.initiated_by_id)
+            elif transaction.initiated_by_type == 'delivery_man' and transaction.initiated_by_id:
+                initiated_by_delivery_man_ids.append(transaction.initiated_by_id)
+            elif transaction.initiated_by_type == 'distributor' and transaction.initiated_by_id:
+                initiated_by_distributor_ids.append(transaction.initiated_by_id)
+        
+        # Batch load initiated_by entities
+        initiated_by_order_bookers_map = {}
+        if initiated_by_order_booker_ids:
+            from models.order_booker import OrderBooker
+            ob_list = db.query(OrderBooker).filter(
+                OrderBooker.id.in_(list(set(initiated_by_order_booker_ids)))
+            ).all()
+            initiated_by_order_bookers_map = {ob.id: ob for ob in ob_list}
+        
+        initiated_by_delivery_men_map = {}
+        if initiated_by_delivery_man_ids:
+            from models.delivery_man import DeliveryMan
+            dm_list = db.query(DeliveryMan).filter(
+                DeliveryMan.id.in_(list(set(initiated_by_delivery_man_ids)))
+            ).all()
+            initiated_by_delivery_men_map = {dm.id: dm for dm in dm_list}
+        
+        initiated_by_distributors_map = {}
+        if initiated_by_distributor_ids:
+            from models.distributor import Distributor
+            dist_list = db.query(Distributor).filter(
+                Distributor.id.in_(list(set(initiated_by_distributor_ids)))
+            ).all()
+            initiated_by_distributors_map = {d.id: d for d in dist_list}
+        
+        # OPTIMIZED: Batch load related wallets and their users (1 query instead of N queries)
+        related_wallets_map = {}
+        related_user_order_booker_ids = []
+        related_user_delivery_man_ids = []
+        related_user_distributor_ids = []
+        
+        if related_wallet_ids:
+            related_wallets = db.query(Wallet).filter(
+                Wallet.id.in_(list(set(related_wallet_ids)))
+            ).all()
+            related_wallets_map = {w.id: w for w in related_wallets}
+            
+            # Collect user IDs for batch loading
+            for wallet in related_wallets:
+                if wallet.user_type == 'order_booker':
+                    related_user_order_booker_ids.append(wallet.user_id)
+                elif wallet.user_type == 'delivery_man':
+                    related_user_delivery_man_ids.append(wallet.user_id)
+                elif wallet.user_type == 'distributor':
+                    related_user_distributor_ids.append(wallet.user_id)
+        
+        # Batch load related user names
+        related_user_order_bookers_map = {}
+        if related_user_order_booker_ids:
+            from models.order_booker import OrderBooker
+            ob_list = db.query(OrderBooker).filter(
+                OrderBooker.id.in_(list(set(related_user_order_booker_ids)))
+            ).all()
+            related_user_order_bookers_map = {ob.id: ob for ob in ob_list}
+        
+        related_user_delivery_men_map = {}
+        if related_user_delivery_man_ids:
+            from models.delivery_man import DeliveryMan
+            dm_list = db.query(DeliveryMan).filter(
+                DeliveryMan.id.in_(list(set(related_user_delivery_man_ids)))
+            ).all()
+            related_user_delivery_men_map = {dm.id: dm for dm in dm_list}
+        
+        related_user_distributors_map = {}
+        if related_user_distributor_ids:
+            from models.distributor import Distributor
+            dist_list = db.query(Distributor).filter(
+                Distributor.id.in_(list(set(related_user_distributor_ids)))
+            ).all()
+            related_user_distributors_map = {d.id: d for d in dist_list}
+        
+        # OPTIMIZED: Batch load all transfer trails at once (1 call instead of N calls)
+        all_transfer_collection_ids = []
+        for collection_ids in transfer_collection_ids_map.values():
+            all_transfer_collection_ids.extend(collection_ids)
+        
+        # Map: collection_transaction_id -> list of trails
+        collection_trails_by_transaction_id = {}
+        if all_transfer_collection_ids:
+            # Get unique collection transaction IDs
+            unique_collection_ids = list(set(all_transfer_collection_ids))
+            trail_data = WalletService._enrich_transfer_trail(db, unique_collection_ids)
+            if trail_data:
+                collection_trails = trail_data.get("collection_trails", [])
+                # Group trails by collection transaction ID (transaction_id in trail is the wallet transaction ID)
+                for trail in collection_trails:
+                    trans_id = trail.get('transaction_id')
+                    if trans_id:
+                        if trans_id not in collection_trails_by_transaction_id:
+                            collection_trails_by_transaction_id[trans_id] = []
+                        collection_trails_by_transaction_id[trans_id].append(trail)
+        
         result = []
         for transaction in transactions:
             try:
@@ -500,35 +708,8 @@ class WalletService:
                     "created_at": transaction.created_at.isoformat() if hasattr(transaction, 'created_at') and transaction.created_at else None
                 }
                 
-                # Enrich with additional details from metadata and related entities
-                # Handle JSONB field - it might be a dict, a string, or the string "null"
-                try:
-                    metadata_raw = getattr(transaction, 'transaction_metadata', None)
-                    metadata = {}
-                    
-                    # Handle different metadata formats
-                    if metadata_raw is None:
-                        metadata = {}
-                    elif isinstance(metadata_raw, dict):
-                        metadata = metadata_raw
-                    elif isinstance(metadata_raw, str):
-                        # Handle string "null" or empty string
-                        if metadata_raw.lower() in ['null', 'none', '']:
-                            metadata = {}
-                        else:
-                            try:
-                                metadata = json.loads(metadata_raw)
-                                if not isinstance(metadata, dict):
-                                    metadata = {}
-                            except (json.JSONDecodeError, TypeError):
-                                metadata = {}
-                    else:
-                        metadata = {}
-                except Exception as e:
-                    print(f"Warning: Error parsing metadata for transaction {transaction.id if hasattr(transaction, 'id') else 'unknown'}: {str(e)}")
-                    import traceback
-                    traceback.print_exc()
-                    metadata = {}
+                # OPTIMIZED: Use pre-parsed metadata (avoids parsing JSON twice)
+                metadata = parsed_metadata_map.get(transaction.id, {})
                 
                 # Get shop name and trail information from metadata
                 try:
@@ -540,28 +721,33 @@ class WalletService:
                     zone_id = metadata.get("zone_id")
                     zone_name = metadata.get("zone_name")
                     
-                    # OPTIMIZED: For transfers, lazy-load collection trail from stored transaction IDs
+                    # OPTIMIZED: For transfers, use batch-loaded collection trails
                     if transaction.reference_type == "transfer" and not shop_name:
-                        collection_ids = metadata.get("source_collection_transaction_ids", [])
-                        if collection_ids:
-                            # Lazy load: Fetch collection trail details on-demand
-                            trail_data = WalletService._enrich_transfer_trail(db, collection_ids)
-                            if trail_data:
-                                collection_trails = trail_data.get("collection_trails", [])
-                                if collection_trails:
-                                    # Use the first (most recent) collection trail for quick access
-                                    trail = collection_trails[0]
-                                    shop_name = trail.get("shop_name") or shop_name
-                                    shop_id = trail.get("shop_id") or shop_id
-                                    shop_owner = trail.get("shop_owner") or shop_owner
-                                    route_id = trail.get("route_id") or route_id
-                                    route_name = trail.get("route_name") or route_name
-                                    zone_id = trail.get("zone_id") or zone_id
-                                    zone_name = trail.get("zone_name") or zone_name
-                                    
-                                    # Store all trails for display
-                                    transaction_data["collection_trails"] = collection_trails
-                                    transaction_data["trail_count"] = len(collection_trails)
+                        # Check if we have batch-loaded trails for this transaction
+                        collection_transaction_ids = transfer_collection_ids_map.get(transaction.id, [])
+                        if collection_transaction_ids:
+                            # Find trails for any of the collection transaction IDs
+                            collection_trails = []
+                            for coll_trans_id in collection_transaction_ids:
+                                if coll_trans_id in collection_trails_by_transaction_id:
+                                    collection_trails.extend(collection_trails_by_transaction_id[coll_trans_id])
+                            
+                            if collection_trails:
+                                # Sort by transaction_id descending to get most recent first
+                                collection_trails.sort(key=lambda x: x.get('transaction_id', 0), reverse=True)
+                                # Use the first (most recent) collection trail for quick access
+                                trail = collection_trails[0]
+                                shop_name = trail.get("shop_name") or shop_name
+                                shop_id = trail.get("shop_id") or shop_id
+                                shop_owner = trail.get("shop_owner") or shop_owner
+                                route_id = trail.get("route_id") or route_id
+                                route_name = trail.get("route_name") or route_name
+                                zone_id = trail.get("zone_id") or zone_id
+                                zone_name = trail.get("zone_name") or zone_name
+                                
+                                # Store all trails for display
+                                transaction_data["collection_trails"] = collection_trails
+                                transaction_data["trail_count"] = len(collection_trails)
                     
                     # Backward compatibility: Check old format (collection_trails directly in metadata)
                     elif transaction.reference_type == "transfer" and not shop_name:
@@ -581,17 +767,15 @@ class WalletService:
                             transaction_data["collection_trails"] = collection_trails
                             transaction_data["trail_count"] = len(collection_trails)
                     
-                    # If metadata doesn't have shop info but has shop_id, look it up
-                    if not shop_name and shop_id:
-                        from repositories.shop_repository import ShopRepository
-                        shop = ShopRepository.get_by_id(db, shop_id)
-                        if shop:
-                            shop_name = shop.name
-                            shop_owner = shop.owner_name
-                            if not route_id:
-                                route_id = shop.route_id
-                            if not zone_id:
-                                zone_id = shop.zone_id
+                    # If metadata doesn't have shop info but has shop_id, look it up from batch-loaded data
+                    if not shop_name and shop_id and shop_id in shops_map:
+                        shop = shops_map[shop_id]
+                        shop_name = shop.name
+                        shop_owner = shop.owner_name
+                        if not route_id:
+                            route_id = shop.route_id
+                        if not zone_id:
+                            zone_id = shop.zone_id
                     
                     # Add shop information to transaction data
                     if shop_name:
@@ -611,11 +795,10 @@ class WalletService:
                 except Exception as e:
                     print(f"Warning: Error getting shop info for transaction {transaction.id if hasattr(transaction, 'id') else 'unknown'}: {str(e)}")
                 
-                # Get collection details if reference_type is daily_collection
+                # Get collection details if reference_type is daily_collection (using batch-loaded data)
                 try:
                     if transaction.reference_type == "daily_collection" and transaction.reference_id:
-                        from repositories.daily_collection_repository import DailyCollectionRepository
-                        collection = DailyCollectionRepository.get_by_id(db, transaction.reference_id)
+                        collection = collections_map.get(transaction.reference_id)
                         if collection:
                             transaction_data["collection_id"] = collection.id
                             transaction_data["collection_amount"] = float(collection.amount) if collection.amount else 0.0
@@ -631,18 +814,16 @@ class WalletService:
                             except Exception:
                                 transaction_data["collection_status"] = str(collection.status) if collection.status else None
                             
-                            # Get collector name (order booker or delivery man)
+                            # Get collector name (order booker or delivery man) from batch-loaded data
                             try:
                                 if collection.collected_by_order_booker:
-                                    from repositories.order_booker_repository import OrderBookerRepository
-                                    ob = OrderBookerRepository.get_by_id(db, collection.collected_by_order_booker)
+                                    ob = order_bookers_map.get(collection.collected_by_order_booker)
                                     if ob:
                                         transaction_data["collected_by_name"] = ob.name
                                         transaction_data["collected_by_type"] = "order_booker"
                                         transaction_data["collected_by_id"] = ob.id
                                 elif collection.collected_by_delivery_man:
-                                    from repositories.delivery_man_repository import DeliveryManRepository
-                                    dm = DeliveryManRepository.get_by_id(db, collection.collected_by_delivery_man)
+                                    dm = delivery_men_map.get(collection.collected_by_delivery_man)
                                     if dm:
                                         transaction_data["collected_by_name"] = dm.name
                                         transaction_data["collected_by_type"] = "delivery_man"
@@ -652,49 +833,42 @@ class WalletService:
                 except Exception as e:
                     print(f"Warning: Error getting collection details for transaction {transaction.id}: {str(e)}")
                 
-                # Get initiated by name
+                # Get initiated by name (using batch-loaded data)
                 try:
                     if transaction.initiated_by_type and transaction.initiated_by_id:
                         if transaction.initiated_by_type == "order_booker":
-                            from repositories.order_booker_repository import OrderBookerRepository
-                            ob = OrderBookerRepository.get_by_id(db, transaction.initiated_by_id)
+                            ob = initiated_by_order_bookers_map.get(transaction.initiated_by_id)
                             if ob:
                                 transaction_data["initiated_by_name"] = ob.name
                         elif transaction.initiated_by_type == "delivery_man":
-                            from repositories.delivery_man_repository import DeliveryManRepository
-                            dm = DeliveryManRepository.get_by_id(db, transaction.initiated_by_id)
+                            dm = initiated_by_delivery_men_map.get(transaction.initiated_by_id)
                             if dm:
                                 transaction_data["initiated_by_name"] = dm.name
                         elif transaction.initiated_by_type == "distributor":
-                            from repositories.distributor_repository import DistributorRepository
-                            dist = DistributorRepository.get_by_id(db, transaction.initiated_by_id)
+                            dist = initiated_by_distributors_map.get(transaction.initiated_by_id)
                             if dist:
                                 transaction_data["initiated_by_name"] = dist.name
                 except Exception as e:
                     print(f"Warning: Error getting initiated_by info for transaction {transaction.id}: {str(e)}")
                 
-                # For transfers, get related wallet user info
+                # OPTIMIZED: For transfers, get related wallet user info from batch-loaded data
                 try:
                     if transaction.related_wallet_id:
-                        # WalletRepository is already imported at the top of the file
-                        related_wallet = WalletRepository.get_by_id(db, transaction.related_wallet_id)
+                        related_wallet = related_wallets_map.get(transaction.related_wallet_id)
                         if related_wallet:
                             transaction_data["related_user_type"] = related_wallet.user_type
                             transaction_data["related_user_id"] = related_wallet.user_id
-                            # Get related user name
+                            # Get related user name from batch-loaded data
                             if related_wallet.user_type == "order_booker":
-                                from repositories.order_booker_repository import OrderBookerRepository
-                                ob = OrderBookerRepository.get_by_id(db, related_wallet.user_id)
+                                ob = related_user_order_bookers_map.get(related_wallet.user_id)
                                 if ob:
                                     transaction_data["related_user_name"] = ob.name
                             elif related_wallet.user_type == "delivery_man":
-                                from repositories.delivery_man_repository import DeliveryManRepository
-                                dm = DeliveryManRepository.get_by_id(db, related_wallet.user_id)
+                                dm = related_user_delivery_men_map.get(related_wallet.user_id)
                                 if dm:
                                     transaction_data["related_user_name"] = dm.name
                             elif related_wallet.user_type == "distributor":
-                                from repositories.distributor_repository import DistributorRepository
-                                dist = DistributorRepository.get_by_id(db, related_wallet.user_id)
+                                dist = related_user_distributors_map.get(related_wallet.user_id)
                                 if dist:
                                     transaction_data["related_user_name"] = dist.name
                 except Exception as e:
@@ -849,6 +1023,7 @@ class WalletService:
     def get_all_wallets_for_distributor(db: Session, distributor_id: int) -> List[Dict]:
         """
         Get all wallets of order bookers and delivery men under a distributor.
+        OPTIMIZED: Uses batch loading to avoid N+1 queries.
         
         Args:
             db: Database session
@@ -859,66 +1034,89 @@ class WalletService:
         """
         from repositories.order_booker_repository import OrderBookerRepository
         from repositories.delivery_man_repository import DeliveryManRepository
+        from models.wallet import Wallet
         
         result = []
         
         # Get all order bookers for this distributor
         order_bookers = OrderBookerRepository.get_by_distributor(db, distributor_id)
-        for ob in order_bookers:
-            wallet = WalletRepository.get_by_user(db, 'order_booker', ob.id)
-            if wallet:
-                result.append({
-                    "wallet_id": wallet.id,
-                    "user_type": "order_booker",
-                    "user_id": ob.id,
-                    "user_name": ob.name,
-                    "user_phone": ob.phone,
-                    "current_balance": float(wallet.current_balance) if wallet.current_balance else 0.0,
-                    "is_active": wallet.is_active,
-                    "created_at": wallet.created_at.isoformat() if wallet.created_at else None
-                })
-            else:
-                # Create wallet if it doesn't exist
-                wallet = WalletRepository.create(db, 'order_booker', ob.id)
-                result.append({
-                    "wallet_id": wallet.id,
-                    "user_type": "order_booker",
-                    "user_id": ob.id,
-                    "user_name": ob.name,
-                    "user_phone": ob.phone,
-                    "current_balance": 0.0,
-                    "is_active": wallet.is_active,
-                    "created_at": wallet.created_at.isoformat() if wallet.created_at else None
-                })
+        
+        if order_bookers:
+            # Batch load all wallets for order bookers (1 query instead of N queries)
+            order_booker_ids = [ob.id for ob in order_bookers]
+            wallets = db.query(Wallet).filter(
+                Wallet.user_type == 'order_booker',
+                Wallet.user_id.in_(order_booker_ids)
+            ).all()
+            wallets_map = {(w.user_type, w.user_id): w for w in wallets}
+            
+            # Process order bookers using lookup map
+            for ob in order_bookers:
+                wallet = wallets_map.get(('order_booker', ob.id))
+                if wallet:
+                    result.append({
+                        "wallet_id": wallet.id,
+                        "user_type": "order_booker",
+                        "user_id": ob.id,
+                        "user_name": ob.name,
+                        "user_phone": ob.phone,
+                        "current_balance": float(wallet.current_balance) if wallet.current_balance else 0.0,
+                        "is_active": wallet.is_active,
+                        "created_at": wallet.created_at.isoformat() if wallet.created_at else None
+                    })
+                else:
+                    # Create wallet if it doesn't exist
+                    wallet = WalletRepository.create(db, 'order_booker', ob.id)
+                    result.append({
+                        "wallet_id": wallet.id,
+                        "user_type": "order_booker",
+                        "user_id": ob.id,
+                        "user_name": ob.name,
+                        "user_phone": ob.phone,
+                        "current_balance": 0.0,
+                        "is_active": wallet.is_active,
+                        "created_at": wallet.created_at.isoformat() if wallet.created_at else None
+                    })
         
         # Get all delivery men for this distributor
         delivery_men = DeliveryManRepository.get_by_distributor(db, distributor_id)
-        for dm in delivery_men:
-            wallet = WalletRepository.get_by_user(db, 'delivery_man', dm.id)
-            if wallet:
-                result.append({
-                    "wallet_id": wallet.id,
-                    "user_type": "delivery_man",
-                    "user_id": dm.id,
-                    "user_name": dm.name,
-                    "user_phone": dm.phone,
-                    "current_balance": float(wallet.current_balance) if wallet.current_balance else 0.0,
-                    "is_active": wallet.is_active,
-                    "created_at": wallet.created_at.isoformat() if wallet.created_at else None
-                })
-            else:
-                # Create wallet if it doesn't exist
-                wallet = WalletRepository.create(db, 'delivery_man', dm.id)
-                result.append({
-                    "wallet_id": wallet.id,
-                    "user_type": "delivery_man",
-                    "user_id": dm.id,
-                    "user_name": dm.name,
-                    "user_phone": dm.phone,
-                    "current_balance": 0.0,
-                    "is_active": wallet.is_active,
-                    "created_at": wallet.created_at.isoformat() if wallet.created_at else None
-                })
+        
+        if delivery_men:
+            # Batch load all wallets for delivery men (1 query instead of N queries)
+            delivery_man_ids = [dm.id for dm in delivery_men]
+            wallets = db.query(Wallet).filter(
+                Wallet.user_type == 'delivery_man',
+                Wallet.user_id.in_(delivery_man_ids)
+            ).all()
+            wallets_map = {(w.user_type, w.user_id): w for w in wallets}
+            
+            # Process delivery men using lookup map
+            for dm in delivery_men:
+                wallet = wallets_map.get(('delivery_man', dm.id))
+                if wallet:
+                    result.append({
+                        "wallet_id": wallet.id,
+                        "user_type": "delivery_man",
+                        "user_id": dm.id,
+                        "user_name": dm.name,
+                        "user_phone": dm.phone,
+                        "current_balance": float(wallet.current_balance) if wallet.current_balance else 0.0,
+                        "is_active": wallet.is_active,
+                        "created_at": wallet.created_at.isoformat() if wallet.created_at else None
+                    })
+                else:
+                    # Create wallet if it doesn't exist
+                    wallet = WalletRepository.create(db, 'delivery_man', dm.id)
+                    result.append({
+                        "wallet_id": wallet.id,
+                        "user_type": "delivery_man",
+                        "user_id": dm.id,
+                        "user_name": dm.name,
+                        "user_phone": dm.phone,
+                        "current_balance": 0.0,
+                        "is_active": wallet.is_active,
+                        "created_at": wallet.created_at.isoformat() if wallet.created_at else None
+                    })
         
         return result
 

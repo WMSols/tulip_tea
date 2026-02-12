@@ -446,6 +446,20 @@ class ShopService:
         order_booker = OrderBookerRepository.get_by_id(db, order_booker_id)
         order_booker_name = order_booker.name if order_booker else None
         
+        # Batch load all created_by_order_booker names (1 query instead of N queries)
+        from models.order_booker import OrderBooker
+        created_by_order_booker_ids = list(set([
+            shop.created_by_order_booker for shop in shops 
+            if shop.created_by_order_booker
+        ]))
+        created_by_order_bookers_map = {}
+        if created_by_order_booker_ids:
+            created_by_order_bookers = db.query(OrderBooker).filter(
+                OrderBooker.id.in_(created_by_order_booker_ids)
+            ).all()
+            created_by_order_bookers_map = {ob.id: ob for ob in created_by_order_bookers}
+        
+        # Build result using lookup map (no additional queries)
         return [
             {
                 "id": shop.id,
@@ -463,7 +477,7 @@ class ShopService:
                 "verified_at": shop.verified_at.isoformat() if shop.verified_at else None,
                 "zone_id": shop.zone_id,
                 "created_by_order_booker": shop.created_by_order_booker,
-                "created_by_order_booker_name": OrderBookerRepository.get_by_id(db, shop.created_by_order_booker).name if shop.created_by_order_booker else None,
+                "created_by_order_booker_name": created_by_order_bookers_map.get(shop.created_by_order_booker).name if shop.created_by_order_booker and shop.created_by_order_booker in created_by_order_bookers_map else None,
                 "assigned_to_order_booker": shop.assigned_to_order_booker,
                 "assigned_to_order_booker_name": order_booker_name,
                 "owner_cnic_front_photo": shop.owner_cnic_front_photo,

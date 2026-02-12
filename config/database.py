@@ -42,13 +42,13 @@ settings = Settings()
 # - connect_args: Connection timeout and query timeout to prevent hanging
 engine = create_engine(
     settings.database_url,
-    pool_size=20,  # Base pool size - handles normal concurrent load
-    max_overflow=40,  # Additional connections during peak (total max: 60 connections)
+    pool_size=10,  # Base pool size - handles normal concurrent load
+    max_overflow=10,  # Additional connections during peak (total max: 60 connections)
     pool_recycle=3600,  # Recycle connections after 1 hour (prevents stale connections)
     pool_pre_ping=True,  # Verify connections before using (prevents connection errors)
     connect_args={
         "connect_timeout": 10,  # 10 second connection timeout
-        "options": "-c statement_timeout=30000"  # 30 second query timeout (in milliseconds)
+        "options": "-c stastement_timeout=30000"  # 30 second query timeout (in milliseconds)
     },
     echo=settings.debug  # Log SQL queries in debug mode
 )

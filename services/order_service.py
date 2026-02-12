@@ -975,35 +975,43 @@ class OrderService:
         if order.distributor_id and order.distributor_id != distributor_id:
             raise ValueError("You do not have permission to approve this order")
         
-        # Update order
-        order.subsidy_status = 'approved'
-        order.subsidy_approved_by = distributor_id
-        order.subsidy_approved_at = datetime.utcnow()
-        
-        # Update shop's outstanding balance (was not updated during creation)
-        # Use final_total_amount (the reduced amount) for outstanding balance calculation
-        if order.shop_id:
-            from repositories.shop_repository import ShopRepository
-            shop = ShopRepository.get_by_id(db, order.shop_id)
-            if shop:
-                # Use final_total_amount (the reduced amount after order booker's discount)
-                # This is the actual amount the shop will owe
-                final_amount = Decimal(str(order.final_total_amount)) if order.final_total_amount else Decimal(str(order.total_amount))
-                
-                # Refresh shop to get latest outstanding_balance
-                db.refresh(shop)
-                current_outstanding = Decimal(str(shop.outstanding_balance or 0))
-                new_outstanding = current_outstanding + final_amount
-                
-                ShopRepository.update(
-                    db=db,
-                    shop_id=order.shop_id,
-                    outstanding_balance=new_outstanding
-                )
-                print(f"[approve_subsidy] Updated shop {order.shop_id} outstanding balance: {current_outstanding} -> {new_outstanding} (using final_total_amount: {final_amount})")
-        
-        db.commit()
-        db.refresh(order)
+        try:
+            # Update order (does not commit)
+            order.subsidy_status = 'approved'
+            order.subsidy_approved_by = distributor_id
+            order.subsidy_approved_at = datetime.utcnow()
+            
+            # Update shop's outstanding balance (was not updated during creation)
+            # Use final_total_amount (the reduced amount) for outstanding balance calculation
+            if order.shop_id:
+                from repositories.shop_repository import ShopRepository
+                shop = ShopRepository.get_by_id(db, order.shop_id)
+                if shop:
+                    # Use final_total_amount (the reduced amount after order booker's discount)
+                    # This is the actual amount the shop will owe
+                    final_amount = Decimal(str(order.final_total_amount)) if order.final_total_amount else Decimal(str(order.total_amount))
+                    
+                    # Refresh shop to get latest outstanding_balance
+                    db.refresh(shop)
+                    current_outstanding = Decimal(str(shop.outstanding_balance or 0))
+                    new_outstanding = current_outstanding + final_amount
+                    
+                    # Update shop (does not commit)
+                    ShopRepository.update(
+                        db=db,
+                        shop_id=order.shop_id,
+                        outstanding_balance=new_outstanding
+                    )
+                    print(f"[approve_subsidy] Updated shop {order.shop_id} outstanding balance: {current_outstanding} -> {new_outstanding} (using final_total_amount: {final_amount})")
+            
+            # Commit both operations together
+            db.commit()
+            db.refresh(order)
+            
+        except Exception as e:
+            # Rollback on any error
+            db.rollback()
+            raise
         
         return OrderService._format_orders(db, [order])[0]
     

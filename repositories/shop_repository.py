@@ -46,8 +46,9 @@ class ShopRepository:
             zone_id=zone_id
         )
         db.add(shop)
-        db.commit()
-        db.refresh(shop)
+        # Do NOT commit - let service layer handle transaction
+        # Note: shop.id will be available after flush, but commit happens in service
+        db.flush()  # Flush to get shop.id without committing
         return shop
     
     @staticmethod
@@ -202,6 +203,8 @@ class ShopRepository:
         
         Returns:
             Updated shop instance or None if not found
+        
+        Note: Does NOT commit - caller must commit transaction
         """
         shop = db.query(Shop).filter(Shop.id == shop_id).first()
         if not shop:
@@ -212,8 +215,7 @@ class ShopRepository:
             if hasattr(shop, key) and value is not None:
                 setattr(shop, key, value)
         
-        db.commit()
-        db.refresh(shop)
+        # Do NOT commit - let service layer handle transaction
         return shop
     
     @staticmethod

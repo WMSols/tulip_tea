@@ -465,21 +465,34 @@ class CreditLimitRequestService:
         # Determine final credit limit
         credit_limit_to_set = final_credit_limit if final_credit_limit is not None else float(request.requested_credit_limit)
         
-        # Approve request
-        approved = CreditLimitRequestRepository.approve(
-            db=db,
-            request_id=request_id,
-            distributor_id=distributor_id,
-            final_credit_limit=credit_limit_to_set,
-            remarks=remarks
-        )
-        
-        # Update shop's credit limit
-        ShopRepository.update(
-            db=db,
-            shop_id=request.shop_id,
-            credit_limit=Decimal(str(credit_limit_to_set))
-        )
+        try:
+            # Approve request (does not commit)
+            approved = CreditLimitRequestRepository.approve(
+                db=db,
+                request_id=request_id,
+                distributor_id=distributor_id,
+                final_credit_limit=credit_limit_to_set,
+                remarks=remarks
+            )
+            
+            # Update shop's credit limit (does not commit)
+            updated_shop = ShopRepository.update(
+                db=db,
+                shop_id=request.shop_id,
+                credit_limit=Decimal(str(credit_limit_to_set))
+            )
+            
+            if not updated_shop:
+                raise ValueError("Shop not found")
+            
+            # Commit both operations together
+            db.commit()
+            db.refresh(approved)
+            
+        except Exception as e:
+            # Rollback on any error
+            db.rollback()
+            raise
         
         # Get shop name for response
         shop = ShopRepository.get_by_id(db, approved.shop_id)
@@ -552,13 +565,23 @@ class CreditLimitRequestService:
         if not distributor:
             raise ValueError("Distributor not found")
         
-        # Reject request
-        rejected = CreditLimitRequestRepository.reject(
-            db=db,
-            request_id=request_id,
-            distributor_id=distributor_id,
-            remarks=remarks
-        )
+        try:
+            # Reject request (does not commit)
+            rejected = CreditLimitRequestRepository.reject(
+                db=db,
+                request_id=request_id,
+                distributor_id=distributor_id,
+                remarks=remarks
+            )
+            
+            # Commit transaction
+            db.commit()
+            db.refresh(rejected)
+            
+        except Exception as e:
+            # Rollback on any error
+            db.rollback()
+            raise
         
         # Get shop name for response
         shop = ShopRepository.get_by_id(db, rejected.shop_id)

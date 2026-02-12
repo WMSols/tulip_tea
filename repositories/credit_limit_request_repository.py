@@ -73,10 +73,7 @@ class CreditLimitRequestRepository:
         )
         # Add to session (staged, not yet saved)
         db.add(request)
-        # Commit transaction (saves to database)
-        db.commit()
-        # Refresh to get auto-generated fields (id, created_at)
-        db.refresh(request)
+        # Do NOT commit - let service layer handle transaction
         return request
     
     @staticmethod
@@ -356,7 +353,7 @@ class CreditLimitRequestRepository:
         2. Updates status to "approved"
         3. Sets approved_by_distributor and approved_at
         4. Updates requested_credit_limit if final_credit_limit provided
-        5. Commits transaction
+        5. Does NOT commit - caller must commit transaction
         
         Args:
             db: SQLAlchemy database session
@@ -384,8 +381,7 @@ class CreditLimitRequestRepository:
         if remarks:
             request.remarks = remarks
         
-        db.commit()
-        db.refresh(request)
+        # Do NOT commit - let service layer handle transaction
         return request
     
     @staticmethod
@@ -398,7 +394,7 @@ class CreditLimitRequestRepository:
         2. Updates status to "disapproved"
         3. Sets approved_by_distributor and approved_at
         4. Sets remarks (reason for disapproval)
-        5. Commits transaction
+        5. Does NOT commit - caller must commit transaction
         
         Args:
             db: SQLAlchemy database session
@@ -422,7 +418,6 @@ class CreditLimitRequestRepository:
         if remarks:
             request.remarks = remarks
         
-        db.commit()
-        db.refresh(request)
+        # Do NOT commit - let service layer handle transaction
         return request
 

@@ -78,14 +78,15 @@ class WalletRepository:
         
         Returns:
             Updated wallet instance or None if not found
+        
+        Note: Does NOT commit - caller must commit transaction
         """
         wallet = WalletRepository.get_by_id(db, wallet_id)
         if not wallet:
             return None
         
         wallet.current_balance = new_balance
-        db.commit()
-        db.refresh(wallet)
+        # Do NOT commit - let service layer handle transaction
         return wallet
     
     @staticmethod
@@ -140,8 +141,7 @@ class WalletRepository:
             transaction_metadata=transaction_metadata
         )
         db.add(transaction)
-        db.commit()
-        db.refresh(transaction)
+        # Do NOT commit - let service layer handle transaction
         return transaction
     
     @staticmethod

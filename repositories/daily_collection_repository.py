@@ -47,8 +47,7 @@ class DailyCollectionRepository:
             photo_proof=photo_proof
         )
         db.add(collection)
-        db.commit()
-        db.refresh(collection)
+        # Do NOT commit - let service layer handle transaction
         return collection
     
     @staticmethod

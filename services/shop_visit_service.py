@@ -446,11 +446,12 @@ class ShopVisitService:
                                    skip: int = 0, limit: int = 100) -> List[Dict]:
         """
         Get all visits made by an order booker.
+        OPTIMIZED: Uses batch loading to avoid N+1 queries.
         
         FLOW:
-        1. Gets visits from repository
-        2. For each visit, fetches shop and order booker information
-        3. Returns formatted list
+        1. Gets visits from repository (1 query)
+        2. Batch loads all related entities (shops, routes, order bookers, delivery men, visit types, orders, collections)
+        3. Formats visits using pre-loaded data (no additional queries)
         
         Args:
             db: Database session
@@ -463,33 +464,150 @@ class ShopVisitService:
         """
         visits = ShopVisitRepository.get_by_order_booker(db, order_booker_id, skip, limit)
         
+        if not visits:
+            return []
+        
+        # Batch load all related entities to avoid N+1 queries
+        from models.shop import Shop
+        from models.order_booker import OrderBooker
+        from models.delivery_man import DeliveryMan
+        from models.route import Route
+        from models.order import Order
+        from models.daily_collection import DailyCollection
+        from models.visit_type import VisitType
+        
+        # Collect all unique IDs
+        shop_ids = list(set([v.shop_id for v in visits if v.shop_id]))
+        order_booker_ids = list(set([v.order_booker_id for v in visits if v.order_booker_id]))
+        delivery_man_ids = list(set([v.delivery_man_id for v in visits if v.delivery_man_id]))
+        visit_ids = [v.id for v in visits]
+        
+        # Batch load shops (1 query for all shops)
+        shops_map = {}
+        if shop_ids:
+            shops_query = db.query(Shop).filter(Shop.id.in_(shop_ids)).all()
+            shops_map = {shop.id: shop for shop in shops_query}
+        
+        # Batch load routes (get all routes for shops that have route_id)
+        routes_map = {}
+        route_ids = list(set([s.route_id for s in shops_map.values() if s.route_id]))
+        if route_ids:
+            routes_query = db.query(Route).filter(Route.id.in_(route_ids)).all()
+            routes_map = {route.id: route for route in routes_query}
+        
+        # Batch load order bookers (1 query for all order bookers)
+        order_bookers_map = {}
+        if order_booker_ids:
+            ob_query = db.query(OrderBooker).filter(OrderBooker.id.in_(order_booker_ids)).all()
+            order_bookers_map = {ob.id: ob for ob in ob_query}
+        
+        # Batch load delivery men (1 query for all delivery men)
+        delivery_men_map = {}
+        if delivery_man_ids:
+            dm_query = db.query(DeliveryMan).filter(DeliveryMan.id.in_(delivery_man_ids)).all()
+            delivery_men_map = {dm.id: dm for dm in dm_query}
+        
+        # Batch load visit types for all visits (1 query for all visit types)
+        visit_types_map = {}
+        if visit_ids:
+            visit_types = db.query(VisitType).filter(VisitType.visit_id.in_(visit_ids)).all()
+            for vt in visit_types:
+                if vt.visit_id not in visit_types_map:
+                    visit_types_map[vt.visit_id] = []
+                visit_types_map[vt.visit_id].append(vt.visit_type)
+        
+        # Batch load order IDs (1 query for all orders linked to visits)
+        orders_map = {}
+        if visit_ids:
+            orders_query = db.query(Order.visit_id, Order.id).filter(
+                Order.visit_id.in_(visit_ids),
+                Order.visit_id.isnot(None)
+            ).all()
+            for visit_id, order_id in orders_query:
+                orders_map[visit_id] = order_id
+        
+        # Batch load collection IDs (1 query for all collections linked to visits)
+        collections_map = {}
+        if visit_ids:
+            collections_query = db.query(DailyCollection.visit_id, DailyCollection.id).filter(
+                DailyCollection.visit_id.in_(visit_ids),
+                DailyCollection.visit_id.isnot(None)
+            ).all()
+            for visit_id, collection_id in collections_query:
+                collections_map[visit_id] = collection_id
+        
+        # Format visits using pre-loaded data (no additional queries)
         result = []
         for visit in visits:
-            # Get shop name
+            # Get shop info from batch-loaded data
             shop_name = None
-            if visit.shop_id:
-                shop = ShopRepository.get_by_id(db, visit.shop_id)
-                shop_name = shop.name if shop else None
-            
-            # Get order booker name
-            order_booker_name = None
-            if visit.order_booker_id:
-                order_booker = OrderBookerRepository.get_by_id(db, visit.order_booker_id)
-                order_booker_name = order_booker.name if order_booker else None
-            
-            # Get delivery man name
-            delivery_man_name = None
-            if visit.delivery_man_id:
-                delivery_man = DeliveryManRepository.get_by_id(db, visit.delivery_man_id)
-                delivery_man_name = delivery_man.name if delivery_man else None
-            
-            # Get shop zone_id
             shop_zone_id = None
-            if visit.shop_id:
-                shop = ShopRepository.get_by_id(db, visit.shop_id)
-                shop_zone_id = shop.zone_id if shop else None
+            shop_routes = []
+            if visit.shop_id and visit.shop_id in shops_map:
+                shop = shops_map[visit.shop_id]
+                shop_name = shop.name
+                shop_zone_id = shop.zone_id
+                if shop.route_id and shop.route_id in routes_map:
+                    route = routes_map[shop.route_id]
+                    shop_routes.append({
+                        "route_id": route.id,
+                        "route_name": route.name,
+                        "zone_id": route.zone_id
+                    })
             
-            result.append(ShopVisitService._format_visit_data(db, visit, include_linked_data=True))
+            # Get order booker name from batch-loaded data
+            order_booker_name = None
+            if visit.order_booker_id and visit.order_booker_id in order_bookers_map:
+                order_booker_name = order_bookers_map[visit.order_booker_id].name
+            
+            # Get delivery man name from batch-loaded data
+            delivery_man_name = None
+            if visit.delivery_man_id and visit.delivery_man_id in delivery_men_map:
+                delivery_man_name = delivery_men_map[visit.delivery_man_id].name
+            
+            # Get visit types from batch-loaded data
+            visit_types_list = visit_types_map.get(visit.id, [])
+            if not visit_types_list and visit.visit_type:
+                # Fallback to legacy visit_type field
+                visit_types_list = [visit.visit_type]
+            
+            # Get linked order and collection IDs from batch-loaded data
+            order_id = orders_map.get(visit.id)
+            collection_id = collections_map.get(visit.id)
+            
+            # Parse photos JSON string to list
+            photos_list = []
+            if visit.photos:
+                try:
+                    import json
+                    if isinstance(visit.photos, str):
+                        photos_list = json.loads(visit.photos)
+                    elif isinstance(visit.photos, list):
+                        photos_list = visit.photos
+                except Exception as e:
+                    print(f"Error parsing photos: {e}")
+                    photos_list = []
+            
+            result.append({
+                "id": visit.id,
+                "shop_id": visit.shop_id,
+                "shop_name": shop_name,
+                "shop_zone_id": shop_zone_id,
+                "shop_routes": shop_routes,
+                "order_booker_id": visit.order_booker_id,
+                "order_booker_name": order_booker_name,
+                "delivery_man_id": visit.delivery_man_id,
+                "delivery_man_name": delivery_man_name,
+                "visit_types": visit_types_list,
+                "gps_lat": float(visit.gps_lat) if visit.gps_lat else None,
+                "gps_lng": float(visit.gps_lng) if visit.gps_lng else None,
+                "visit_time": visit.visit_date.isoformat() if visit.visit_date else None,
+                "photo": photos_list[0] if photos_list and len(photos_list) > 0 else None,
+                "photos": photos_list,
+                "reason": visit.remarks,
+                "order_id": order_id,
+                "collection_id": collection_id
+            })
         
         return result
     
@@ -498,11 +616,12 @@ class ShopVisitService:
                            skip: int = 0, limit: int = 100) -> List[Dict]:
         """
         Get all visits to a specific shop.
+        OPTIMIZED: Uses batch loading to avoid N+1 queries.
         
         FLOW:
-        1. Gets visits from repository
-        2. For each visit, fetches shop and order booker/delivery man information
-        3. Returns formatted list
+        1. Gets visits from repository (1 query)
+        2. Batch loads all related entities (shops, routes, order bookers, delivery men, visit types, orders, collections)
+        3. Formats visits using pre-loaded data (no additional queries)
         
         Args:
             db: Database session
@@ -515,31 +634,150 @@ class ShopVisitService:
         """
         visits = ShopVisitRepository.get_by_shop(db, shop_id, skip, limit)
         
+        if not visits:
+            return []
+        
+        # Batch load all related entities to avoid N+1 queries
+        from models.shop import Shop
+        from models.order_booker import OrderBooker
+        from models.delivery_man import DeliveryMan
+        from models.route import Route
+        from models.order import Order
+        from models.daily_collection import DailyCollection
+        from models.visit_type import VisitType
+        
+        # Collect all unique IDs
+        shop_ids = list(set([v.shop_id for v in visits if v.shop_id]))
+        order_booker_ids = list(set([v.order_booker_id for v in visits if v.order_booker_id]))
+        delivery_man_ids = list(set([v.delivery_man_id for v in visits if v.delivery_man_id]))
+        visit_ids = [v.id for v in visits]
+        
+        # Batch load shops (1 query for all shops)
+        shops_map = {}
+        if shop_ids:
+            shops_query = db.query(Shop).filter(Shop.id.in_(shop_ids)).all()
+            shops_map = {shop.id: shop for shop in shops_query}
+        
+        # Batch load routes (get all routes for shops that have route_id)
+        routes_map = {}
+        route_ids = list(set([s.route_id for s in shops_map.values() if s.route_id]))
+        if route_ids:
+            routes_query = db.query(Route).filter(Route.id.in_(route_ids)).all()
+            routes_map = {route.id: route for route in routes_query}
+        
+        # Batch load order bookers (1 query for all order bookers)
+        order_bookers_map = {}
+        if order_booker_ids:
+            ob_query = db.query(OrderBooker).filter(OrderBooker.id.in_(order_booker_ids)).all()
+            order_bookers_map = {ob.id: ob for ob in ob_query}
+        
+        # Batch load delivery men (1 query for all delivery men)
+        delivery_men_map = {}
+        if delivery_man_ids:
+            dm_query = db.query(DeliveryMan).filter(DeliveryMan.id.in_(delivery_man_ids)).all()
+            delivery_men_map = {dm.id: dm for dm in dm_query}
+        
+        # Batch load visit types for all visits (1 query for all visit types)
+        visit_types_map = {}
+        if visit_ids:
+            visit_types = db.query(VisitType).filter(VisitType.visit_id.in_(visit_ids)).all()
+            for vt in visit_types:
+                if vt.visit_id not in visit_types_map:
+                    visit_types_map[vt.visit_id] = []
+                visit_types_map[vt.visit_id].append(vt.visit_type)
+        
+        # Batch load order IDs (1 query for all orders linked to visits)
+        orders_map = {}
+        if visit_ids:
+            orders_query = db.query(Order.visit_id, Order.id).filter(
+                Order.visit_id.in_(visit_ids),
+                Order.visit_id.isnot(None)
+            ).all()
+            for visit_id, order_id in orders_query:
+                orders_map[visit_id] = order_id
+        
+        # Batch load collection IDs (1 query for all collections linked to visits)
+        collections_map = {}
+        if visit_ids:
+            collections_query = db.query(DailyCollection.visit_id, DailyCollection.id).filter(
+                DailyCollection.visit_id.in_(visit_ids),
+                DailyCollection.visit_id.isnot(None)
+            ).all()
+            for visit_id, collection_id in collections_query:
+                collections_map[visit_id] = collection_id
+        
+        # Format visits using pre-loaded data (no additional queries)
         result = []
         for visit in visits:
-            # Get shop name
-            shop = ShopRepository.get_by_id(db, visit.shop_id)
-            shop_name = shop.name if shop else None
-            
-            # Get order booker name
-            order_booker_name = None
-            if visit.order_booker_id:
-                order_booker = OrderBookerRepository.get_by_id(db, visit.order_booker_id)
-                order_booker_name = order_booker.name if order_booker else None
-            
-            # Get delivery man name
-            delivery_man_name = None
-            if visit.delivery_man_id:
-                delivery_man = DeliveryManRepository.get_by_id(db, visit.delivery_man_id)
-                delivery_man_name = delivery_man.name if delivery_man else None
-            
-            # Get shop zone_id
+            # Get shop info from batch-loaded data
+            shop_name = None
             shop_zone_id = None
-            if visit.shop_id:
-                shop = ShopRepository.get_by_id(db, visit.shop_id)
-                shop_zone_id = shop.zone_id if shop else None
+            shop_routes = []
+            if visit.shop_id and visit.shop_id in shops_map:
+                shop = shops_map[visit.shop_id]
+                shop_name = shop.name
+                shop_zone_id = shop.zone_id
+                if shop.route_id and shop.route_id in routes_map:
+                    route = routes_map[shop.route_id]
+                    shop_routes.append({
+                        "route_id": route.id,
+                        "route_name": route.name,
+                        "zone_id": route.zone_id
+                    })
             
-            result.append(ShopVisitService._format_visit_data(db, visit, include_linked_data=True))
+            # Get order booker name from batch-loaded data
+            order_booker_name = None
+            if visit.order_booker_id and visit.order_booker_id in order_bookers_map:
+                order_booker_name = order_bookers_map[visit.order_booker_id].name
+            
+            # Get delivery man name from batch-loaded data
+            delivery_man_name = None
+            if visit.delivery_man_id and visit.delivery_man_id in delivery_men_map:
+                delivery_man_name = delivery_men_map[visit.delivery_man_id].name
+            
+            # Get visit types from batch-loaded data
+            visit_types_list = visit_types_map.get(visit.id, [])
+            if not visit_types_list and visit.visit_type:
+                # Fallback to legacy visit_type field
+                visit_types_list = [visit.visit_type]
+            
+            # Get linked order and collection IDs from batch-loaded data
+            order_id = orders_map.get(visit.id)
+            collection_id = collections_map.get(visit.id)
+            
+            # Parse photos JSON string to list
+            photos_list = []
+            if visit.photos:
+                try:
+                    import json
+                    if isinstance(visit.photos, str):
+                        photos_list = json.loads(visit.photos)
+                    elif isinstance(visit.photos, list):
+                        photos_list = visit.photos
+                except Exception as e:
+                    print(f"Error parsing photos: {e}")
+                    photos_list = []
+            
+            result.append({
+                "id": visit.id,
+                "shop_id": visit.shop_id,
+                "shop_name": shop_name,
+                "shop_zone_id": shop_zone_id,
+                "shop_routes": shop_routes,
+                "order_booker_id": visit.order_booker_id,
+                "order_booker_name": order_booker_name,
+                "delivery_man_id": visit.delivery_man_id,
+                "delivery_man_name": delivery_man_name,
+                "visit_types": visit_types_list,
+                "gps_lat": float(visit.gps_lat) if visit.gps_lat else None,
+                "gps_lng": float(visit.gps_lng) if visit.gps_lng else None,
+                "visit_time": visit.visit_date.isoformat() if visit.visit_date else None,
+                "photo": photos_list[0] if photos_list and len(photos_list) > 0 else None,
+                "photos": photos_list,
+                "reason": visit.remarks,
+                "order_id": order_id,
+                "collection_id": collection_id
+            })
         
         return result
     

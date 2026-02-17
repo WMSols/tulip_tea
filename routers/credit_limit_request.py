@@ -5,12 +5,15 @@ Handles API endpoints for credit limit requests.
 
 API ENDPOINTS:
 - POST /credit-limit-requests/order-booker/{order_booker_id} - Create request (Order Booker)
-- GET /credit-limit-requests/pending - List pending requests (Distributor)
+- GET /credit-limit-requests/all?distributor_id={id} - Get all requests (pending, approved, disapproved) (Distributor)
 - PUT /credit-limit-requests/{request_id} - Update request (Distributor)
 - POST /credit-limit-requests/{request_id}/approve - Approve request (Distributor)
 - POST /credit-limit-requests/{request_id}/reject - Reject request (Distributor)
 - DELETE /credit-limit-requests/{request_id} - Soft delete DISAPPROVED request (Distributor)
 - GET /credit-limit-requests/order-booker/{order_booker_id}/my-requests - Get all requests by order booker
+
+COMMENTED OUT (Distributor endpoints - disabled):
+- GET /credit-limit-requests/pending - List pending requests (Distributor) - Use /all instead
 
 FLOW:
 1. Order Booker creates request → Status: "pending"
@@ -126,27 +129,31 @@ async def create_credit_limit_request(
         )
 
 
-@router.get("/pending", response_model=List[CreditLimitRequestResponse], tags=["Credit Limit Requests", "Distributor APIs", "Order Booker APIs"])
-async def get_pending_requests(
-    distributor_id: int = Query(..., description="Distributor ID to filter pending requests"),
-    current_user: Dict = Depends(get_current_user),
+@router.get("/all", response_model=List[CreditLimitRequestResponse], tags=["Credit Limit Requests", "Distributor APIs"])
+async def get_all_credit_limit_requests(
+    distributor_id: int = Query(..., description="Distributor ID to filter requests"),
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(50, ge=1, le=500, description="Maximum number of records to return (default: 50)"),
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
     """
-    Get all pending credit limit requests for shops belonging to the specified distributor.
+    Get all credit limit requests (pending, approved, disapproved) for shops belonging to the specified distributor.
     
-    API: GET /credit-limit-requests/pending?distributor_id={id}
+    API: GET /credit-limit-requests/all?distributor_id={id}&skip=0&limit=50
     
     FLOW:
-    1. Distributor views dashboard
-    2. Service gets pending requests filtered to shops belonging to this distributor's order bookers
-    3. Returns list with shop information
+    1. Distributor views all credit limit requests
+    2. Service gets all requests (pending, approved, disapproved) filtered to shops belonging to this distributor's order bookers
+    3. Returns paginated list with shop information
     
     Query Parameters:
-        distributor_id: Required - Only returns requests for shops that:
+        distributor_id: Required - Distributor ID - Only returns requests for shops that:
             - Were created by an order booker belonging to this distributor, OR
             - Are assigned to an order booker belonging to this distributor, OR
             - Were verified by this distributor
+        skip: Number of records to skip (for pagination, default: 0)
+        limit: Maximum number of records to return (default: 50, max: 500)
     
     Response (200):
         [
@@ -157,30 +164,90 @@ async def get_pending_requests(
                 "shop_owner": "Ahmed Ali",
                 "old_credit_limit": 50000.00,
                 "requested_credit_limit": 75000.00,
-                "status": "pending",
+                "status": "pending",  // or "approved" or "disapproved"
                 ...
             },
             ...
         ]
     """
-    # Verify user can only view requests for their own distributor if they're a distributor
-    if current_user['user_role'] == 'distributor' and current_user['user_id'] != distributor_id:
+    # Verify distributor can only view requests for their own account
+    if distributor['user_id'] != distributor_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only view pending requests for your own distributor account"
+            detail="You can only view credit limit requests for your own distributor account"
         )
     
     try:
-        requests = CreditLimitRequestService.get_pending_requests(db=db, distributor_id=distributor_id)
+        requests = CreditLimitRequestService.get_all_requests_by_distributor(
+            db=db,
+            distributor_id=distributor_id,
+            skip=skip,
+            limit=limit
+        )
         return requests
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching pending requests: {str(e)}"
+            detail=f"Error fetching credit limit requests: {str(e)}"
         )
 
 
-@router.put("/{request_id}", response_model=CreditLimitRequestResponse)
+# COMMENTED OUT: Temporarily disabled distributor endpoints
+# @router.get("/pending", response_model=List[CreditLimitRequestResponse], tags=["Credit Limit Requests", "Distributor APIs", "Order Booker APIs"])
+# async def get_pending_requests(
+#     distributor_id: int = Query(..., description="Distributor ID to filter pending requests"),
+#     current_user: Dict = Depends(get_current_user),
+#     db: Session = Depends(get_db)
+# ):
+#     """
+#     Get all pending credit limit requests for shops belonging to the specified distributor.
+#     
+#     API: GET /credit-limit-requests/pending?distributor_id={id}
+#     
+#     FLOW:
+#     1. Distributor views dashboard
+#     2. Service gets pending requests filtered to shops belonging to this distributor's order bookers
+#     3. Returns list with shop information
+#     
+#     Query Parameters:
+#         distributor_id: Required - Only returns requests for shops that:
+#             - Were created by an order booker belonging to this distributor, OR
+#             - Are assigned to an order booker belonging to this distributor, OR
+#             - Were verified by this distributor
+#     
+#     Response (200):
+#         [
+#             {
+#                 "id": 1,
+#                 "shop_id": 1,
+#                 "shop_name": "Ali General Store",
+#                 "shop_owner": "Ahmed Ali",
+#                 "old_credit_limit": 50000.00,
+#                 "requested_credit_limit": 75000.00,
+#                 "status": "pending",
+#                 ...
+#             },
+#             ...
+#         ]
+#     """
+#     # Verify user can only view requests for their own distributor if they're a distributor
+#     if current_user['user_role'] == 'distributor' and current_user['user_id'] != distributor_id:
+#         raise HTTPException(
+#             status_code=status.HTTP_403_FORBIDDEN,
+#             detail="You can only view pending requests for your own distributor account"
+#         )
+#     
+#     try:
+#         requests = CreditLimitRequestService.get_pending_requests(db=db, distributor_id=distributor_id)
+#         return requests
+#     except Exception as e:
+#         raise HTTPException(
+#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             detail=f"Error fetching pending requests: {str(e)}"
+#         )
+
+
+@router.put("/{request_id}", response_model=CreditLimitRequestResponse, tags=["Credit Limit Requests", "Distributor APIs"])
 async def update_credit_limit_request(
     request_id: int,
     update_data: CreditLimitRequestUpdate,

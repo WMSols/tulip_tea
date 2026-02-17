@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 from typing import List
 from decimal import Decimal
+from datetime import datetime
 from config.database import get_db
 from models.schemas import ShopRegister, ShopResponse, ShopUpdate, ShopVerify
 from services.shop_service import ShopService
@@ -719,6 +720,7 @@ async def verify_shop(
             raise ValueError("Shop not found")
         
         old_status = shop_before.registration_status
+        old_credit_limit = float(shop_before.credit_limit) if shop_before.credit_limit else 0
         
         verified_shop = ShopRepository.verify_shop(
             db=db,
@@ -728,6 +730,34 @@ async def verify_shop(
         )
         if not verified_shop:
             raise ValueError("Shop not found")
+        
+        # When shop is approved, the credit_limit is already set (from registration or distributor update)
+        # No credit limit request is created - credit_limit is directly assigned
+        if verification.registration_status == 'approved':
+            # Get the current credit_limit (may have been set during registration or updated by distributor)
+            new_credit_limit = float(verified_shop.credit_limit) if verified_shop.credit_limit else 0
+            
+            # Log credit limit assignment if it was set
+            if new_credit_limit > 0 and old_credit_limit != new_credit_limit:
+                ActivityLogService.log_activity(
+                    db=db,
+                    user_id=distributor_id,
+                    user_role='distributor',
+                    action_type='APPROVE',
+                    entity_type='shop',
+                    entity_id=shop_id,
+                    old_values={
+                        'credit_limit': str(old_credit_limit),
+                        'registration_status': old_status
+                    },
+                    new_values={
+                        'credit_limit': str(new_credit_limit),
+                        'registration_status': verification.registration_status
+                    },
+                    changes_summary=f"Shop approved with credit limit: {verified_shop.name} - Credit limit: Rs. {new_credit_limit}",
+                    reason=verification.remarks,
+                    request=request
+                )
         
         # Get order booker name who created the shop (historical)
         created_by_name = None

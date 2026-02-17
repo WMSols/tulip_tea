@@ -89,6 +89,7 @@ class ShopService:
         # Create shop with pending status
         # Note: assigned_to_order_booker is automatically set to order_booker_id
         # in ShopRepository.create() to match created_by_order_booker initially
+        # Credit limit is set directly on shop (no credit limit request created)
         shop = ShopRepository.create(
             db=db,
             name=name,
@@ -96,7 +97,7 @@ class ShopService:
             owner_phone=owner_phone,
             gps_lat=gps_lat,
             gps_lng=gps_lng,
-            credit_limit=Decimal('0'),  # Start with 0, will be set after approval
+            credit_limit=credit_limit or Decimal('0'),  # Set credit_limit directly from registration
             legacy_balance=legacy_balance or Decimal('0'),
             created_by_order_booker=order_booker_id,
             zone_id=zone_id,
@@ -222,18 +223,9 @@ class ShopService:
             db.refresh(shop)
         
         # Create credit limit request if credit_limit is provided and > 0
+        # Credit limit is set directly on shop, no credit limit request created
+        # The credit_limit will be approved when distributor approves the shop
         credit_limit_request_id = None
-        if credit_limit and credit_limit > 0:
-            request = CreditLimitRequestRepository.create(
-                db=db,
-                shop_id=shop.id,
-                requested_by_role="order_booker",
-                requested_by_id=order_booker_id,
-                requested_credit_limit=float(credit_limit),
-                old_credit_limit=None,  # New shop, no old limit
-                remarks=f"Initial credit limit request for new shop: {name}"
-            )
-            credit_limit_request_id = request.id
         
         # Get assigned order booker name (initially same as creator)
         assigned_order_booker_name = order_booker.name if order_booker else None

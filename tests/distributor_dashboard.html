@@ -666,7 +666,7 @@
                     
                     <div style="margin-bottom: 20px;">
                         <button class="btn btn-success" onclick="loadAllShopsWithCreditLimits()" style="margin-right: 10px;">Refresh All Credit Limits</button>
-                        <button class="btn btn-primary" onclick="loadPendingCreditLimitRequests()">View Pending Requests Only</button>
+                        <button class="btn btn-primary" onclick="loadPendingCreditLimitRequests()">View All Credit Limit Requests</button>
                     </div>
                     
                     <!-- Filter by Zone -->
@@ -679,8 +679,9 @@
                     
                     <div id="creditLimitsList" style="margin-top: 20px;"></div>
                     
-                    <!-- Pending Credit Limit Requests Section -->
-                    <h2 style="margin-top: 40px; color: #e74c3c;">Pending Credit Limit Requests <span id="creditRequestsBadgeInline" style="background: #e74c3c; color: white; padding: 2px 8px; border-radius: 10px; font-size: 14px;">0</span></h2>
+                    <!-- All Credit Limit Requests Section -->
+                    <h2 style="margin-top: 40px; color: #e74c3c;">All Credit Limit Requests <span id="creditRequestsBadgeInline" style="background: #e74c3c; color: white; padding: 2px 8px; border-radius: 10px; font-size: 14px;">0</span></h2>
+                    <p style="color: #666; margin-bottom: 20px;">View all credit limit requests (pending, approved, disapproved). Only disapproved requests can be deleted.</p>
                     <div id="creditLimitRequestsList" style="margin-top: 20px;"></div>
                 </div>
 
@@ -2414,8 +2415,11 @@
                     const hasBackPhoto = shop.owner_cnic_back_photo && shop.owner_cnic_back_photo.trim() !== '' && shop.owner_cnic_back_photo !== 'null';
                     const hasCnicPhotos = hasFrontPhoto || hasBackPhoto;
                     
+                    // Use outstanding_balance from API but display as legacy_balance in UI
+                    const legacyBalance = shop.outstanding_balance || shop.legacy_balance || 0;
+                    
                     return `
-                    <div class="list-item" onclick="openEditShopModal(${shop.id}, '${shopName}', '${ownerName}', '${ownerPhone}', ${shop.gps_lat || 0}, ${shop.gps_lng || 0}, ${shop.credit_limit || 0}, ${shop.legacy_balance || 0}, ${shop.zone_id || 'null'}, '${shop.registration_status || 'pending'}', '${(shop.created_at || '').replace(/'/g, "\\'")}', '${cnicFrontPhoto}', '${cnicBackPhoto}')">
+                    <div class="list-item" onclick="openEditShopModal(${shop.id}, '${shopName}', '${ownerName}', '${ownerPhone}', ${shop.gps_lat || 0}, ${shop.gps_lng || 0}, ${shop.credit_limit || 0}, ${legacyBalance}, ${shop.zone_id || 'null'}, '${shop.registration_status || 'pending'}', '${(shop.created_at || '').replace(/'/g, "\\'")}', '${cnicFrontPhoto}', '${cnicBackPhoto}')">
                         <div class="list-item-info" style="flex: 1;">
                             <strong>${shop.name}</strong><br>
                             Owner: ${shop.owner_name || 'N/A'}<br>
@@ -2439,7 +2443,7 @@
             }
         }
 
-        // Load Pending Credit Limit Requests (and Disapproved for deletion)
+        // Load All Credit Limit Requests (pending, approved, disapproved)
         async function loadPendingCreditLimitRequests() {
             const listDiv = document.getElementById('creditLimitRequestsList');
             if (!currentDistributorId) {
@@ -2447,7 +2451,7 @@
                 return;
             }
 
-            const endpoint = `${API_BASE}/credit-limit-requests/pending?distributor_id=${currentDistributorId}`;
+            const endpoint = `${API_BASE}/credit-limit-requests/all?distributor_id=${currentDistributorId}&skip=0&limit=50`;
             showApiCall('GET', endpoint, 'Load Credit Limit Requests', 'loading');
 
             try {
@@ -2460,8 +2464,9 @@
                     throw new Error(data.detail || 'Failed to load credit limit requests');
                 }
 
-                // Separate pending and disapproved requests
+                // Separate requests by status
                 const pendingRequests = data.filter(req => req.status === 'pending' || !req.status);
+                const approvedRequests = data.filter(req => req.status === 'approved');
                 const disapprovedRequests = data.filter(req => req.status === 'disapproved');
 
                 updateCreditRequestsBadge(pendingRequests.length);
@@ -2481,9 +2486,33 @@
                                 <strong>Shop: ${req.shop_name || 'N/A'}</strong><br>
                                 Current Limit: Rs. ${(req.old_credit_limit || 0).toLocaleString()}<br>
                                 Requested Limit: Rs. ${(req.requested_credit_limit || 0).toLocaleString()}<br>
-                                Requested By: ${req.requested_by_role} (ID: ${req.requested_by_id})<br>
+                                Requested By: ${req.requested_by_name || req.requested_by_role} (ID: ${req.requested_by_id})<br>
                                 Status: <span style="color: orange; font-weight: bold;">${status}</span><br>
                                 ${req.remarks ? `Remarks: ${req.remarks}<br>` : ''}
+                                <small>Request ID: ${req.id} | Created: ${new Date(req.created_at).toLocaleString()}</small>
+                            </div>
+                        </div>
+                    `;
+                    }).join('');
+                }
+
+                // Show approved requests
+                if (approvedRequests.length > 0) {
+                    html += '<h3 style="color: #28a745; margin-top: 30px; margin-bottom: 10px;">✅ Approved Requests</h3>';
+                    html += approvedRequests.map(req => {
+                        const shopName = (req.shop_name || 'N/A').replace(/'/g, "\\'");
+                        const remarks = (req.remarks || '').replace(/'/g, "\\'");
+                        return `
+                        <div class="list-item" onclick="openEditCreditRequestModal(${req.id}, ${req.shop_id}, '${shopName}', ${req.old_credit_limit || 0}, ${req.requested_credit_limit || 0}, '${remarks}', '${(req.created_at || '').replace(/'/g, "\\'")}', '${req.requested_by_role}', ${req.requested_by_id}, 'approved')">
+                            <div class="list-item-info">
+                                <strong>Shop: ${req.shop_name || 'N/A'}</strong><br>
+                                Old Limit: Rs. ${(req.old_credit_limit || 0).toLocaleString()}<br>
+                                Approved Limit: Rs. ${(req.requested_credit_limit || 0).toLocaleString()}<br>
+                                Requested By: ${req.requested_by_name || req.requested_by_role} (ID: ${req.requested_by_id})<br>
+                                Approved By: ${req.approved_by_distributor_name || 'N/A'}<br>
+                                Status: <span style="color: green; font-weight: bold;">approved</span><br>
+                                ${req.remarks ? `Remarks: ${req.remarks}<br>` : ''}
+                                ${req.approved_at ? `<small>Approved: ${new Date(req.approved_at).toLocaleString()}</small><br>` : ''}
                                 <small>Request ID: ${req.id} | Created: ${new Date(req.created_at).toLocaleString()}</small>
                             </div>
                         </div>
@@ -2505,7 +2534,7 @@
                                 <strong>Shop: ${req.shop_name || 'N/A'}</strong>${deletedBadge}<br>
                                 Current Limit: Rs. ${(req.old_credit_limit || 0).toLocaleString()}<br>
                                 Requested Limit: Rs. ${(req.requested_credit_limit || 0).toLocaleString()}<br>
-                                Requested By: ${req.requested_by_role} (ID: ${req.requested_by_id})<br>
+                                Requested By: ${req.requested_by_name || req.requested_by_role} (ID: ${req.requested_by_id})<br>
                                 Status: <span style="color: red; font-weight: bold;">disapproved</span><br>
                                 ${req.remarks ? `Remarks: ${req.remarks}<br>` : ''}
                                 ${isDeleted ? `<span style="color: #6c757d; font-size: 12px;">Deleted: ${new Date(req.deleted_at).toLocaleString()}</span><br>` : ''}
@@ -2522,7 +2551,7 @@
                     }).join('');
                 }
 
-                if (pendingRequests.length === 0 && disapprovedRequests.length === 0) {
+                if (pendingRequests.length === 0 && approvedRequests.length === 0 && disapprovedRequests.length === 0) {
                     html = '<p>No credit limit requests found.</p>';
                 }
 
@@ -2625,10 +2654,11 @@
                 loadZonesForShopModal();
             }
             
-            // Fetch shop details to get route information and photos (fresh data)
+            // Fetch shop details to get route information, photos, and outstanding_balance (fresh data)
             let routesInfo = '';
             let actualCnicFrontPhoto = cnicFrontPhoto || '';
             let actualCnicBackPhoto = cnicBackPhoto || '';
+            let actualOutstandingBalance = legacyBalance || 0; // Default to passed legacyBalance
             
             try {
                 const response = await fetch(`${API_BASE}/shops/all?distributor_id=${currentDistributorId}`, {
@@ -2641,6 +2671,12 @@
                         // Get fresh photo URLs from the API response
                         actualCnicFrontPhoto = shop.owner_cnic_front_photo || '';
                         actualCnicBackPhoto = shop.owner_cnic_back_photo || '';
+                        
+                        // Get outstanding_balance from API (displayed as Legacy Balance in UI)
+                        actualOutstandingBalance = shop.outstanding_balance || shop.legacy_balance || 0;
+                        
+                        // Update the Legacy Balance field with outstanding_balance from API
+                        document.getElementById('editShopLegacyBalance').value = actualOutstandingBalance || '';
                         
                         // Debug: Log photo URLs
                         console.log('Shop photo URLs:', {
@@ -3524,7 +3560,7 @@
                         const cnicBackPhoto = (shop.owner_cnic_back_photo || '').replace(/'/g, "\\'");
                         const hasCnicPhotos = shop.owner_cnic_front_photo || shop.owner_cnic_back_photo;
                         html += `
-                            <div class="list-item" onclick="openEditShopModal(${shop.id}, '${(shop.name || '').replace(/'/g, "\\'")}', '${(shop.owner_name || '').replace(/'/g, "\\'")}', '${(shop.owner_phone || '').replace(/'/g, "\\'")}', ${shop.gps_lat || 0}, ${shop.gps_lng || 0}, ${shop.credit_limit || 0}, ${shop.legacy_balance || 0}, ${shop.zone_id || 'null'}, '${statusText}', '${(shop.created_at || '').replace(/'/g, "\\'")}', '${cnicFrontPhoto}', '${cnicBackPhoto}')" style="margin-bottom: 10px;">
+                            <div class="list-item" onclick="openEditShopModal(${shop.id}, '${(shop.name || '').replace(/'/g, "\\'")}', '${(shop.owner_name || '').replace(/'/g, "\\'")}', '${(shop.owner_phone || '').replace(/'/g, "\\'")}', ${shop.gps_lat || 0}, ${shop.gps_lng || 0}, ${shop.credit_limit || 0}, ${shop.outstanding_balance || shop.legacy_balance || 0}, ${shop.zone_id || 'null'}, '${statusText}', '${(shop.created_at || '').replace(/'/g, "\\'")}', '${cnicFrontPhoto}', '${cnicBackPhoto}')" style="margin-bottom: 10px;">
                         <div class="list-item-info" style="flex: 1;">
                             <strong>${shop.name}</strong> 
                             ${statusText === 'pending' ? '<span style="background: #ffc107; color: #000; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-left: 10px;">PENDING</span>' : ''}
@@ -3536,9 +3572,6 @@
                             ${hasCnicPhotos ? '<span style="color: #667eea; font-weight: bold;">📷 CNIC Photos Available</span><br>' : ''}
                             Created By: ${shop.created_by_order_booker_name || 'N/A'}<br>
                             <small>ID: ${shop.id} | Created: ${new Date(shop.created_at).toLocaleString()}</small>
-                        </div>
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <button class="btn btn-danger" onclick="event.stopPropagation(); deleteShop(${shop.id}, '${(shop.name || '').replace(/'/g, "\\'")}')" style="padding: 8px 15px; font-size: 14px;">🗑️ Delete</button>
                         </div>
                     </div>
                         `;
@@ -3706,13 +3739,10 @@
                                 <strong style="color: ${creditLimitColor}; font-size: 1.1em;">
                                     Credit Limit: Rs. ${creditLimit.toLocaleString()}
                                 </strong><br>
-                                Legacy Balance: Rs. ${(shop.legacy_balance || 0).toLocaleString()}<br>
+                                Legacy Balance: Rs. ${((shop.outstanding_balance || shop.legacy_balance) || 0).toLocaleString()}<br>
                                 Status: <span style="color: ${shop.registration_status === 'approved' ? 'green' : 'orange'}">${shop.registration_status || 'pending'}</span><br>
                                 Created By: ${shop.created_by_order_booker_name || 'N/A'}<br>
                                 <small>ID: ${shop.id} | Created: ${new Date(shop.created_at).toLocaleString()}</small>
-                            </div>
-                            <div style="display: flex; align-items: center; gap: 10px;">
-                                <button class="btn btn-danger" onclick="deleteShop(${shop.id}, '${(shop.name || '').replace(/'/g, "\\'")}')" style="padding: 8px 15px; font-size: 14px;">🗑️ Delete</button>
                             </div>
                         </div>
                     `;

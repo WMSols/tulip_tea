@@ -35,6 +35,27 @@ class DeliveryManRepository:
         return query.first()
     
     @staticmethod
+    def get_by_ids(db: Session, delivery_man_ids: List[int], include_deleted: bool = False) -> List[DeliveryMan]:
+        """
+        Batch load multiple delivery men by IDs (optimized to avoid N+1 queries).
+        
+        Args:
+            db: Database session
+            delivery_man_ids: List of delivery man IDs to fetch
+            include_deleted: If True, includes soft-deleted and inactive records
+        
+        Returns:
+            List of delivery men
+        """
+        if not delivery_man_ids:
+            return []
+        
+        query = db.query(DeliveryMan).filter(DeliveryMan.id.in_(delivery_man_ids))
+        if not include_deleted:
+            query = query.filter(DeliveryMan.deleted_at.is_(None), DeliveryMan.is_active == True)
+        return query.all()
+    
+    @staticmethod
     def get_by_phone(db: Session, phone: str, include_deleted: bool = False) -> Optional[DeliveryMan]:
         """Get delivery man by phone number (excludes soft-deleted and inactive by default)."""
         query = db.query(DeliveryMan).filter(DeliveryMan.phone == phone)

@@ -73,7 +73,8 @@ class OrderService:
                     order_items: List[Dict], distributor_id: int = None,
                     visit_id: int = None, scheduled_date: date = None,
                     final_total_amount: Decimal = None,
-                    order_resolution_type: str = None, subsidy_id: int = None) -> Dict:
+                    order_resolution_type: str = None, subsidy_id: int = None,
+                    auto_commit: bool = True) -> Dict:
         """
         Create a new order with credit limit validation and conditional order support.
         
@@ -294,13 +295,13 @@ class OrderService:
                     # Order booker reduced amount, but still exceeds credit - needs approval
                     # Allow order creation with pending_approval status
                     print(f"[DEBUG OrderService] Order requires approval: final={final_total_amount_decimal}, calculated={calculated_total_amount}, credit_limit={credit_limit}, outstanding={current_outstanding}")
-                elif not order_resolution_type:
-                    # Legacy system: credit insufficient and no resolution type
+                elif not order_resolution_type or order_resolution_type == 'normal':
+                    # Normal delivery: credit insufficient - REJECT
                     raise ValueError(
-                        f"Order amount (Rs. {final_total_amount_decimal}) exceeds available credit. "
+                        f"Order amount (Rs. {final_total_amount_decimal}) is out of range from available credit_limit. "
                         f"Credit limit: Rs. {credit_limit}, Outstanding: Rs. {current_outstanding}, "
                         f"Available: Rs. {available_credit}. "
-                        f"Please reduce the order amount or use one of: spot_payment (via daily collection), subsidy, or payment_before_delivery"
+                        f"Please reduce the order amount or use payment_before_delivery option"
                     )
                 
                 if order_resolution_type == 'subsidy':
@@ -332,25 +333,27 @@ class OrderService:
                     resolution_type = 'subsidy'
                 
                 elif order_resolution_type == 'payment_before_delivery':
-                    # Allow order but require payment before delivery
+                    # Payment before delivery: credit insufficient - ALLOW
                     # Credit limit check will use full amount (payment will be collected before delivery)
                     final_amount = total_amount
                     resolution_type = 'payment_before_delivery'
                 
-                elif order_resolution_type == 'normal':
-                    # Normal order but credit insufficient - should not happen
-                    raise ValueError(
-                        f"Order amount (Rs. {total_amount}) exceeds available credit. "
-                        f"Available: Rs. {available_credit}. "
-                        f"Please use subsidy or payment_before_delivery resolution"
-                    )
                 else:
                     raise ValueError(f"Invalid order_resolution_type: {order_resolution_type}. Must be 'normal', 'subsidy', or 'payment_before_delivery'")
             else:
-                # Credit is sufficient - but check if user selected subsidy or payment_before_delivery
+                # Credit is sufficient - validate order_resolution_type
                 print(f"[DEBUG OrderService] Credit sufficient. order_resolution_type: {order_resolution_type}, subsidy_id: {subsidy_id}")
+                
+                if order_resolution_type == 'payment_before_delivery':
+                    # Payment before delivery: credit sufficient - REJECT (should use normal delivery)
+                    raise ValueError(
+                        f"Total order amount (Rs. {final_total_amount_decimal}) is in range of available credit limit. "
+                        f"Available credit: Rs. {available_credit}. "
+                        f"Please use normal delivery option instead of payment_before_delivery"
+                    )
+                
                 if order_resolution_type == 'subsidy':
-                    # User selected subsidy even though credit is sufficient - apply it anyway
+                    # User selected subsidy even though credit is sufficient - apply it anyway (subsidy is global)
                     print(f"[DEBUG OrderService] Applying subsidy even though credit is sufficient")
                     if not subsidy_id:
                         raise ValueError("subsidy_id is required when using subsidy resolution")
@@ -369,13 +372,8 @@ class OrderService:
                     final_amount = total_amount * (1 - discount_percentage / 100)  # Discounted amount
                     resolution_type = 'subsidy'
                     print(f"[DEBUG OrderService] Subsidy applied. Original: {total_amount}, Discounted: {final_amount}, resolution_type: {resolution_type}")
-                elif order_resolution_type == 'payment_before_delivery':
-                    # User selected payment before delivery even though credit is sufficient
-                    final_amount = total_amount
-                    resolution_type = 'payment_before_delivery'
-                    print(f"[DEBUG OrderService] Payment before delivery selected. resolution_type: {resolution_type}")
                 else:
-                    # Credit is sufficient and no special resolution type - normal order
+                    # Credit is sufficient and normal delivery (or no resolution type specified) - normal order
                     resolution_type = 'normal'
                     print(f"[DEBUG OrderService] Normal order (credit sufficient). resolution_type: {resolution_type}")
         
@@ -396,7 +394,8 @@ class OrderService:
             subsidy_status=subsidy_status,  # 'none' or 'pending_approval'
             # Legacy fields (for backward compatibility)
             order_resolution_type=resolution_type if order_resolution_type else None,
-            subsidy_id=subsidy_id if resolution_type == 'subsidy' else None
+            subsidy_id=subsidy_id if resolution_type == 'subsidy' else None,
+            auto_commit=auto_commit
         )
         print(f"[DEBUG OrderService] After creating order: order.id={order.id}, order.order_resolution_type={order.order_resolution_type}, order.subsidy_id={order.subsidy_id}, order.original_amount={order.original_amount}")
         
@@ -975,43 +974,35 @@ class OrderService:
         if order.distributor_id and order.distributor_id != distributor_id:
             raise ValueError("You do not have permission to approve this order")
         
-        try:
-            # Update order (does not commit)
-            order.subsidy_status = 'approved'
-            order.subsidy_approved_by = distributor_id
-            order.subsidy_approved_at = datetime.utcnow()
-            
-            # Update shop's outstanding balance (was not updated during creation)
-            # Use final_total_amount (the reduced amount) for outstanding balance calculation
-            if order.shop_id:
-                from repositories.shop_repository import ShopRepository
-                shop = ShopRepository.get_by_id(db, order.shop_id)
-                if shop:
-                    # Use final_total_amount (the reduced amount after order booker's discount)
-                    # This is the actual amount the shop will owe
-                    final_amount = Decimal(str(order.final_total_amount)) if order.final_total_amount else Decimal(str(order.total_amount))
-                    
-                    # Refresh shop to get latest outstanding_balance
-                    db.refresh(shop)
-                    current_outstanding = Decimal(str(shop.outstanding_balance or 0))
-                    new_outstanding = current_outstanding + final_amount
-                    
-                    # Update shop (does not commit)
-                    ShopRepository.update(
-                        db=db,
-                        shop_id=order.shop_id,
-                        outstanding_balance=new_outstanding
-                    )
-                    print(f"[approve_subsidy] Updated shop {order.shop_id} outstanding balance: {current_outstanding} -> {new_outstanding} (using final_total_amount: {final_amount})")
-            
-            # Commit both operations together
-            db.commit()
-            db.refresh(order)
-            
-        except Exception as e:
-            # Rollback on any error
-            db.rollback()
-            raise
+        # Update order
+        order.subsidy_status = 'approved'
+        order.subsidy_approved_by = distributor_id
+        order.subsidy_approved_at = datetime.utcnow()
+        
+        # Update shop's outstanding balance (was not updated during creation)
+        # Use final_total_amount (the reduced amount) for outstanding balance calculation
+        if order.shop_id:
+            from repositories.shop_repository import ShopRepository
+            shop = ShopRepository.get_by_id(db, order.shop_id)
+            if shop:
+                # Use final_total_amount (the reduced amount after order booker's discount)
+                # This is the actual amount the shop will owe
+                final_amount = Decimal(str(order.final_total_amount)) if order.final_total_amount else Decimal(str(order.total_amount))
+                
+                # Refresh shop to get latest outstanding_balance
+                db.refresh(shop)
+                current_outstanding = Decimal(str(shop.outstanding_balance or 0))
+                new_outstanding = current_outstanding + final_amount
+                
+                ShopRepository.update(
+                    db=db,
+                    shop_id=order.shop_id,
+                    outstanding_balance=new_outstanding
+                )
+                print(f"[approve_subsidy] Updated shop {order.shop_id} outstanding balance: {current_outstanding} -> {new_outstanding} (using final_total_amount: {final_amount})")
+        
+        db.commit()
+        db.refresh(order)
         
         return OrderService._format_orders(db, [order])[0]
     

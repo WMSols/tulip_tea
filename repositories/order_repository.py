@@ -21,7 +21,7 @@ class OrderRepository:
               original_amount: Decimal = None, final_total_amount: Decimal = None,
               subsidy_status: str = None, subsidy_approved_by: int = None,
               subsidy_approved_at: datetime = None, subsidy_rejection_reason: str = None,
-              order_resolution_type: str = None, subsidy_id: int = None) -> Order:
+              order_resolution_type: str = None, subsidy_id: int = None, auto_commit: bool = True) -> Order:
         """
         Create a new order.
         
@@ -85,8 +85,13 @@ class OrderRepository:
         )
         print(f"[DEBUG OrderRepository.create] Order created, status attribute: {order.status}, type: {type(order.status)}")
         db.add(order)
-        db.commit()
+        db.flush()
         db.refresh(order)
+        
+        # Commit transaction if auto_commit is True
+        if auto_commit:
+            db.commit()
+        
         return order
     
     @staticmethod

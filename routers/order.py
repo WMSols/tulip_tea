@@ -18,7 +18,8 @@ from models.schemas import OrderCreate, OrderResponse, OrderDeliveryUpdate, Orde
 from services.order_service import OrderService
 from services.activity_log_service import ActivityLogService
 from utils.auth_helpers import get_current_user_from_request
-from utils.dependencies import get_current_user, get_current_distributor
+from utils.dependencies import get_current_user, get_current_distributor, get_current_order_booker, get_current_delivery_man
+from typing import Dict
 
 router = APIRouter(prefix="/orders", tags=["Orders"])
 
@@ -28,6 +29,7 @@ async def create_order(
     order_booker_id: int,
     order: OrderCreate,
     request: Request,
+    order_booker: Dict = Depends(get_current_order_booker),
     db: Session = Depends(get_db)
 ):
     """
@@ -55,6 +57,13 @@ async def create_order(
     Response (201):
         Order data with items
     """
+    # Verify order booker can only create orders for themselves
+    if order_booker['user_id'] != order_booker_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only create orders for your own account"
+        )
+    
     try:
         from datetime import date
         
@@ -86,7 +95,9 @@ async def create_order(
             distributor_id=distributor_id,
             visit_id=order.visit_id,
             scheduled_date=scheduled_date_obj,
-            final_total_amount=final_total_decimal
+            final_total_amount=final_total_decimal,
+            order_resolution_type=order.order_resolution_type,
+            subsidy_id=order.subsidy_id
         )
         
         # Log order creation
@@ -158,9 +169,17 @@ async def create_order(
 @router.get("/order-booker/{order_booker_id}", response_model=List[OrderResponse])
 async def list_orders_by_order_booker(
     order_booker_id: int,
+    order_booker: Dict = Depends(get_current_order_booker),
     db: Session = Depends(get_db)
 ):
     """List all orders placed by an order booker."""
+    # Verify order booker can only view their own orders
+    if order_booker['user_id'] != order_booker_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only view orders for your own account"
+        )
+    
     try:
         orders = OrderService.get_orders_by_order_booker(db, order_booker_id)
         return orders
@@ -174,9 +193,17 @@ async def list_orders_by_order_booker(
 @router.get("/delivery-man/{delivery_man_id}", response_model=List[OrderResponse], tags=["Orders", "Delivery Man APIs"])
 async def list_orders_by_delivery_man(
     delivery_man_id: int,
+    delivery_man: Dict = Depends(get_current_delivery_man),
     db: Session = Depends(get_db)
 ):
     """List all orders assigned to a delivery man."""
+    # Verify delivery man can only view their own orders
+    if delivery_man['user_id'] != delivery_man_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only view orders for your own account"
+        )
+    
     try:
         orders = OrderService.get_orders_by_delivery_man(db, delivery_man_id)
         return orders
@@ -219,6 +246,7 @@ async def get_pending_subsidy_approvals(
 @router.get("/{order_id}", response_model=OrderResponse)
 async def get_order_by_id(
     order_id: int,
+    current_user: Dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Get an order by ID."""
@@ -244,6 +272,7 @@ async def get_order_by_id(
 @router.get("/visit/{visit_id}", response_model=List[OrderResponse])
 async def list_orders_by_visit(
     visit_id: int,
+    current_user: Dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """List all orders linked to a visit."""
@@ -262,6 +291,7 @@ async def collect_payment_before_delivery(
     order_id: int,
     payment_data: "OrderPaymentCollection",
     request: Request = None,
+    delivery_man: Dict = Depends(get_current_delivery_man),
     db: Session = Depends(get_db)
 ):
     """
@@ -358,6 +388,7 @@ async def deliver_order(
     order_id: int,
     delivery_data: "OrderDeliveryUpdate",
     request: Request = None,
+    delivery_man: Dict = Depends(get_current_delivery_man),
     db: Session = Depends(get_db)
 ):
     """
@@ -479,7 +510,6 @@ async def deliver_order(
         # Log order delivery
         if request:
             try:
-                current_user = get_current_user_from_request(request, db)
                 changes_summary = f"Order marked as {delivery_data.status} by delivery man"
                 if delivery_data.delivery_remarks:
                     changes_summary += f" - Remarks: {delivery_data.delivery_remarks[:50]}"
@@ -488,8 +518,8 @@ async def deliver_order(
                 
                 ActivityLogService.log_update(
                     db=db,
-                    user_id=current_user.get('id') or updated_order.delivery_man_id,
-                    user_role=current_user.get('role', 'delivery_man'),
+                    user_id=delivery_man['user_id'],
+                    user_role='delivery_man',
                     entity_type='order',
                     entity_id=order_id,
                     old_values={'status': old_status},
@@ -519,6 +549,7 @@ async def deliver_order(
 async def approve_subsidy(
     order_id: int,
     request: Request,
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
     """
@@ -536,17 +567,15 @@ async def approve_subsidy(
         Updated order data with subsidy_status = 'approved'
     """
     try:
-        distributor = get_current_distributor(request)
         distributor_id = distributor['user_id']
         
         result = OrderService.approve_subsidy(db, order_id, distributor_id)
         
         # Log approval
-        user_info = get_current_user_from_request(request)
         ActivityLogService.log_activity(
             db=db,
-            user_id=user_info['user_id'] if user_info else distributor_id,
-            user_role=user_info['user_role'] if user_info else 'distributor',
+            user_id=distributor_id,
+            user_role='distributor',
             action_type='APPROVE',
             entity_type='order',
             entity_id=order_id,
@@ -576,6 +605,7 @@ async def reject_subsidy(
     order_id: int,
     rejection_reason: str = Query(None, description="Optional reason for rejection"),
     request: Request = None,
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
     """
@@ -596,17 +626,15 @@ async def reject_subsidy(
         Updated order data with subsidy_status = 'rejected'
     """
     try:
-        distributor = get_current_distributor(request)
         distributor_id = distributor['user_id']
         
         result = OrderService.reject_subsidy(db, order_id, distributor_id, rejection_reason)
         
         # Log rejection
-        user_info = get_current_user_from_request(request)
         ActivityLogService.log_activity(
             db=db,
-            user_id=user_info['user_id'] if user_info else distributor_id,
-            user_role=user_info['user_role'] if user_info else 'distributor',
+            user_id=distributor_id,
+            user_role='distributor',
             action_type='REJECT',
             entity_type='order',
             entity_id=order_id,
@@ -636,6 +664,7 @@ async def assign_order_to_delivery_man(
     order_id: int,
     delivery_man_id: int,
     request: Request,
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
     """
@@ -668,11 +697,10 @@ async def assign_order_to_delivery_man(
         order_data = orders[0] if orders else result
         
         # Log order assignment
-        user_info = get_current_user_from_request(request)
         ActivityLogService.log_activity(
             db=db,
-            user_id=user_info['user_id'] if user_info else None,
-            user_role=user_info['user_role'] if user_info else 'distributor',
+            user_id=distributor['user_id'],
+            user_role='distributor',
             action_type='ASSIGN',
             entity_type='order',
             entity_id=order_id,

@@ -101,6 +101,27 @@ class DistributorRepository:
         return query.first()
     
     @staticmethod
+    def get_by_ids(db: Session, distributor_ids: List[int], include_deleted: bool = False) -> List[Distributor]:
+        """
+        Batch load multiple distributors by IDs (optimized to avoid N+1 queries).
+        
+        Args:
+            db: Database session
+            distributor_ids: List of distributor IDs to fetch
+            include_deleted: If True, includes soft-deleted and inactive records
+        
+        Returns:
+            List of distributors
+        """
+        if not distributor_ids:
+            return []
+        
+        query = db.query(Distributor).filter(Distributor.id.in_(distributor_ids))
+        if not include_deleted:
+            query = query.filter(Distributor.deleted_at.is_(None), Distributor.is_active == True)
+        return query.all()
+    
+    @staticmethod
     def get_by_phone(db: Session, phone: str, include_deleted: bool = False) -> Optional[Distributor]:
         """
         Get a distributor by their phone number (excludes soft-deleted and inactive by default).

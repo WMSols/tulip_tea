@@ -794,17 +794,8 @@
                 <!-- Schedule Tab -->
                 <div id="scheduleTab" class="tab-content">
                     <h2>📅 My Weekly Schedule</h2>
-                    <p style="color: #666; margin-bottom: 20px;">View your weekly route schedule. This shows which routes you need to visit on which days, and which shops have been visited.</p>
-                    
-                    <!-- Date Navigation -->
-                    <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 20px; flex-wrap: wrap;">
-                        <button class="btn btn-primary" onclick="navigateScheduleDate(-1)" id="prevDayBtn">← Previous Day</button>
-                        <button class="btn btn-success" onclick="goToTodaySchedule()" id="todayBtn">📅 Today</button>
-                        <button class="btn btn-primary" onclick="navigateScheduleDate(1)" id="nextDayBtn">Next Day →</button>
-                        <span id="scheduleDateDisplay" style="font-weight: 600; color: #667eea; margin-left: 10px;"></span>
-                        <button class="btn btn-success" onclick="loadMySchedule()" style="margin-left: auto;">🔄 Refresh</button>
-                    </div>
-                    
+                    <p style="color: #666; margin-bottom: 20px;">View your weekly route schedule. This shows which routes you need to visit on which days.</p>
+                    <button class="btn btn-success" onclick="loadMySchedule()">🔄 Refresh Schedule</button>
                     <div id="scheduleList" style="margin-top: 20px;"></div>
                 </div>
 
@@ -1014,8 +1005,7 @@
                 } else if (tabName === 'visitHistory') {
                     loadMyVisits();
                 } else if (tabName === 'schedule') {
-                    // Load schedule for current date (or today if not set)
-                    loadMySchedule(currentScheduleDate || new Date().toISOString().split('T')[0]);
+                    loadMySchedule();
                 } else if (tabName === 'wallet') {
                     loadWalletBalance();
                     loadWalletTransactions();
@@ -1390,13 +1380,7 @@
 
             const listDiv = document.getElementById('creditLimitRequestsList');
 
-            // Check if distributor_id is available
-            if (!currentUser.distributor_id) {
-                listDiv.innerHTML = '<p style="color: red;">Error: Distributor ID not available. Please contact support.</p>';
-                return;
-            }
-
-            const endpoint = `${API_BASE}/credit-limit-requests/pending?distributor_id=${currentUser.distributor_id}`;
+            const endpoint = `${API_BASE}/credit-limit-requests/order-booker/${currentUser.id}/my-requests`;
             showApiCall('GET', endpoint, 'Load Credit Limit Requests', 'loading');
 
             try {
@@ -1413,28 +1397,26 @@
                     throw new Error(data.detail || 'Failed to load credit limit requests');
                 }
 
-                // Filter to show only requests by current order booker
-                const myRequests = data.filter(req => 
-                    req.requested_by_role === 'order_booker' && req.requested_by_id === currentUser.id
-                );
-
-                if (myRequests.length === 0) {
+                if (data.length === 0) {
                     listDiv.innerHTML = '<p>No credit limit requests found.</p>';
                     showApiCall('GET', endpoint, 'Load Credit Limit Requests', 'success');
                     return;
                 }
 
-                listDiv.innerHTML = myRequests.map(req => {
-                    const statusColor = req.status === 'approved' ? 'green' : req.status === 'rejected' ? 'red' : 'orange';
+                listDiv.innerHTML = data.map(req => {
+                    const statusColor = req.status === 'approved' ? 'green' : req.status === 'disapproved' ? 'red' : 'orange';
+                    const isDeleted = req.deleted_at !== null && req.deleted_at !== undefined;
+                    const deletedBadge = isDeleted ? '<span style="background: #6c757d; color: white; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-left: 10px;">DELETED</span>' : '';
                     return `
-                        <div class="list-item">
+                        <div class="list-item" style="${isDeleted ? 'opacity: 0.7; background: #f8f9fa;' : ''}">
                             <div class="list-item-info">
-                                <strong>Shop: ${req.shop_name || 'N/A'}</strong><br>
+                                <strong>Shop: ${req.shop_name || 'N/A'}</strong>${deletedBadge}<br>
                                 Current Limit: Rs. ${(req.old_credit_limit || 0).toLocaleString()}<br>
                                 Requested Limit: Rs. ${(req.requested_credit_limit || 0).toLocaleString()}<br>
                                 Status: <span style="color: ${statusColor}; font-weight: bold;">${req.status || 'pending'}</span><br>
                                 ${req.remarks ? `Remarks: ${req.remarks}<br>` : ''}
-                                ${req.reviewed_at ? `Reviewed: ${new Date(req.reviewed_at).toLocaleString()}<br>` : ''}
+                                ${req.approved_at ? `Reviewed: ${new Date(req.approved_at).toLocaleString()}<br>` : ''}
+                                ${isDeleted ? `<span style="color: #6c757d; font-size: 12px;">Deleted: ${new Date(req.deleted_at).toLocaleString()}</span><br>` : ''}
                                 <small>Request ID: ${req.id} | Created: ${new Date(req.created_at).toLocaleString()}</small>
                             </div>
                         </div>
@@ -2544,8 +2526,11 @@
                 
                 loadMyVisits();
                 
-                // Always refresh schedule view after visit registration to show updated status
-                loadMySchedule(currentScheduleDate || new Date().toISOString().split('T')[0]);
+                // Refresh schedule view if schedule tab is active
+                const scheduleTab = document.getElementById('scheduleTab');
+                if (scheduleTab && scheduleTab.classList.contains('active')) {
+                    loadMySchedule();
+                }
             } catch (error) {
                 resultDiv.className = 'result error';
                 // Display error message with better formatting
@@ -3020,7 +3005,11 @@
             
             try {
                 const endpoint = `${API_BASE}/wallets/order_booker/${currentUser.id}/balance`;
-                const response = await fetch(endpoint);
+                const response = await fetch(endpoint, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
                 
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
@@ -3048,7 +3037,11 @@
             
             try {
                 const endpoint = `${API_BASE}/wallets/order_booker/${currentUser.id}/transactions?limit=50`;
-                const response = await fetch(endpoint);
+                const response = await fetch(endpoint, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
                 
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
@@ -3157,47 +3150,19 @@
 
         // ==================== SCHEDULE VIEW FUNCTIONS ====================
 
-        // Store current schedule date for navigation
-        let currentScheduleDate = new Date().toISOString().split('T')[0];
-
-        // Navigate schedule date
-        function navigateScheduleDate(days) {
-            const currentDate = new Date(currentScheduleDate);
-            currentDate.setDate(currentDate.getDate() + days);
-            currentScheduleDate = currentDate.toISOString().split('T')[0];
-            loadMySchedule(currentScheduleDate);
-        }
-
-        // Go to today's schedule
-        function goToTodaySchedule() {
-            currentScheduleDate = new Date().toISOString().split('T')[0];
-            loadMySchedule(currentScheduleDate);
-        }
-
         // Load my schedule with visit status
-        async function loadMySchedule(date = null) {
+        async function loadMySchedule() {
             if (!currentUser || !currentUser.id) return;
             
             const listDiv = document.getElementById('scheduleList');
-            listDiv.innerHTML = '<p style="text-align: center; padding: 20px; color: #666;">Loading schedule...</p>';
+            listDiv.innerHTML = '<p>Loading schedule...</p>';
 
             try {
-                // Use provided date or current schedule date
-                const viewDate = date || currentScheduleDate || new Date().toISOString().split('T')[0];
-                currentScheduleDate = viewDate;
-                
-                // Update date display
-                const dateDisplay = document.getElementById('scheduleDateDisplay');
-                if (dateDisplay) {
-                    const dateObj = new Date(viewDate);
-                    const isToday = viewDate === new Date().toISOString().split('T')[0];
-                    dateDisplay.textContent = isToday 
-                        ? `📅 Today (${dateObj.toLocaleDateString()})` 
-                        : dateObj.toLocaleDateString();
-                }
+                // Get today's date
+                const today = new Date().toISOString().split('T')[0];
                 
                 // Use the new schedule-view endpoint
-                const response = await fetch(`${API_BASE}/visit-tasks/order-booker/${currentUser.id}/schedule-view?date=${viewDate}`, {
+                const response = await fetch(`${API_BASE}/visit-tasks/order-booker/${currentUser.id}/schedule-view?date=${today}`, {
                     headers: { 'Authorization': `Bearer ${currentToken}` }
                 });
 
@@ -3209,59 +3174,25 @@
                 const scheduleData = await response.json();
 
                 if (!scheduleData.routes || scheduleData.routes.length === 0) {
-                    const dateObj = new Date(viewDate);
-                    const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'long' });
-                    listDiv.innerHTML = `
-                        <div style="text-align: center; padding: 40px; background: #f8f9fa; border-radius: 8px; border: 2px dashed #dee2e6;">
-                            <p style="color: #666; font-size: 16px; margin-bottom: 10px;">📅 ${dayName} - ${dateObj.toLocaleDateString()}</p>
-                            <p style="color: #999;">No schedule assigned for this day. Contact your distributor to set up your weekly schedule.</p>
-                        </div>
-                    `;
+                    listDiv.innerHTML = '<p style="color: #666;">No schedule assigned for today. Contact your distributor to set up your weekly schedule.</p>';
                     return;
                 }
 
                 const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
                 const dayName = days[scheduleData.day_of_week] || 'Today';
-                const dateObj = new Date(scheduleData.date);
-                const isToday = viewDate === new Date().toISOString().split('T')[0];
-                
-                // Calculate overall progress
-                const totalShops = scheduleData.summary.total_shops;
-                const visitedShops = scheduleData.summary.visited_shops;
-                const remainingShops = scheduleData.summary.remaining_shops;
-                const overallProgress = totalShops > 0 ? (visitedShops / totalShops) * 100 : 0;
                 
                 let html = `
-                    <div style="margin-bottom: 20px; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
+                    <div style="margin-bottom: 20px; padding: 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 8px;">
+                        <h3 style="margin: 0 0 10px 0;">📅 ${dayName} - ${new Date(scheduleData.date).toLocaleDateString()}</h3>
+                        <div style="display: flex; gap: 20px; font-size: 14px;">
                             <div>
-                                <h3 style="margin: 0 0 5px 0; font-size: 1.5em;">📅 ${dayName}</h3>
-                                <p style="margin: 0; opacity: 0.9; font-size: 14px;">${dateObj.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                                <strong>Total Shops:</strong> ${scheduleData.summary.total_shops}
                             </div>
-                            ${isToday ? '<span style="background: rgba(255,255,255,0.2); padding: 5px 15px; border-radius: 20px; font-size: 12px; font-weight: bold;">TODAY</span>' : ''}
-                        </div>
-                        
-                        <!-- Overall Progress Summary -->
-                        <div style="background: rgba(255,255,255,0.15); padding: 15px; border-radius: 8px; margin-bottom: 15px;">
-                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 15px; margin-bottom: 10px;">
-                                <div style="text-align: center;">
-                                    <div style="font-size: 24px; font-weight: bold; margin-bottom: 5px;">${totalShops}</div>
-                                    <div style="font-size: 12px; opacity: 0.9;">Total Shops</div>
-                                </div>
-                                <div style="text-align: center;">
-                                    <div style="font-size: 24px; font-weight: bold; margin-bottom: 5px; color: #4ade80;">✅ ${visitedShops}</div>
-                                    <div style="font-size: 12px; opacity: 0.9;">Visited</div>
-                                </div>
-                                <div style="text-align: center;">
-                                    <div style="font-size: 24px; font-weight: bold; margin-bottom: 5px; color: #fbbf24;">⏳ ${remainingShops}</div>
-                                    <div style="font-size: 12px; opacity: 0.9;">Remaining</div>
-                                </div>
+                            <div>
+                                <strong>✅ Visited:</strong> ${scheduleData.summary.visited_shops}
                             </div>
-                            <!-- Overall Progress Bar -->
-                            <div style="width: 100%; height: 12px; background: rgba(255,255,255,0.2); border-radius: 6px; overflow: hidden; margin-top: 10px;">
-                                <div style="width: ${overallProgress}%; height: 100%; background: ${overallProgress === 100 ? '#4ade80' : '#fbbf24'}; transition: width 0.3s; display: flex; align-items: center; justify-content: center; color: white; font-size: 10px; font-weight: bold;">
-                                    ${overallProgress > 10 ? Math.round(overallProgress) + '%' : ''}
-                                </div>
+                            <div>
+                                <strong>⏳ Remaining:</strong> ${scheduleData.summary.remaining_shops}
                             </div>
                         </div>
                     </div>
@@ -3273,92 +3204,57 @@
                 scheduleData.routes.forEach(route => {
                     const progressPercent = route.total_count > 0 ? (route.visited_count / route.total_count) * 100 : 0;
                     const progressColor = progressPercent === 100 ? '#27ae60' : progressPercent > 0 ? '#f39c12' : '#95a5a6';
-                    const routeStatusBadge = progressPercent === 100 
-                        ? '<span style="background: #27ae60; color: white; padding: 4px 12px; border-radius: 15px; font-size: 11px; font-weight: bold;">✅ COMPLETE</span>'
-                        : progressPercent > 0 
-                        ? '<span style="background: #f39c12; color: white; padding: 4px 12px; border-radius: 15px; font-size: 11px; font-weight: bold;">⏳ IN PROGRESS</span>'
-                        : '<span style="background: #95a5a6; color: white; padding: 4px 12px; border-radius: 15px; font-size: 11px; font-weight: bold;">📋 PENDING</span>';
                     
                     html += `
-                        <div style="background: white; padding: 20px; border-radius: 8px; border-left: 4px solid #667eea; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
-                                <h3 style="margin: 0; color: #667eea; font-size: 1.2em;">🛣️ ${route.route_name}</h3>
-                                <div style="display: flex; align-items: center; gap: 10px;">
-                                    ${routeStatusBadge}
-                                    <div style="background: #f8f9fa; padding: 8px 15px; border-radius: 20px; font-weight: bold; color: ${progressColor};">
-                                        ${route.visited_count}/${route.total_count}
-                                    </div>
+                        <div style="background: white; padding: 20px; border-radius: 8px; border-left: 4px solid #667eea; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                <h3 style="margin: 0; color: #667eea;">🛣️ ${route.route_name}</h3>
+                                <div style="background: #f8f9fa; padding: 8px 15px; border-radius: 20px; font-weight: bold; color: ${progressColor};">
+                                    ${route.visited_count}/${route.total_count} visited
                                 </div>
                             </div>
                             
                             <!-- Progress Bar -->
-                            <div style="width: 100%; height: 10px; background: #e9ecef; border-radius: 5px; margin-bottom: 15px; overflow: hidden; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1);">
-                                <div style="width: ${progressPercent}%; height: 100%; background: ${progressColor}; transition: width 0.3s; border-radius: 5px;"></div>
+                            <div style="width: 100%; height: 8px; background: #e9ecef; border-radius: 4px; margin-bottom: 15px; overflow: hidden;">
+                                <div style="width: ${progressPercent}%; height: 100%; background: ${progressColor}; transition: width 0.3s;"></div>
                             </div>
                             
                             <!-- Shops List -->
-                            <div style="display: grid; gap: 12px;">
+                            <div style="display: grid; gap: 10px;">
                     `;
                     
-                    // Separate visited and pending shops for better visual organization
-                    const visitedShops = route.shops.filter(shop => shop.status === 'completed');
-                    const pendingShops = route.shops.filter(shop => shop.status !== 'completed');
-                    
-                    // Show visited shops first
-                    if (visitedShops.length > 0) {
-                        visitedShops.forEach(shop => {
-                            html += `
-                                <div style="padding: 15px; background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%); border-radius: 8px; border-left: 4px solid #27ae60; box-shadow: 0 2px 4px rgba(39, 174, 96, 0.2);">
-                                    <div style="display: flex; justify-content: space-between; align-items: start; gap: 15px;">
-                                        <div style="flex: 1;">
-                                            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
-                                                <span style="font-size: 24px;">✅</span>
-                                                <strong style="color: #155724; font-size: 16px;">${shop.shop_name}</strong>
-                                                <span style="background: #27ae60; color: white; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; text-transform: uppercase;">VISITED</span>
-                                            </div>
-                                            <div style="font-size: 13px; color: #155724; margin-left: 34px; margin-bottom: 5px;">
-                                                ${shop.shop_owner ? `<strong>Owner:</strong> ${shop.shop_owner}` : ''}
-                                                ${shop.shop_phone ? ` | <strong>Phone:</strong> ${shop.shop_phone}` : ''}
-                                            </div>
-                                            ${shop.visited_at ? `
-                                                <div style="font-size: 12px; color: #27ae60; margin-left: 34px; margin-top: 5px; font-weight: 600;">
-                                                    🕐 Visited at: ${new Date(shop.visited_at).toLocaleString()}
-                                                </div>
-                                            ` : ''}
+                    route.shops.forEach(shop => {
+                        const isVisited = shop.status === 'completed';
+                        const statusIcon = isVisited ? '✅' : '⏳';
+                        const statusColor = isVisited ? '#27ae60' : '#95a5a6';
+                        const bgColor = isVisited ? '#d4edda' : '#f8f9fa';
+                        const borderColor = isVisited ? '#27ae60' : '#dee2e6';
+                        
+                        html += `
+                            <div style="padding: 12px; background: ${bgColor}; border-radius: 5px; border-left: 3px solid ${borderColor};">
+                                <div style="display: flex; justify-content: space-between; align-items: start;">
+                                    <div style="flex: 1;">
+                                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px;">
+                                            <span style="font-size: 18px;">${statusIcon}</span>
+                                            <strong style="color: #2c3e50;">${shop.shop_name}</strong>
                                         </div>
+                                        <div style="font-size: 13px; color: #666; margin-left: 26px;">
+                                            ${shop.shop_owner ? `Owner: ${shop.shop_owner}` : ''}
+                                            ${shop.shop_phone ? ` | Phone: ${shop.shop_phone}` : ''}
+                                        </div>
+                                        ${isVisited && shop.visited_at ? `
+                                            <div style="font-size: 12px; color: #27ae60; margin-left: 26px; margin-top: 5px;">
+                                                Visited at: ${new Date(shop.visited_at).toLocaleString()}
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                    <div style="color: ${statusColor}; font-weight: bold; font-size: 12px; text-transform: uppercase;">
+                                        ${shop.status}
                                     </div>
                                 </div>
-                            `;
-                        });
-                    }
-                    
-                    // Show pending shops
-                    if (pendingShops.length > 0) {
-                        pendingShops.forEach(shop => {
-                            html += `
-                                <div style="padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #ffc107; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
-                                    <div style="display: flex; justify-content: space-between; align-items: start; gap: 15px;">
-                                        <div style="flex: 1;">
-                                            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
-                                                <span style="font-size: 24px;">⏳</span>
-                                                <strong style="color: #2c3e50; font-size: 16px;">${shop.shop_name}</strong>
-                                                <span style="background: #ffc107; color: #856404; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; text-transform: uppercase;">PENDING</span>
-                                            </div>
-                                            <div style="font-size: 13px; color: #666; margin-left: 34px;">
-                                                ${shop.shop_owner ? `<strong>Owner:</strong> ${shop.shop_owner}` : ''}
-                                                ${shop.shop_phone ? ` | <strong>Phone:</strong> ${shop.shop_phone}` : ''}
-                                            </div>
-                                            ${shop.shop_gps_lat && shop.shop_gps_lng ? `
-                                                <div style="font-size: 11px; color: #999; margin-left: 34px; margin-top: 5px;">
-                                                    📍 ${shop.shop_gps_lat.toFixed(6)}, ${shop.shop_gps_lng.toFixed(6)}
-                                                </div>
-                                            ` : ''}
-                                        </div>
-                                    </div>
-                                </div>
-                            `;
-                        });
-                    }
+                            </div>
+                        `;
+                    });
                     
                     html += `
                             </div>
@@ -3369,7 +3265,7 @@
                 html += '</div>';
                 listDiv.innerHTML = html;
             } catch (error) {
-                listDiv.innerHTML = `<div style="padding: 20px; background: #f8d7da; border-radius: 8px; border-left: 4px solid #dc3545;"><p style="color: #721c24; margin: 0;"><strong>Error:</strong> ${error.message}</p></div>`;
+                listDiv.innerHTML = `<p style="color: red;">Error loading schedule: ${error.message}</p>`;
             }
         }
     </script>

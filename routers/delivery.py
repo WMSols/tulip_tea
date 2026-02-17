@@ -18,6 +18,7 @@ from decimal import Decimal
 from config.database import get_db
 from services.delivery_service import DeliveryService
 from utils.auth_helpers import get_current_user_from_request
+from utils.dependencies import get_current_user, get_current_distributor, get_current_delivery_man
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/deliveries", tags=["Deliveries"])
@@ -54,6 +55,7 @@ async def create_delivery_for_order(
     order_id: int,
     request_data: DeliveryCreateRequest,
     request: Request,
+    delivery_man: Dict = Depends(get_current_delivery_man),
     db: Session = Depends(get_db)
 ):
     """
@@ -63,19 +65,10 @@ async def create_delivery_for_order(
     Creates delivery and delivery_items records.
     """
     try:
-        user_info = get_current_user_from_request(request)
-        delivery_man_id = user_info.get('user_id')
-        
-        if not delivery_man_id:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication required"
-            )
-        
         result = DeliveryService.create_delivery_for_order(
             db=db,
             order_id=order_id,
-            delivery_man_id=delivery_man_id,
+            delivery_man_id=delivery_man['user_id'],
             warehouse_id=request_data.warehouse_id
         )
         
@@ -101,6 +94,7 @@ async def pickup_from_warehouse(
     delivery_id: int,
     pickup_data: DeliveryPickupRequest,
     request: Request,
+    delivery_man: Dict = Depends(get_current_delivery_man),
     db: Session = Depends(get_db)
 ):
     """
@@ -110,13 +104,6 @@ async def pickup_from_warehouse(
     Automatically deducts inventory quantities.
     """
     try:
-        user_info = get_current_user_from_request(request)
-        if not user_info:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication required"
-            )
-        
         result = DeliveryService.pickup_from_warehouse(
             db=db,
             delivery_id=delivery_id,
@@ -143,6 +130,7 @@ async def deliver_to_shop(
     delivery_id: int,
     deliver_data: DeliveryDeliverRequest,
     request: Request,
+    delivery_man: Dict = Depends(get_current_delivery_man),
     db: Session = Depends(get_db)
 ):
     """
@@ -152,13 +140,6 @@ async def deliver_to_shop(
     Updates quantities and status.
     """
     try:
-        user_info = get_current_user_from_request(request)
-        if not user_info:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication required"
-            )
-        
         result = DeliveryService.deliver_to_shop(
             db=db,
             delivery_id=delivery_id,
@@ -187,6 +168,7 @@ async def return_to_warehouse(
     delivery_id: int,
     return_data: DeliveryReturnRequest,
     request: Request,
+    delivery_man: Dict = Depends(get_current_delivery_man),
     db: Session = Depends(get_db)
 ):
     """
@@ -196,13 +178,6 @@ async def return_to_warehouse(
     Automatically adds inventory quantities back.
     """
     try:
-        user_info = get_current_user_from_request(request)
-        if not user_info:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication required"
-            )
-        
         result = DeliveryService.return_to_warehouse(
             db=db,
             delivery_id=delivery_id,
@@ -229,6 +204,7 @@ async def return_to_warehouse(
 async def get_delivery_by_order(
     order_id: int,
     request: Request,
+    current_user: Dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -257,9 +233,17 @@ async def get_deliveries_by_delivery_man(
     skip: int = 0,
     limit: int = 100,
     request: Request = None,
+    delivery_man: Dict = Depends(get_current_delivery_man),
     db: Session = Depends(get_db)
 ):
     """Get all deliveries for a delivery man."""
+    # Verify delivery man can only view their own deliveries
+    if delivery_man['user_id'] != delivery_man_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only view deliveries for your own account"
+        )
+    
     try:
         result = DeliveryService.get_deliveries_by_delivery_man(
             db=db,
@@ -281,9 +265,17 @@ async def get_deliveries_by_distributor(
     skip: int = 0,
     limit: int = 1000,
     request: Request = None,
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
     """Get all deliveries for a distributor (through their delivery men)."""
+    # Verify distributor can only view their own deliveries
+    if distributor['user_id'] != distributor_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only view deliveries for your own distributor account"
+        )
+    
     try:
         result = DeliveryService.get_deliveries_by_distributor(
             db=db,

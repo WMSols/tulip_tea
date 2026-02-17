@@ -22,6 +22,8 @@ from config.database import get_db
 from models.schemas import ShopVisitCreate, ShopVisitResponse
 from services.shop_visit_service import ShopVisitService
 from services.activity_log_service import ActivityLogService
+from utils.dependencies import get_current_user, get_current_distributor, get_current_order_booker
+from typing import Dict
 
 router = APIRouter(prefix="/shop-visits", tags=["Shop Visits"])
 
@@ -31,6 +33,7 @@ async def register_visit(
     order_booker_id: int,
     visit: ShopVisitCreate,
     request: Request,
+    order_booker: Dict = Depends(get_current_order_booker),
     db: Session = Depends(get_db)
 ):
     """
@@ -60,6 +63,13 @@ async def register_visit(
     Response (201):
         Visit data with ID and timestamps
     """
+    # Verify order booker can only register visits for themselves
+    if order_booker['user_id'] != order_booker_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only register visits for your own account"
+        )
+    
     try:
         # Convert order_items from Pydantic models to dicts
         order_items_dicts = None
@@ -131,12 +141,10 @@ async def register_visit(
         return result
     except ValueError as e:
         # Log failure
-        from utils.auth_helpers import get_current_user_from_request
-        user_info = get_current_user_from_request(request)
         ActivityLogService.log_failure(
             db=db,
-            user_id=user_info['user_id'] if user_info else order_booker_id,
-            user_role=user_info['user_role'] if user_info else 'order_booker',
+            user_id=order_booker['user_id'],
+            user_role='order_booker',
             action_type='CREATE',
             entity_type='shop_visit',
             error_message=str(e),
@@ -152,12 +160,10 @@ async def register_visit(
         print(f"ERROR in register_visit: {error_detail}")
         print(traceback.format_exc())
         # Log failure
-        from utils.auth_helpers import get_current_user_from_request
-        user_info = get_current_user_from_request(request)
         ActivityLogService.log_failure(
             db=db,
-            user_id=user_info['user_id'] if user_info else order_booker_id,
-            user_role=user_info['user_role'] if user_info else 'order_booker',
+            user_id=order_booker['user_id'],
+            user_role='order_booker',
             action_type='CREATE',
             entity_type='shop_visit',
             error_message=str(e),
@@ -174,6 +180,7 @@ async def list_visits_by_order_booker(
     order_booker_id: int,
     skip: int = Query(0, ge=0, description="Number of records to skip"),
     limit: int = Query(100, ge=1, le=1000, description="Maximum number of records to return"),
+    order_booker: Dict = Depends(get_current_order_booker),
     db: Session = Depends(get_db)
 ):
     """
@@ -193,6 +200,13 @@ async def list_visits_by_order_booker(
     Response (200):
         List of visits with shop and order booker info
     """
+    # Verify order booker can only view their own visits
+    if order_booker['user_id'] != order_booker_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only view visits for your own account"
+        )
+    
     try:
         visits = ShopVisitService.get_visits_by_order_booker(
             db=db,
@@ -213,6 +227,7 @@ async def list_visits_by_shop(
     shop_id: int,
     skip: int = Query(0, ge=0, description="Number of records to skip"),
     limit: int = Query(100, ge=1, le=1000, description="Maximum number of records to return"),
+    current_user: Dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -252,6 +267,7 @@ async def list_all_visits(
     distributor_id: int = Query(None, description="Optional distributor ID to filter visits"),
     skip: int = Query(0, ge=0, description="Number of records to skip"),
     limit: int = Query(1000, ge=1, le=5000, description="Maximum number of records to return"),
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
     """
@@ -273,6 +289,13 @@ async def list_all_visits(
     Response (200):
         List of all visits with shop, visitor, and zone info
     """
+    # Verify distributor can only view visits for their own account if distributor_id is provided
+    if distributor_id is not None and distributor['user_id'] != distributor_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only view visits for your own distributor account"
+        )
+    
     try:
         visits = ShopVisitService.get_all_visits(
             db=db,

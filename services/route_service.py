@@ -72,41 +72,20 @@ class RouteService:
     
     @staticmethod
     def get_routes_by_distributor(db: Session, distributor_id: int) -> List[Dict]:
-        """
-        Get all routes created by a distributor.
-        OPTIMIZED: Uses batch loading to avoid N+1 queries.
-        """
+        """Get all routes created by a distributor."""
         routes = RouteRepository.get_by_distributor(db, distributor_id)
-        
-        if not routes:
-            return []
-        
-        # Batch load all zones (1 query instead of N queries)
-        from models.zone import Zone
-        zone_ids = list(set([route.zone_id for route in routes if route.zone_id]))
-        zones_map = {}
-        if zone_ids:
-            zones = db.query(Zone).filter(Zone.id.in_(zone_ids)).all()
-            zones_map = {zone.id: zone for zone in zones}
-        
-        # Batch load all order bookers (1 query instead of N queries)
-        from models.order_booker import OrderBooker
-        order_booker_ids = list(set([route.order_booker_id for route in routes if route.order_booker_id]))
-        order_bookers_map = {}
-        if order_booker_ids:
-            order_bookers = db.query(OrderBooker).filter(OrderBooker.id.in_(order_booker_ids)).all()
-            order_bookers_map = {ob.id: ob for ob in order_bookers}
-        
-        # Build result using lookup maps (no additional queries)
         result = []
         for route in routes:
+            # Get denormalized names
             zone_name = None
-            if route.zone_id and route.zone_id in zones_map:
-                zone_name = zones_map[route.zone_id].name
+            if route.zone_id:
+                zone = ZoneRepository.get_by_id(db, route.zone_id)
+                zone_name = zone.name if zone else None
             
             order_booker_name = None
-            if route.order_booker_id and route.order_booker_id in order_bookers_map:
-                order_booker_name = order_bookers_map[route.order_booker_id].name
+            if route.order_booker_id:
+                order_booker = OrderBookerRepository.get_by_id(db, route.order_booker_id)
+                order_booker_name = order_booker.name if order_booker else None
             
             result.append({
                 "id": route.id,
@@ -224,13 +203,19 @@ class RouteService:
         order_booker = OrderBookerRepository.get_by_id(db, order_booker_id)
         order_booker_name = order_booker.name if order_booker else None
         
+        # Batch load all zones to avoid N+1 queries
+        zone_ids = list(set([route.zone_id for route in routes if route.zone_id]))
+        zones = {}
+        if zone_ids:
+            zones_list = ZoneRepository.get_by_ids(db, zone_ids)
+            zones = {z.id: z for z in zones_list}
+        
         result = []
         for route in routes:
-            # Get zone name
+            # Get zone name from batch-loaded zones
             zone_name = None
-            if route.zone_id:
-                zone = ZoneRepository.get_by_id(db, route.zone_id)
-                zone_name = zone.name if zone else None
+            if route.zone_id and route.zone_id in zones:
+                zone_name = zones[route.zone_id].name
             
             result.append({
                 "id": route.id,

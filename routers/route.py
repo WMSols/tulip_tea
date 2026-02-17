@@ -50,6 +50,12 @@ async def list_routes_by_distributor(
     db: Session = Depends(get_db)
 ):
     """List all routes created by a distributor. Requires authentication."""
+    # Verify user can only view routes for their own distributor if they're a distributor
+    if current_user['user_role'] == 'distributor' and current_user['user_id'] != distributor_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only view routes for your own distributor account"
+        )
     routes = RouteService.get_routes_by_distributor(db=db, distributor_id=distributor_id)
     return routes
 
@@ -72,6 +78,12 @@ async def list_routes_by_order_booker(
     db: Session = Depends(get_db)
 ):
     """List all routes assigned to an order booker. Requires authentication."""
+    # Verify order booker can only view their own routes
+    if current_user['user_role'] == 'order_booker' and current_user['user_id'] != order_booker_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only view routes for your own account"
+        )
     routes = RouteService.get_routes_by_order_booker(db=db, order_booker_id=order_booker_id)
     return routes
 

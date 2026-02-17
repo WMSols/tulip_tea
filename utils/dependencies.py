@@ -141,32 +141,3 @@ def get_current_delivery_man(request: Request) -> Dict:
     return user_info
 
 
-def get_current_super_admin(request: Request) -> Dict:
-    """
-    Dependency to ensure current user is a super admin.
-    
-    Usage:
-        @router.get("/super-admin-only")
-        async def super_admin_endpoint(
-            super_admin: Dict = Depends(get_current_super_admin),
-            db: Session = Depends(get_db)
-        ):
-            admin_id = super_admin['user_id']
-            ...
-    
-    Returns:
-        Dict with user info
-    
-    Raises:
-        HTTPException 401: If token is missing, invalid, or expired
-        HTTPException 403: If user is not a super admin
-    """
-    user_info = get_current_user_from_request(request)
-    if user_info['user_role'] != 'super_admin':
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only super admins can access this endpoint"
-        )
-    return user_info
-
-

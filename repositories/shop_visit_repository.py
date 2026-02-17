@@ -39,7 +39,7 @@ class ShopVisitRepository:
               delivery_man_id: int = None, visit_type: str = None,
               gps_lat: Decimal = None, gps_lng: Decimal = None,
               visit_date: datetime = None, photo: str = None,
-              photos: str = None, reason: str = None) -> ShopVisit:
+              photos: str = None, reason: str = None, auto_commit: bool = True) -> ShopVisit:
         """
         Create a new shop visit record in the database.
         
@@ -101,10 +101,15 @@ class ShopVisitRepository:
         )
         # Add to session (staged, not yet saved)
         db.add(visit)
-        # Commit transaction (saves to database)
-        db.commit()
+        # Flush to get the ID without committing
+        db.flush()
         # Refresh to get auto-generated fields (id)
         db.refresh(visit)
+        
+        # Commit transaction (saves to database) if auto_commit is True
+        if auto_commit:
+            db.commit()
+        
         return visit
     
     @staticmethod

@@ -86,184 +86,184 @@ class ShopService:
             if not is_valid:
                 raise ValueError(message)
         
-        try:
-            # Create shop with pending status (does not commit)
-            # Note: assigned_to_order_booker is automatically set to order_booker_id
-            # in ShopRepository.create() to match created_by_order_booker initially
-            shop = ShopRepository.create(
-                db=db,
-                name=name,
-                owner_name=owner_name,
-                owner_phone=owner_phone,
-                gps_lat=gps_lat,
-                gps_lng=gps_lng,
-                credit_limit=Decimal('0'),  # Start with 0, will be set after approval
-                legacy_balance=legacy_balance or Decimal('0'),
-                created_by_order_booker=order_booker_id,
-                zone_id=zone_id,
-                registration_status="pending"  # New shop starts as pending
-            )
-            
-            # Upload CNIC photos to Supabase Storage if provided
-            # Note: Image uploads are external operations, so failures are handled gracefully
-            # Shop will be created even if image uploads fail
-            from services.image_service import ImageService
-            cnic_front_url = None
-            cnic_back_url = None
-            
-            if owner_cnic_front_photo:
-                print(f"INFO: Attempting to upload CNIC front photo for shop {shop.id}")
-                try:
-                    cnic_front_url = ImageService.upload_shop_cnic_front(
-                        shop_id=shop.id,
-                        order_booker_id=order_booker_id,
-                        base64_image=owner_cnic_front_photo
-                    )
-                    if cnic_front_url:
-                        print(f"SUCCESS: CNIC front photo uploaded: {cnic_front_url}")
-                        shop.owner_cnic_front_photo = cnic_front_url
-                    else:
-                        print(f"ERROR: Failed to upload CNIC front photo for shop {shop.id}")
-                except Exception as e:
-                    print(f"ERROR: Exception uploading CNIC front photo for shop {shop.id}: {type(e).__name__}: {str(e)}")
-                    import traceback
-                    traceback.print_exc()
-            
-            if owner_cnic_back_photo:
-                print(f"INFO: Attempting to upload CNIC back photo for shop {shop.id}")
-                try:
-                    cnic_back_url = ImageService.upload_shop_cnic_back(
-                        shop_id=shop.id,
-                        order_booker_id=order_booker_id,
-                        base64_image=owner_cnic_back_photo
-                    )
-                    if cnic_back_url:
-                        print(f"SUCCESS: CNIC back photo uploaded: {cnic_back_url}")
-                        shop.owner_cnic_back_photo = cnic_back_url
-                    else:
-                        print(f"ERROR: Failed to upload CNIC back photo for shop {shop.id}")
-                except Exception as e:
-                    print(f"ERROR: Exception uploading CNIC back photo for shop {shop.id}: {type(e).__name__}: {str(e)}")
-                    import traceback
-                    traceback.print_exc()
-            
-            # Upload owner photo to Supabase Storage if provided
-            if owner_photo:
-                print(f"INFO: Attempting to upload owner photo for shop {shop.id}")
-                try:
-                    owner_photo_url = ImageService.upload_shop_owner_photo(
-                        shop_id=shop.id,
-                        order_booker_id=order_booker_id,
-                        base64_image=owner_photo
-                    )
-                    if owner_photo_url:
-                        print(f"SUCCESS: Owner photo uploaded: {owner_photo_url}")
-                        shop.owner_photo = owner_photo_url
-                    else:
-                        print(f"ERROR: Failed to upload owner photo for shop {shop.id}")
-                except Exception as e:
-                    print(f"ERROR: Exception uploading owner photo for shop {shop.id}: {type(e).__name__}: {str(e)}")
-                    import traceback
-                    traceback.print_exc()
-            
-            # Upload shop exterior photo to Supabase Storage if provided
-            if shop_exterior_photo:
-                print(f"INFO: Attempting to upload shop exterior photo for shop {shop.id}")
-                try:
-                    shop_exterior_url = ImageService.upload_shop_exterior(
-                        shop_id=shop.id,
-                        order_booker_id=order_booker_id,
-                        base64_image=shop_exterior_photo
-                    )
-                    if shop_exterior_url:
-                        print(f"SUCCESS: Shop exterior photo uploaded: {shop_exterior_url}")
-                        shop.shop_exterior_photo = shop_exterior_url
-                    else:
-                        print(f"ERROR: Failed to upload shop exterior photo for shop {shop.id}")
-                except Exception as e:
-                    print(f"ERROR: Exception uploading shop exterior photo for shop {shop.id}: {type(e).__name__}: {str(e)}")
-                    import traceback
-                    traceback.print_exc()
-            
-            # Assign shop to route if route_id is provided (does not commit)
-            if route_id:
-                # Verify route exists
-                route = RouteRepository.get_by_id(db, route_id)
-                if not route:
-                    raise ValueError("Route not found")
-                
-                # Verify route is assigned to this order booker
-                if route.order_booker_id != order_booker_id:
-                    raise ValueError("Route is not assigned to this order booker")
-                
-                # If zone_id is provided, verify route belongs to that zone
-                if zone_id and route.zone_id != zone_id:
-                    raise ValueError(f"Route belongs to zone {route.zone_id}, but shop zone is {zone_id}. They must match.")
-                
-                # If no zone_id provided but route has zone, update shop's zone_id to match route
-                if not zone_id and route.zone_id:
-                    shop.zone_id = route.zone_id
-                
-                # Get next sequence number for this route (count shops already on this route)
-                existing_shops = ShopRepository.get_by_route(db, route_id)
-                next_sequence = len(existing_shops) + 1 if existing_shops else 1
-                
-                # Assign shop to route directly (using shop.route_id)
-                shop.route_id = route_id
-                shop.route_sequence = next_sequence
-            
-            # Create credit limit request if credit_limit is provided and > 0 (does not commit)
-            credit_limit_request_id = None
-            if credit_limit and credit_limit > 0:
-                request = CreditLimitRequestRepository.create(
-                    db=db,
+        # Create shop with pending status
+        # Note: assigned_to_order_booker is automatically set to order_booker_id
+        # in ShopRepository.create() to match created_by_order_booker initially
+        shop = ShopRepository.create(
+            db=db,
+            name=name,
+            owner_name=owner_name,
+            owner_phone=owner_phone,
+            gps_lat=gps_lat,
+            gps_lng=gps_lng,
+            credit_limit=Decimal('0'),  # Start with 0, will be set after approval
+            legacy_balance=legacy_balance or Decimal('0'),
+            created_by_order_booker=order_booker_id,
+            zone_id=zone_id,
+            registration_status="pending"  # New shop starts as pending
+        )
+        
+        # Upload CNIC photos to Supabase Storage if provided
+        from services.image_service import ImageService
+        cnic_front_url = None
+        cnic_back_url = None
+        
+        if owner_cnic_front_photo:
+            print(f"INFO: Attempting to upload CNIC front photo for shop {shop.id}")
+            try:
+                cnic_front_url = ImageService.upload_shop_cnic_front(
                     shop_id=shop.id,
-                    requested_by_role="order_booker",
-                    requested_by_id=order_booker_id,
-                    requested_credit_limit=float(credit_limit),
-                    old_credit_limit=None,  # New shop, no old limit
-                    remarks=f"Initial credit limit request for new shop: {name}"
+                    order_booker_id=order_booker_id,
+                    base64_image=owner_cnic_front_photo
                 )
-                credit_limit_request_id = request.id
+                if cnic_front_url:
+                    print(f"SUCCESS: CNIC front photo uploaded: {cnic_front_url}")
+                    shop.owner_cnic_front_photo = cnic_front_url
+                    db.commit()
+                    db.refresh(shop)
+                else:
+                    print(f"ERROR: Failed to upload CNIC front photo for shop {shop.id}")
+            except Exception as e:
+                print(f"ERROR: Exception uploading CNIC front photo for shop {shop.id}: {type(e).__name__}: {str(e)}")
+                import traceback
+                traceback.print_exc()
+        
+        if owner_cnic_back_photo:
+            print(f"INFO: Attempting to upload CNIC back photo for shop {shop.id}")
+            try:
+                cnic_back_url = ImageService.upload_shop_cnic_back(
+                    shop_id=shop.id,
+                    order_booker_id=order_booker_id,
+                    base64_image=owner_cnic_back_photo
+                )
+                if cnic_back_url:
+                    print(f"SUCCESS: CNIC back photo uploaded: {cnic_back_url}")
+                    shop.owner_cnic_back_photo = cnic_back_url
+                    db.commit()
+                    db.refresh(shop)
+                else:
+                    print(f"ERROR: Failed to upload CNIC back photo for shop {shop.id}")
+            except Exception as e:
+                print(f"ERROR: Exception uploading CNIC back photo for shop {shop.id}: {type(e).__name__}: {str(e)}")
+                import traceback
+                traceback.print_exc()
+        
+        # Upload owner photo to Supabase Storage if provided
+        if owner_photo:
+            print(f"INFO: Attempting to upload owner photo for shop {shop.id}")
+            try:
+                owner_photo_url = ImageService.upload_shop_owner_photo(
+                    shop_id=shop.id,
+                    order_booker_id=order_booker_id,
+                    base64_image=owner_photo
+                )
+                if owner_photo_url:
+                    print(f"SUCCESS: Owner photo uploaded: {owner_photo_url}")
+                    shop.owner_photo = owner_photo_url
+                    db.commit()
+                    db.refresh(shop)
+                else:
+                    print(f"ERROR: Failed to upload owner photo for shop {shop.id}")
+            except Exception as e:
+                print(f"ERROR: Exception uploading owner photo for shop {shop.id}: {type(e).__name__}: {str(e)}")
+                import traceback
+                traceback.print_exc()
+        
+        # Upload shop exterior photo to Supabase Storage if provided
+        if shop_exterior_photo:
+            print(f"INFO: Attempting to upload shop exterior photo for shop {shop.id}")
+            try:
+                shop_exterior_url = ImageService.upload_shop_exterior(
+                    shop_id=shop.id,
+                    order_booker_id=order_booker_id,
+                    base64_image=shop_exterior_photo
+                )
+                if shop_exterior_url:
+                    print(f"SUCCESS: Shop exterior photo uploaded: {shop_exterior_url}")
+                    shop.shop_exterior_photo = shop_exterior_url
+                    db.commit()
+                    db.refresh(shop)
+                else:
+                    print(f"ERROR: Failed to upload shop exterior photo for shop {shop.id}")
+            except Exception as e:
+                print(f"ERROR: Exception uploading shop exterior photo for shop {shop.id}: {type(e).__name__}: {str(e)}")
+                import traceback
+                traceback.print_exc()
+        
+        # Assign shop to route if route_id is provided
+        if route_id:
+            # Verify route exists
+            route = RouteRepository.get_by_id(db, route_id)
+            if not route:
+                raise ValueError("Route not found")
             
-            # Get assigned order booker name (initially same as creator)
-            assigned_order_booker_name = order_booker.name if order_booker else None
+            # Verify route is assigned to this order booker
+            if route.order_booker_id != order_booker_id:
+                raise ValueError("Route is not assigned to this order booker")
             
-            # Get route this shop belongs to (using shop.route_id directly)
-            routes_info = []
-            if shop.route_id:
-                route = RouteRepository.get_by_id(db, shop.route_id)
-                if route:
-                    route_order_booker = None
-                    route_order_booker_name = None
-                    if route.order_booker_id:
-                        route_order_booker = OrderBookerRepository.get_by_id(db, route.order_booker_id)
-                        route_order_booker_name = route_order_booker.name if route_order_booker else None
-                    
-                    # Get zone name for route
-                    route_zone_name = None
-                    if route.zone_id:
-                        route_zone = ZoneRepository.get_by_id(db, route.zone_id)
-                        route_zone_name = route_zone.name if route_zone else None
-                    
-                    routes_info.append({
-                        "route_id": route.id,
-                        "route_name": route.name,
-                        "route_zone_id": route.zone_id,
-                        "route_zone_name": route_zone_name,
-                        "order_booker_id": route.order_booker_id,
-                        "order_booker_name": route_order_booker_name,
-                        "sequence": shop.route_sequence
-                    })
+            # If zone_id is provided, verify route belongs to that zone
+            if zone_id and route.zone_id != zone_id:
+                raise ValueError(f"Route belongs to zone {route.zone_id}, but shop zone is {zone_id}. They must match.")
             
-            # Commit all operations together (shop, images, route assignment, credit limit request)
+            # If no zone_id provided but route has zone, update shop's zone_id to match route
+            if not zone_id and route.zone_id:
+                shop.zone_id = route.zone_id
+                db.commit()
+                db.refresh(shop)
+            
+            # Get next sequence number for this route (count shops already on this route)
+            existing_shops = ShopRepository.get_by_route(db, route_id)
+            next_sequence = len(existing_shops) + 1 if existing_shops else 1
+            
+            # Assign shop to route directly (using shop.route_id)
+            shop.route_id = route_id
+            shop.route_sequence = next_sequence
             db.commit()
             db.refresh(shop)
         
-        except Exception as e:
-            # Rollback all operations on any error
-            db.rollback()
-            raise
+        # Create credit limit request if credit_limit is provided and > 0
+        credit_limit_request_id = None
+        if credit_limit and credit_limit > 0:
+            request = CreditLimitRequestRepository.create(
+                db=db,
+                shop_id=shop.id,
+                requested_by_role="order_booker",
+                requested_by_id=order_booker_id,
+                requested_credit_limit=float(credit_limit),
+                old_credit_limit=None,  # New shop, no old limit
+                remarks=f"Initial credit limit request for new shop: {name}"
+            )
+            credit_limit_request_id = request.id
+        
+        # Get assigned order booker name (initially same as creator)
+        assigned_order_booker_name = order_booker.name if order_booker else None
+        
+        # Get route this shop belongs to (using shop.route_id directly)
+        routes_info = []
+        if shop.route_id:
+            route = RouteRepository.get_by_id(db, shop.route_id)
+            if route:
+                route_order_booker = None
+                route_order_booker_name = None
+                if route.order_booker_id:
+                    route_order_booker = OrderBookerRepository.get_by_id(db, route.order_booker_id)
+                    route_order_booker_name = route_order_booker.name if route_order_booker else None
+                
+                # Get zone name for route
+                route_zone_name = None
+                if route.zone_id:
+                    route_zone = ZoneRepository.get_by_id(db, route.zone_id)
+                    route_zone_name = route_zone.name if route_zone else None
+                
+                routes_info.append({
+                    "route_id": route.id,
+                    "route_name": route.name,
+                    "route_zone_id": route.zone_id,
+                    "route_zone_name": route_zone_name,
+                    "order_booker_id": route.order_booker_id,
+                    "order_booker_name": route_order_booker_name,
+                    "sequence": shop.route_sequence
+                })
         
         return {
             "id": shop.id,
@@ -316,70 +316,52 @@ class ShopService:
         order_booker = OrderBookerRepository.get_by_id(db, order_booker_id)
         order_booker_name = order_booker.name if order_booker else None
         
-        # Batch load all related entities to avoid N+1 queries
-        route_ids = set()
-        route_order_booker_ids = set()
-        zone_ids = set()
-        assigned_order_booker_ids = set()
-        
-        for shop in shops:
-            if shop.route_id:
-                route_ids.add(shop.route_id)
-            if shop.assigned_to_order_booker:
-                assigned_order_booker_ids.add(shop.assigned_to_order_booker)
-        
-        # Batch load all routes (1 query for all routes)
-        routes_map = {}
+        # Batch load all routes, zones, and order bookers to avoid N+1 queries
+        route_ids = list(set([shop.route_id for shop in shops if shop.route_id]))
+        routes = {}
         if route_ids:
-            routes = RouteRepository.get_by_ids(db, list(route_ids), include_deleted=False)
-            routes_map = {route.id: route for route in routes}
-            # Collect zone IDs and route order booker IDs from routes
-            for route in routes:
-                if route.zone_id:
-                    zone_ids.add(route.zone_id)
-                if route.order_booker_id:
-                    route_order_booker_ids.add(route.order_booker_id)
+            routes_list = RouteRepository.get_by_ids(db, route_ids)
+            routes = {r.id: r for r in routes_list}
         
-        # Batch load all order bookers (assigned and route order bookers) - 1 query
-        all_order_booker_ids = assigned_order_booker_ids | route_order_booker_ids
-        order_bookers_map = {}
-        if all_order_booker_ids:
-            from models.order_booker import OrderBooker
-            order_bookers = db.query(OrderBooker).filter(
-                OrderBooker.id.in_(list(all_order_booker_ids)),
-                OrderBooker.deleted_at.is_(None)
-            ).all()
-            order_bookers_map = {ob.id: ob for ob in order_bookers}
+        # Collect all zone IDs and order booker IDs from routes
+        zone_ids = list(set([r.zone_id for r in routes.values() if r.zone_id]))
+        route_order_booker_ids = list(set([r.order_booker_id for r in routes.values() if r.order_booker_id]))
         
-        # Batch load all zones (1 query for all zones)
-        zones_map = {}
+        # Collect assigned order booker IDs from shops
+        assigned_order_booker_ids = list(set([shop.assigned_to_order_booker for shop in shops if shop.assigned_to_order_booker]))
+        
+        # Combine all order booker IDs
+        all_order_booker_ids = list(set(route_order_booker_ids + assigned_order_booker_ids))
+        
+        # Batch load zones
+        zones = {}
         if zone_ids:
-            from models.zone import Zone
-            zones = db.query(Zone).filter(
-                Zone.id.in_(list(zone_ids)),
-                Zone.deleted_at.is_(None)
-            ).all()
-            zones_map = {zone.id: zone for zone in zones}
+            zones_list = ZoneRepository.get_by_ids(db, zone_ids)
+            zones = {z.id: z for z in zones_list}
         
-        # Build result using lookup maps (no additional queries)
+        # Batch load order bookers
+        order_bookers = {}
+        if all_order_booker_ids:
+            order_bookers_list = OrderBookerRepository.get_by_ids(db, all_order_booker_ids)
+            order_bookers = {ob.id: ob for ob in order_bookers_list}
+        
         result = []
         for shop in shops:
-            # Get route information for this shop from lookup map
+            # Get route information for this shop
             routes_info = []
             route_id = None
-            if shop.route_id and shop.route_id in routes_map:
+            if shop.route_id and shop.route_id in routes:
                 route_id = shop.route_id
-                route = routes_map[shop.route_id]
+                route = routes[route_id]
                 
-                # Get route order booker from lookup map
                 route_order_booker_name = None
-                if route.order_booker_id and route.order_booker_id in order_bookers_map:
-                    route_order_booker_name = order_bookers_map[route.order_booker_id].name
+                if route.order_booker_id and route.order_booker_id in order_bookers:
+                    route_order_booker_name = order_bookers[route.order_booker_id].name
                 
-                # Get zone name from lookup map
+                # Get zone name for route
                 route_zone_name = None
-                if route.zone_id and route.zone_id in zones_map:
-                    route_zone_name = zones_map[route.zone_id].name
+                if route.zone_id and route.zone_id in zones:
+                    route_zone_name = zones[route.zone_id].name
                 
                 routes_info.append({
                     "route_id": route.id,
@@ -391,10 +373,10 @@ class ShopService:
                     "sequence": shop.route_sequence
                 })
             
-            # Get assigned order booker name from lookup map
-            assigned_order_booker_name = None
-            if shop.assigned_to_order_booker and shop.assigned_to_order_booker in order_bookers_map:
-                assigned_order_booker_name = order_bookers_map[shop.assigned_to_order_booker].name
+            # Get assigned order booker name
+            assigned_to_order_booker_name = None
+            if shop.assigned_to_order_booker and shop.assigned_to_order_booker in order_bookers:
+                assigned_to_order_booker_name = order_bookers[shop.assigned_to_order_booker].name
             
             result.append({
                 "id": shop.id,
@@ -415,7 +397,7 @@ class ShopService:
                 "created_by_order_booker": shop.created_by_order_booker,
                 "created_by_order_booker_name": order_booker_name,
                 "assigned_to_order_booker": shop.assigned_to_order_booker,
-                "assigned_to_order_booker_name": assigned_order_booker_name,
+                "assigned_to_order_booker_name": assigned_to_order_booker_name,
                 "routes": routes_info,  # Include routes array for detailed route info
                 "created_at": shop.created_at.isoformat() if shop.created_at else None
             })
@@ -446,20 +428,6 @@ class ShopService:
         order_booker = OrderBookerRepository.get_by_id(db, order_booker_id)
         order_booker_name = order_booker.name if order_booker else None
         
-        # Batch load all created_by_order_booker names (1 query instead of N queries)
-        from models.order_booker import OrderBooker
-        created_by_order_booker_ids = list(set([
-            shop.created_by_order_booker for shop in shops 
-            if shop.created_by_order_booker
-        ]))
-        created_by_order_bookers_map = {}
-        if created_by_order_booker_ids:
-            created_by_order_bookers = db.query(OrderBooker).filter(
-                OrderBooker.id.in_(created_by_order_booker_ids)
-            ).all()
-            created_by_order_bookers_map = {ob.id: ob for ob in created_by_order_bookers}
-        
-        # Build result using lookup map (no additional queries)
         return [
             {
                 "id": shop.id,
@@ -477,7 +445,7 @@ class ShopService:
                 "verified_at": shop.verified_at.isoformat() if shop.verified_at else None,
                 "zone_id": shop.zone_id,
                 "created_by_order_booker": shop.created_by_order_booker,
-                "created_by_order_booker_name": created_by_order_bookers_map.get(shop.created_by_order_booker).name if shop.created_by_order_booker and shop.created_by_order_booker in created_by_order_bookers_map else None,
+                "created_by_order_booker_name": OrderBookerRepository.get_by_id(db, shop.created_by_order_booker).name if shop.created_by_order_booker else None,
                 "assigned_to_order_booker": shop.assigned_to_order_booker,
                 "assigned_to_order_booker_name": order_booker_name,
                 "owner_cnic_front_photo": shop.owner_cnic_front_photo,
@@ -531,33 +499,36 @@ class ShopService:
             # Filter by zone
             shops = ShopRepository.get_by_zone(db, zone_id)
         elif distributor_id:
-            # Filter by distributor using optimized JOINs (similar to credit_limit_requests)
-            # This is much faster than separate query + IN clause
+            # Filter by distributor: get shops where order booker belongs to this distributor
+            # OR shops verified by this distributor
             from sqlalchemy import or_
             
-            # Use LEFT JOINs to filter shops by distributor
-            # Join with order_bookers for created_by and assigned_to filtering
-            shops = db.query(Shop).outerjoin(
-                OrderBooker,
-                or_(
-                    (Shop.created_by_order_booker == OrderBooker.id),
-                    (Shop.assigned_to_order_booker == OrderBooker.id)
-                )
-            ).filter(
+            # Get all order booker IDs for this distributor
+            order_booker_ids_query = db.query(OrderBooker.id).filter(
+                OrderBooker.distributor_id == distributor_id,
+                OrderBooker.deleted_at.is_(None),
+                OrderBooker.is_active == True
+            )
+            order_booker_id_list = [row[0] for row in order_booker_ids_query.all()]
+            
+            # Build filter conditions
+            conditions = []
+            
+            # Shop created by order booker belonging to this distributor
+            if order_booker_id_list:
+                conditions.append(Shop.created_by_order_booker.in_(order_booker_id_list))
+                # Shop assigned to order booker belonging to this distributor
+                conditions.append(Shop.assigned_to_order_booker.in_(order_booker_id_list))
+            
+            # Shop verified by this distributor
+            conditions.append(Shop.verified_by_distributor == distributor_id)
+            
+            shops = db.query(Shop).filter(
                 Shop.deleted_at.is_(None),
                 Shop.is_active == True
             ).filter(
-                or_(
-                    # Shop created by or assigned to order booker belonging to this distributor
-                    (
-                        (OrderBooker.distributor_id == distributor_id) &
-                        (OrderBooker.deleted_at.is_(None)) &
-                        (OrderBooker.is_active == True)
-                    ),
-                    # Shop verified by this distributor
-                    (Shop.verified_by_distributor == distributor_id)
-                )
-            ).distinct().all()
+                or_(*conditions) if conditions else False
+            ).all()
         else:
             # Return all active shops (exclude soft-deleted and inactive) - let UI filters handle zone/route filtering
             try:

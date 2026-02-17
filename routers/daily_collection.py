@@ -21,6 +21,8 @@ from models.schemas import (
 from services.daily_collection_service import DailyCollectionService
 from services.activity_log_service import ActivityLogService
 from utils.auth_helpers import get_current_user_from_request
+from utils.dependencies import get_current_user, get_current_distributor, get_current_order_booker, get_current_delivery_man
+from typing import Dict
 
 router = APIRouter(prefix="/daily-collections", tags=["Daily Collections"])
 
@@ -30,6 +32,7 @@ async def submit_daily_collection_by_delivery_man(
     delivery_man_id: int,
     collection: DailyCollectionCreate,
     request: Request,
+    delivery_man: Dict = Depends(get_current_delivery_man),
     db: Session = Depends(get_db)
 ):
     """
@@ -56,6 +59,13 @@ async def submit_daily_collection_by_delivery_man(
     Response (201):
         Created collection data with status="pending" and updated shop credit info
     """
+    # Verify delivery man can only submit collections for themselves
+    if delivery_man['user_id'] != delivery_man_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only submit collections for your own account"
+        )
+    
     try:
         from datetime import datetime
         collected_at = None
@@ -112,6 +122,7 @@ async def submit_daily_collection(
     order_booker_id: int,
     collection: DailyCollectionCreate,
     request: Request,
+    order_booker: Dict = Depends(get_current_order_booker),
     db: Session = Depends(get_db)
 ):
     """
@@ -136,6 +147,13 @@ async def submit_daily_collection(
     Response (201):
         Created collection data with status="pending"
     """
+    # Verify order booker can only submit collections for themselves
+    if order_booker['user_id'] != order_booker_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only submit collections for your own account"
+        )
+    
     try:
         from datetime import datetime
         collected_at = None
@@ -189,6 +207,7 @@ async def submit_daily_collection(
 @router.get("/{collection_id}", response_model=DailyCollectionResponse)
 async def get_collection_by_id(
     collection_id: int,
+    current_user: Dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Get a daily collection by ID."""
@@ -235,6 +254,7 @@ async def get_collection_by_id(
 @router.get("/delivery-man/{delivery_man_id}", response_model=List[DailyCollectionResponse])
 async def list_collections_by_delivery_man(
     delivery_man_id: int,
+    delivery_man: Dict = Depends(get_current_delivery_man),
     db: Session = Depends(get_db)
 ):
     """
@@ -245,6 +265,13 @@ async def list_collections_by_delivery_man(
     Response (200):
         List of collections with shop information
     """
+    # Verify delivery man can only view their own collections
+    if delivery_man['user_id'] != delivery_man_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only view collections for your own account"
+        )
+    
     try:
         collections = DailyCollectionService.get_collections_by_delivery_man(
             db=db,
@@ -261,6 +288,7 @@ async def list_collections_by_delivery_man(
 @router.get("/order-booker/{order_booker_id}", response_model=List[DailyCollectionResponse])
 async def list_collections_by_order_booker(
     order_booker_id: int,
+    order_booker: Dict = Depends(get_current_order_booker),
     db: Session = Depends(get_db)
 ):
     """
@@ -271,6 +299,13 @@ async def list_collections_by_order_booker(
     Response (200):
         List of collections with shop information
     """
+    # Verify order booker can only view their own collections
+    if order_booker['user_id'] != order_booker_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only view collections for your own account"
+        )
+    
     try:
         collections = DailyCollectionService.get_collections_by_order_booker(
             db=db,
@@ -287,6 +322,7 @@ async def list_collections_by_order_booker(
 @router.get("/pending", response_model=List[DailyCollectionResponse])
 async def list_pending_collections(
     distributor_id: int = None,
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
     """
@@ -324,6 +360,7 @@ async def list_all_collections(
     status: str = None,
     skip: int = 0,
     limit: int = 1000,
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
     """
@@ -372,6 +409,7 @@ async def approve_daily_collection(
     approval_data: DailyCollectionApprove,
     distributor_id: int,
     request: Request,
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
     """
@@ -394,6 +432,13 @@ async def approve_daily_collection(
     Response (200):
         Approved collection and created payment data
     """
+    # Verify distributor can only approve collections for their own account
+    if distributor['user_id'] != distributor_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only approve collections for your own distributor account"
+        )
+    
     try:
         # Get collection before approval for logging
         from repositories.daily_collection_repository import DailyCollectionRepository
@@ -471,6 +516,7 @@ async def reject_daily_collection(
     rejection_data: DailyCollectionReject,
     distributor_id: int,
     request: Request,
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
     """
@@ -491,6 +537,13 @@ async def reject_daily_collection(
     Response (200):
         Rejected collection data
     """
+    # Verify distributor can only reject collections for their own account
+    if distributor['user_id'] != distributor_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only reject collections for your own distributor account"
+        )
+    
     try:
         # Get collection before rejection for logging
         from repositories.daily_collection_repository import DailyCollectionRepository

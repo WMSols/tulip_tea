@@ -39,6 +39,22 @@ class VisitTypeRepository:
         return db.query(VisitType).filter(VisitType.visit_id == visit_id).all()
     
     @staticmethod
+    def get_by_visits(db: Session, visit_ids: List[int]) -> List[VisitType]:
+        """
+        Batch load visit types for multiple visits (optimized to avoid N+1 queries).
+        
+        Args:
+            db: Database session
+            visit_ids: List of visit IDs to fetch visit types for
+        
+        Returns:
+            List of visit types for all specified visits
+        """
+        if not visit_ids:
+            return []
+        return db.query(VisitType).filter(VisitType.visit_id.in_(visit_ids)).all()
+    
+    @staticmethod
     def delete_by_visit(db: Session, visit_id: int) -> int:
         """Delete all visit types for a visit."""
         count = db.query(VisitType).filter(VisitType.visit_id == visit_id).delete()

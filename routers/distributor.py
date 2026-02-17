@@ -9,12 +9,18 @@ from config.database import get_db
 from models.schemas import DistributorCreate, DistributorResponse, TokenResponse
 from services.distributor_service import DistributorService
 from repositories.distributor_repository import DistributorRepository
+from utils.dependencies import get_current_user
+from typing import Dict
 
 router = APIRouter(prefix="/distributors", tags=["Distributors"])
 
 
 @router.post("/", response_model=DistributorResponse, status_code=status.HTTP_201_CREATED)
-async def create_distributor(distributor: DistributorCreate, db: Session = Depends(get_db)):
+async def create_distributor(
+    distributor: DistributorCreate,
+    current_user: Dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """
     Create a new distributor.
     
@@ -40,7 +46,12 @@ async def create_distributor(distributor: DistributorCreate, db: Session = Depen
 
 
 @router.get("/", response_model=List[DistributorResponse])
-async def list_distributors(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+async def list_distributors(
+    skip: int = 0,
+    limit: int = 100,
+    current_user: Dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """List all distributors."""
     distributors = DistributorRepository.get_all(db=db, skip=skip, limit=limit)
     return [
@@ -56,7 +67,11 @@ async def list_distributors(skip: int = 0, limit: int = 100, db: Session = Depen
 
 
 @router.get("/{distributor_id}", response_model=DistributorResponse)
-async def get_distributor(distributor_id: int, db: Session = Depends(get_db)):
+async def get_distributor(
+    distributor_id: int,
+    current_user: Dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """Get distributor by ID."""
     distributor = DistributorRepository.get_by_id(db=db, distributor_id=distributor_id)
     if not distributor:

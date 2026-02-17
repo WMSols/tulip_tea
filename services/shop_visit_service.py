@@ -250,30 +250,154 @@ class ShopVisitService:
         # We'll use visit_types table instead
         visit_type_legacy = visit_types[0] if visit_types and len(visit_types) > 0 else None
         
-        visit = ShopVisitRepository.create(
-            db=db,
-            shop_id=shop_id,
-            order_booker_id=order_booker_id,
-            delivery_man_id=delivery_man_id,
-            visit_type=visit_type_legacy,  # Keep for backward compatibility
-            gps_lat=gps_lat_decimal,
-            gps_lng=gps_lng_decimal,
-            visit_date=visit_date_datetime,
-            photo=photo_url,  # Will be None if base64, URL if already uploaded
-            reason=reason
-        )
-        
-        # Create visit types in junction table
-        created_visit_types = []
-        if visit_types:
-            for vt in visit_types:
+        # Wrap all database operations in a single transaction to prevent partial execution
+        # If any operation fails, all changes will be rolled back
+        try:
+            # Create visit (don't commit yet - auto_commit=False)
+            visit = ShopVisitRepository.create(
+                db=db,
+                shop_id=shop_id,
+                order_booker_id=order_booker_id,
+                delivery_man_id=delivery_man_id,
+                visit_type=visit_type_legacy,  # Keep for backward compatibility
+                gps_lat=gps_lat_decimal,
+                gps_lng=gps_lng_decimal,
+                visit_date=visit_date_datetime,
+                photo=photo_url,  # Will be None if base64, URL if already uploaded
+                reason=reason,
+                auto_commit=False  # Don't commit yet - wait for all operations
+            )
+            
+            # Create visit types in junction table
+            created_visit_types = []
+            if visit_types:
+                for vt in visit_types:
+                    try:
+                        visit_type_obj = VisitTypeRepository.create(db, visit.id, vt)
+                        created_visit_types.append(vt)
+                    except Exception as e:
+                        print(f"Warning: Failed to create visit type '{vt}': {e}")
+            
+            # Handle order_booking type - create order
+            order_id = None
+            if visit_types and "order_booking" in visit_types:
+                if not shop_id:
+                    raise ValueError("shop_id is required when visit_type includes 'order_booking'")
+                if not order_items or len(order_items) == 0:
+                    raise ValueError("order_items are required when visit_type includes 'order_booking'")
+                
+                # Parse scheduled_date if provided
+                scheduled_date_obj = None
+                if scheduled_date:
+                    try:
+                        scheduled_date_obj = datetime.fromisoformat(scheduled_date).date()
+                    except (ValueError, AttributeError):
+                        try:
+                            scheduled_date_obj = date.fromisoformat(scheduled_date)
+                        except (ValueError, AttributeError):
+                            raise ValueError("Invalid scheduled_date format. Use ISO date format (e.g., 2026-01-10)")
+                
+                # Get distributor_id from order_booker
+                distributor_id = None
+                if order_booker_id:
+                    order_booker = OrderBookerRepository.get_by_id(db, order_booker_id)
+                    if order_booker:
+                        distributor_id = order_booker.distributor_id
+                
+                # Convert final_total_amount to Decimal if provided
+                final_total_decimal = None
+                if final_total_amount is not None:
+                    final_total_decimal = Decimal(str(final_total_amount))
+                
+                # Create order (don't commit yet - auto_commit=False)
+                order_data = OrderService.create_order(
+                    db=db,
+                    shop_id=shop_id,
+                    order_booker_id=order_booker_id,
+                    order_items=order_items,
+                    distributor_id=distributor_id,
+                    visit_id=visit.id,
+                    scheduled_date=scheduled_date_obj,
+                    final_total_amount=final_total_decimal,
+                    order_resolution_type=order_resolution_type,
+                    subsidy_id=subsidy_id,
+                    auto_commit=False  # Don't commit yet - wait for all operations
+                )
+                order_id = order_data["id"]
+            
+            # Handle daily_collections type - create collection
+            collection_id = None
+            collection_credit_info = None  # Store collection credit info to include in response
+            if visit_types and "daily_collections" in visit_types:
+                if not shop_id:
+                    raise ValueError("shop_id is required when visit_type includes 'daily_collections'")
+                if not collection_amount or collection_amount <= 0:
+                    raise ValueError("collection_amount is required and must be greater than 0 when visit_type includes 'daily_collections'")
+                if not order_booker_id:
+                    raise ValueError("order_booker_id is required when visit_type includes 'daily_collections'")
+                
+                # Create daily collection (don't commit yet - auto_commit=False)
+                collection_data = DailyCollectionService.create_collection(
+                    db=db,
+                    shop_id=shop_id,
+                    order_booker_id=order_booker_id,
+                    amount=collection_amount,
+                    collected_at=visit_date_datetime,
+                    remarks=collection_remarks,
+                    visit_id=visit.id,  # Link collection to visit directly
+                    auto_commit=False  # Don't commit yet - wait for all operations
+                )
+                collection_id = collection_data["id"]
+                
+                # Store collection credit info to include in response
+                collection_credit_info = {
+                    "shop_outstanding_balance": collection_data.get("shop_outstanding_balance"),
+                    "shop_credit_limit": collection_data.get("shop_credit_limit"),
+                    "shop_available_credit": collection_data.get("shop_available_credit")
+                }
+            
+            # Auto-link visit to visit task if shop_id and order_booker_id are provided
+            visit_task_id = None
+            if shop_id and order_booker_id:
                 try:
-                    visit_type_obj = VisitTypeRepository.create(db, visit.id, vt)
-                    created_visit_types.append(vt)
+                    from repositories.visit_task_repository import VisitTaskRepository
+                    # Get the visit date (use visit_date if available, otherwise today)
+                    visit_date_obj = visit_date_datetime.date() if visit_date_datetime else date.today()
+                    
+                    # Find matching visit task
+                    matching_task = VisitTaskRepository.check_existing_task(
+                        db=db,
+                        shop_id=shop_id,
+                        scheduled_date=visit_date_obj,
+                        assignee_type='order_booker',
+                        assignee_id=order_booker_id
+                    )
+                    
+                    if matching_task and matching_task.status != 'completed':
+                        # Link visit to task and mark as completed
+                        VisitTaskRepository.update_status(
+                            db=db,
+                            task_id=matching_task.id,
+                            status='completed',
+                            shop_visit_id=visit.id,
+                            notes=f"Auto-linked to visit {visit.id}"
+                        )
+                        visit_task_id = matching_task.id
                 except Exception as e:
-                    print(f"Warning: Failed to create visit type '{vt}': {e}")
+                    # Don't fail the visit registration if task linking fails
+                    print(f"Warning: Failed to link visit to task: {e}")
+            
+            # Commit all database operations at once (atomic transaction)
+            db.commit()
+            
+        except Exception as e:
+            # Rollback all changes if any operation fails
+            db.rollback()
+            print(f"Error in register_visit transaction: {e}")
+            raise
         
-        # Upload photo to Supabase Storage if it's base64
+        # Upload photo to Supabase Storage if it's base64 (external operation, not part of transaction)
+        # This happens after commit, so if it fails, the visit is still created
         if photo_base64 and photo_base64.startswith('data:image'):
             try:
                 # Upload to Supabase Storage
@@ -306,128 +430,6 @@ class ShopVisitService:
                 print(f"Error uploading visit photo: {e}")
                 # Visit is still created, just without photo URL
         
-        # Handle order_booking type - create order
-        order_id = None
-        if visit_types and "order_booking" in visit_types:
-            if not shop_id:
-                raise ValueError("shop_id is required when visit_type includes 'order_booking'")
-            if not order_items or len(order_items) == 0:
-                raise ValueError("order_items are required when visit_type includes 'order_booking'")
-            
-            # Parse scheduled_date if provided
-            scheduled_date_obj = None
-            if scheduled_date:
-                try:
-                    scheduled_date_obj = datetime.fromisoformat(scheduled_date).date()
-                except (ValueError, AttributeError):
-                    try:
-                        scheduled_date_obj = date.fromisoformat(scheduled_date)
-                    except (ValueError, AttributeError):
-                        raise ValueError("Invalid scheduled_date format. Use ISO date format (e.g., 2026-01-10)")
-            
-            # Get distributor_id from order_booker
-            distributor_id = None
-            if order_booker_id:
-                order_booker = OrderBookerRepository.get_by_id(db, order_booker_id)
-                if order_booker:
-                    distributor_id = order_booker.distributor_id
-            
-            # Create order
-            try:
-                # Convert final_total_amount to Decimal if provided
-                final_total_decimal = None
-                if final_total_amount is not None:
-                    final_total_decimal = Decimal(str(final_total_amount))
-                
-                order_data = OrderService.create_order(
-                    db=db,
-                    shop_id=shop_id,
-                    order_booker_id=order_booker_id,
-                    order_items=order_items,
-                    distributor_id=distributor_id,
-                    visit_id=visit.id,
-                    scheduled_date=scheduled_date_obj,
-                    final_total_amount=final_total_decimal,
-                    order_resolution_type=order_resolution_type,
-                    subsidy_id=subsidy_id
-                )
-                order_id = order_data["id"]
-            except Exception as e:
-                print(f"Error creating order during visit: {e}")
-                # Visit is still created, but order creation failed
-                raise ValueError(f"Failed to create order: {str(e)}")
-        
-        # Handle daily_collections type - create collection
-        collection_id = None
-        collection_credit_info = None  # Store collection credit info to include in response
-        if visit_types and "daily_collections" in visit_types:
-            if not shop_id:
-                raise ValueError("shop_id is required when visit_type includes 'daily_collections'")
-            if not collection_amount or collection_amount <= 0:
-                raise ValueError("collection_amount is required and must be greater than 0 when visit_type includes 'daily_collections'")
-            if not order_booker_id:
-                raise ValueError("order_booker_id is required when visit_type includes 'daily_collections'")
-            
-            # Create daily collection
-            try:
-                collection_data = DailyCollectionService.create_collection(
-                    db=db,
-                    shop_id=shop_id,
-                    order_booker_id=order_booker_id,
-                    amount=collection_amount,
-                    collected_at=visit_date_datetime,
-                    remarks=collection_remarks,
-                    visit_id=visit.id  # Link collection to visit directly
-                )
-                collection_id = collection_data["id"]
-                
-                # Store collection credit info to include in response
-                collection_credit_info = {
-                    "shop_outstanding_balance": collection_data.get("shop_outstanding_balance"),
-                    "shop_credit_limit": collection_data.get("shop_credit_limit"),
-                    "shop_available_credit": collection_data.get("shop_available_credit")
-                }
-                
-                # Ensure the outstanding balance update is visible to other queries
-                # The create_collection method already commits, but we flush to ensure
-                # the session state is synchronized
-                db.flush()
-            except Exception as e:
-                print(f"Error creating collection during visit: {e}")
-                # Visit is still created, but collection creation failed
-                raise ValueError(f"Failed to create collection: {str(e)}")
-        
-        # Auto-link visit to visit task if shop_id and order_booker_id are provided
-        visit_task_id = None
-        if shop_id and order_booker_id:
-            try:
-                from repositories.visit_task_repository import VisitTaskRepository
-                # Get the visit date (use visit_date if available, otherwise today)
-                visit_date_obj = visit_date_datetime.date() if visit_date_datetime else date.today()
-                
-                # Find matching visit task
-                matching_task = VisitTaskRepository.check_existing_task(
-                    db=db,
-                    shop_id=shop_id,
-                    scheduled_date=visit_date_obj,
-                    assignee_type='order_booker',
-                    assignee_id=order_booker_id
-                )
-                
-                if matching_task and matching_task.status != 'completed':
-                    # Link visit to task and mark as completed
-                    VisitTaskRepository.update_status(
-                        db=db,
-                        task_id=matching_task.id,
-                        status='completed',
-                        shop_visit_id=visit.id,
-                        notes=f"Auto-linked to visit {visit.id}"
-                    )
-                    visit_task_id = matching_task.id
-            except Exception as e:
-                # Don't fail the visit registration if task linking fails
-                print(f"Warning: Failed to link visit to task: {e}")
-        
         # Format and return visit data
         result = ShopVisitService._format_visit_data(db, visit, include_linked_data=True)
         
@@ -446,12 +448,11 @@ class ShopVisitService:
                                    skip: int = 0, limit: int = 100) -> List[Dict]:
         """
         Get all visits made by an order booker.
-        OPTIMIZED: Uses batch loading to avoid N+1 queries.
         
         FLOW:
-        1. Gets visits from repository (1 query)
-        2. Batch loads all related entities (shops, routes, order bookers, delivery men, visit types, orders, collections)
-        3. Formats visits using pre-loaded data (no additional queries)
+        1. Gets visits from repository
+        2. Batch loads all related data (shops, order bookers, delivery men, routes, etc.)
+        3. Returns formatted list
         
         Args:
             db: Database session
@@ -467,105 +468,93 @@ class ShopVisitService:
         if not visits:
             return []
         
-        # Batch load all related entities to avoid N+1 queries
-        from models.shop import Shop
-        from models.order_booker import OrderBooker
-        from models.delivery_man import DeliveryMan
-        from models.route import Route
-        from models.order import Order
-        from models.daily_collection import DailyCollection
-        from models.visit_type import VisitType
+        # Batch load all related data to avoid N+1 queries
+        visit_ids = [visit.id for visit in visits]
+        shop_ids = list(set([visit.shop_id for visit in visits if visit.shop_id]))
+        order_booker_ids = list(set([visit.order_booker_id for visit in visits if visit.order_booker_id]))
+        delivery_man_ids = list(set([visit.delivery_man_id for visit in visits if visit.delivery_man_id]))
         
-        # Collect all unique IDs
-        shop_ids = list(set([v.shop_id for v in visits if v.shop_id]))
-        order_booker_ids = list(set([v.order_booker_id for v in visits if v.order_booker_id]))
-        delivery_man_ids = list(set([v.delivery_man_id for v in visits if v.delivery_man_id]))
-        visit_ids = [v.id for v in visits]
-        
-        # Batch load shops (1 query for all shops)
-        shops_map = {}
+        # Batch load shops
+        shops = {}
         if shop_ids:
-            shops_query = db.query(Shop).filter(Shop.id.in_(shop_ids)).all()
-            shops_map = {shop.id: shop for shop in shops_query}
+            shops_list = ShopRepository.get_by_ids(db, shop_ids)
+            shops = {s.id: s for s in shops_list}
         
-        # Batch load routes (get all routes for shops that have route_id)
-        routes_map = {}
-        route_ids = list(set([s.route_id for s in shops_map.values() if s.route_id]))
-        if route_ids:
-            routes_query = db.query(Route).filter(Route.id.in_(route_ids)).all()
-            routes_map = {route.id: route for route in routes_query}
-        
-        # Batch load order bookers (1 query for all order bookers)
-        order_bookers_map = {}
+        # Batch load order bookers
+        order_bookers = {}
         if order_booker_ids:
-            ob_query = db.query(OrderBooker).filter(OrderBooker.id.in_(order_booker_ids)).all()
-            order_bookers_map = {ob.id: ob for ob in ob_query}
+            order_bookers_list = OrderBookerRepository.get_by_ids(db, order_booker_ids)
+            order_bookers = {ob.id: ob for ob in order_bookers_list}
         
-        # Batch load delivery men (1 query for all delivery men)
-        delivery_men_map = {}
+        # Batch load delivery men
+        delivery_men = {}
         if delivery_man_ids:
-            dm_query = db.query(DeliveryMan).filter(DeliveryMan.id.in_(delivery_man_ids)).all()
-            delivery_men_map = {dm.id: dm for dm in dm_query}
+            delivery_men_list = DeliveryManRepository.get_by_ids(db, delivery_man_ids)
+            delivery_men = {dm.id: dm for dm in delivery_men_list}
         
-        # Batch load visit types for all visits (1 query for all visit types)
+        # Batch load routes (for shops)
+        route_ids = list(set([shop.route_id for shop in shops.values() if shop.route_id]))
+        routes = {}
+        if route_ids:
+            from repositories.route_repository import RouteRepository
+            routes_list = RouteRepository.get_by_ids(db, route_ids)
+            routes = {r.id: r for r in routes_list}
+        
+        # Batch load visit types
+        from repositories.visit_type_repository import VisitTypeRepository
         visit_types_map = {}
         if visit_ids:
-            visit_types = db.query(VisitType).filter(VisitType.visit_id.in_(visit_ids)).all()
-            for vt in visit_types:
+            all_visit_types = VisitTypeRepository.get_by_visits(db, visit_ids)
+            for vt in all_visit_types:
                 if vt.visit_id not in visit_types_map:
                     visit_types_map[vt.visit_id] = []
                 visit_types_map[vt.visit_id].append(vt.visit_type)
         
-        # Batch load order IDs (1 query for all orders linked to visits)
+        # Batch load orders (for visit_id lookup)
+        from models.order import Order
         orders_map = {}
         if visit_ids:
-            orders_query = db.query(Order.visit_id, Order.id).filter(
-                Order.visit_id.in_(visit_ids),
-                Order.visit_id.isnot(None)
-            ).all()
-            for visit_id, order_id in orders_query:
+            orders = db.query(Order.id, Order.visit_id).filter(Order.visit_id.in_(visit_ids)).all()
+            for order_id, visit_id in orders:
                 orders_map[visit_id] = order_id
         
-        # Batch load collection IDs (1 query for all collections linked to visits)
+        # Batch load collections (for visit_id lookup)
+        from models.daily_collection import DailyCollection
         collections_map = {}
         if visit_ids:
-            collections_query = db.query(DailyCollection.visit_id, DailyCollection.id).filter(
-                DailyCollection.visit_id.in_(visit_ids),
-                DailyCollection.visit_id.isnot(None)
-            ).all()
-            for visit_id, collection_id in collections_query:
+            collections = db.query(DailyCollection.id, DailyCollection.visit_id).filter(DailyCollection.visit_id.in_(visit_ids)).all()
+            for collection_id, visit_id in collections:
                 collections_map[visit_id] = collection_id
         
-        # Format visits using pre-loaded data (no additional queries)
+        # Format visits using batch-loaded data
         result = []
         for visit in visits:
-            # Get shop info from batch-loaded data
-            shop_name = None
-            shop_zone_id = None
+            # Get shop data from batch-loaded shops
+            shop = shops.get(visit.shop_id) if visit.shop_id else None
+            shop_name = shop.name if shop else None
+            shop_zone_id = shop.zone_id if shop else None
+            
+            # Get route data from batch-loaded routes
             shop_routes = []
-            if visit.shop_id and visit.shop_id in shops_map:
-                shop = shops_map[visit.shop_id]
-                shop_name = shop.name
-                shop_zone_id = shop.zone_id
-                if shop.route_id and shop.route_id in routes_map:
-                    route = routes_map[shop.route_id]
-                    shop_routes.append({
-                        "route_id": route.id,
-                        "route_name": route.name,
-                        "zone_id": route.zone_id
-                    })
+            if shop and shop.route_id and shop.route_id in routes:
+                route = routes[shop.route_id]
+                shop_routes.append({
+                    "route_id": route.id,
+                    "route_name": route.name,
+                    "zone_id": route.zone_id
+                })
             
-            # Get order booker name from batch-loaded data
+            # Get order booker name from batch-loaded order bookers
             order_booker_name = None
-            if visit.order_booker_id and visit.order_booker_id in order_bookers_map:
-                order_booker_name = order_bookers_map[visit.order_booker_id].name
+            if visit.order_booker_id and visit.order_booker_id in order_bookers:
+                order_booker_name = order_bookers[visit.order_booker_id].name
             
-            # Get delivery man name from batch-loaded data
+            # Get delivery man name from batch-loaded delivery men
             delivery_man_name = None
-            if visit.delivery_man_id and visit.delivery_man_id in delivery_men_map:
-                delivery_man_name = delivery_men_map[visit.delivery_man_id].name
+            if visit.delivery_man_id and visit.delivery_man_id in delivery_men:
+                delivery_man_name = delivery_men[visit.delivery_man_id].name
             
-            # Get visit types from batch-loaded data
+            # Get visit types from batch-loaded visit types
             visit_types_list = visit_types_map.get(visit.id, [])
             if not visit_types_list and visit.visit_type:
                 # Fallback to legacy visit_type field
@@ -601,10 +590,10 @@ class ShopVisitService:
                 "visit_types": visit_types_list,
                 "gps_lat": float(visit.gps_lat) if visit.gps_lat else None,
                 "gps_lng": float(visit.gps_lng) if visit.gps_lng else None,
-                "visit_time": visit.visit_date.isoformat() if visit.visit_date else None,
-                "photo": photos_list[0] if photos_list and len(photos_list) > 0 else None,
-                "photos": photos_list,
-                "reason": visit.remarks,
+                "visit_time": visit.visit_date.isoformat() if visit.visit_date else None,  # API uses visit_time for backward compatibility
+                "photo": photos_list[0] if photos_list and len(photos_list) > 0 else None,  # Legacy single photo (first from array)
+                "photos": photos_list,  # Multiple photos (JSON array)
+                "reason": visit.remarks,  # Model uses 'remarks', API uses 'reason' for backward compatibility
                 "order_id": order_id,
                 "collection_id": collection_id
             })
@@ -616,12 +605,11 @@ class ShopVisitService:
                            skip: int = 0, limit: int = 100) -> List[Dict]:
         """
         Get all visits to a specific shop.
-        OPTIMIZED: Uses batch loading to avoid N+1 queries.
         
         FLOW:
-        1. Gets visits from repository (1 query)
-        2. Batch loads all related entities (shops, routes, order bookers, delivery men, visit types, orders, collections)
-        3. Formats visits using pre-loaded data (no additional queries)
+        1. Gets visits from repository
+        2. For each visit, fetches shop and order booker/delivery man information
+        3. Returns formatted list
         
         Args:
             db: Database session
@@ -634,150 +622,35 @@ class ShopVisitService:
         """
         visits = ShopVisitRepository.get_by_shop(db, shop_id, skip, limit)
         
-        if not visits:
-            return []
+        # Batch load all shops, order bookers, and delivery men to avoid N+1 queries
+        shop_ids = list(set([visit.shop_id for visit in visits if visit.shop_id]))
+        order_booker_ids = list(set([visit.order_booker_id for visit in visits if visit.order_booker_id]))
+        delivery_man_ids = list(set([visit.delivery_man_id for visit in visits if visit.delivery_man_id]))
         
-        # Batch load all related entities to avoid N+1 queries
-        from models.shop import Shop
-        from models.order_booker import OrderBooker
-        from models.delivery_man import DeliveryMan
-        from models.route import Route
-        from models.order import Order
-        from models.daily_collection import DailyCollection
-        from models.visit_type import VisitType
-        
-        # Collect all unique IDs
-        shop_ids = list(set([v.shop_id for v in visits if v.shop_id]))
-        order_booker_ids = list(set([v.order_booker_id for v in visits if v.order_booker_id]))
-        delivery_man_ids = list(set([v.delivery_man_id for v in visits if v.delivery_man_id]))
-        visit_ids = [v.id for v in visits]
-        
-        # Batch load shops (1 query for all shops)
-        shops_map = {}
+        # Batch load shops
+        shops = {}
         if shop_ids:
-            shops_query = db.query(Shop).filter(Shop.id.in_(shop_ids)).all()
-            shops_map = {shop.id: shop for shop in shops_query}
+            shops_list = ShopRepository.get_by_ids(db, shop_ids)
+            shops = {s.id: s for s in shops_list}
         
-        # Batch load routes (get all routes for shops that have route_id)
-        routes_map = {}
-        route_ids = list(set([s.route_id for s in shops_map.values() if s.route_id]))
-        if route_ids:
-            routes_query = db.query(Route).filter(Route.id.in_(route_ids)).all()
-            routes_map = {route.id: route for route in routes_query}
-        
-        # Batch load order bookers (1 query for all order bookers)
-        order_bookers_map = {}
+        # Batch load order bookers
+        order_bookers = {}
         if order_booker_ids:
-            ob_query = db.query(OrderBooker).filter(OrderBooker.id.in_(order_booker_ids)).all()
-            order_bookers_map = {ob.id: ob for ob in ob_query}
+            order_bookers_list = OrderBookerRepository.get_by_ids(db, order_booker_ids)
+            order_bookers = {ob.id: ob for ob in order_bookers_list}
         
-        # Batch load delivery men (1 query for all delivery men)
-        delivery_men_map = {}
+        # Batch load delivery men
+        delivery_men = {}
         if delivery_man_ids:
-            dm_query = db.query(DeliveryMan).filter(DeliveryMan.id.in_(delivery_man_ids)).all()
-            delivery_men_map = {dm.id: dm for dm in dm_query}
+            delivery_men_list = DeliveryManRepository.get_by_ids(db, delivery_man_ids)
+            delivery_men = {dm.id: dm for dm in delivery_men_list}
         
-        # Batch load visit types for all visits (1 query for all visit types)
-        visit_types_map = {}
-        if visit_ids:
-            visit_types = db.query(VisitType).filter(VisitType.visit_id.in_(visit_ids)).all()
-            for vt in visit_types:
-                if vt.visit_id not in visit_types_map:
-                    visit_types_map[vt.visit_id] = []
-                visit_types_map[vt.visit_id].append(vt.visit_type)
-        
-        # Batch load order IDs (1 query for all orders linked to visits)
-        orders_map = {}
-        if visit_ids:
-            orders_query = db.query(Order.visit_id, Order.id).filter(
-                Order.visit_id.in_(visit_ids),
-                Order.visit_id.isnot(None)
-            ).all()
-            for visit_id, order_id in orders_query:
-                orders_map[visit_id] = order_id
-        
-        # Batch load collection IDs (1 query for all collections linked to visits)
-        collections_map = {}
-        if visit_ids:
-            collections_query = db.query(DailyCollection.visit_id, DailyCollection.id).filter(
-                DailyCollection.visit_id.in_(visit_ids),
-                DailyCollection.visit_id.isnot(None)
-            ).all()
-            for visit_id, collection_id in collections_query:
-                collections_map[visit_id] = collection_id
-        
-        # Format visits using pre-loaded data (no additional queries)
         result = []
         for visit in visits:
-            # Get shop info from batch-loaded data
-            shop_name = None
-            shop_zone_id = None
-            shop_routes = []
-            if visit.shop_id and visit.shop_id in shops_map:
-                shop = shops_map[visit.shop_id]
-                shop_name = shop.name
-                shop_zone_id = shop.zone_id
-                if shop.route_id and shop.route_id in routes_map:
-                    route = routes_map[shop.route_id]
-                    shop_routes.append({
-                        "route_id": route.id,
-                        "route_name": route.name,
-                        "zone_id": route.zone_id
-                    })
-            
-            # Get order booker name from batch-loaded data
-            order_booker_name = None
-            if visit.order_booker_id and visit.order_booker_id in order_bookers_map:
-                order_booker_name = order_bookers_map[visit.order_booker_id].name
-            
-            # Get delivery man name from batch-loaded data
-            delivery_man_name = None
-            if visit.delivery_man_id and visit.delivery_man_id in delivery_men_map:
-                delivery_man_name = delivery_men_map[visit.delivery_man_id].name
-            
-            # Get visit types from batch-loaded data
-            visit_types_list = visit_types_map.get(visit.id, [])
-            if not visit_types_list and visit.visit_type:
-                # Fallback to legacy visit_type field
-                visit_types_list = [visit.visit_type]
-            
-            # Get linked order and collection IDs from batch-loaded data
-            order_id = orders_map.get(visit.id)
-            collection_id = collections_map.get(visit.id)
-            
-            # Parse photos JSON string to list
-            photos_list = []
-            if visit.photos:
-                try:
-                    import json
-                    if isinstance(visit.photos, str):
-                        photos_list = json.loads(visit.photos)
-                    elif isinstance(visit.photos, list):
-                        photos_list = visit.photos
-                except Exception as e:
-                    print(f"Error parsing photos: {e}")
-                    photos_list = []
-            
-            result.append({
-                "id": visit.id,
-                "shop_id": visit.shop_id,
-                "shop_name": shop_name,
-                "shop_zone_id": shop_zone_id,
-                "shop_routes": shop_routes,
-                "order_booker_id": visit.order_booker_id,
-                "order_booker_name": order_booker_name,
-                "delivery_man_id": visit.delivery_man_id,
-                "delivery_man_name": delivery_man_name,
-                "visit_types": visit_types_list,
-                "gps_lat": float(visit.gps_lat) if visit.gps_lat else None,
-                "gps_lng": float(visit.gps_lng) if visit.gps_lng else None,
-                "visit_time": visit.visit_date.isoformat() if visit.visit_date else None,
-                "photo": photos_list[0] if photos_list and len(photos_list) > 0 else None,
-                "photos": photos_list,
-                "reason": visit.remarks,
-                "order_id": order_id,
-                "collection_id": collection_id
-            })
+            # Use batch-loaded data instead of individual queries
+            # The _format_visit_data method will use the visit object which already has relationships
+            # But we need to ensure the related objects are available in the session
+            result.append(ShopVisitService._format_visit_data(db, visit, include_linked_data=True))
         
         return result
     

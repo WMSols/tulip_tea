@@ -17,7 +17,7 @@ from config.database import get_db
 from models.schemas import WalletTransferRequest, WalletCollectionRequest
 from services.wallet_service import WalletService
 from utils.auth_helpers import get_current_user_from_request
-from utils.dependencies import get_current_distributor
+from utils.dependencies import get_current_distributor, get_current_user, get_current_order_booker, get_current_delivery_man
 
 router = APIRouter(prefix="/wallets", tags=["Wallets"])
 
@@ -27,6 +27,7 @@ async def get_wallet_balance(
     user_type: str,
     user_id: int,
     request: Request,
+    current_user: Dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -53,6 +54,28 @@ async def get_wallet_balance(
             detail="Invalid user_type. Must be 'distributor', 'order_booker', or 'delivery_man'"
         )
     
+    # Verify user can only view their own wallet balance (unless they're a distributor viewing their team's wallets)
+    if current_user['user_role'] == 'distributor':
+        # Distributors can view their own wallet or wallets of their order bookers/delivery men
+        if user_type == 'distributor' and current_user['user_id'] != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only view your own wallet balance"
+            )
+        # For order_booker/delivery_man, we'll check in the service if they belong to this distributor
+    elif current_user['user_role'] == 'order_booker':
+        if user_type != 'order_booker' or current_user['user_id'] != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only view your own wallet balance"
+            )
+    elif current_user['user_role'] == 'delivery_man':
+        if user_type != 'delivery_man' or current_user['user_id'] != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only view your own wallet balance"
+            )
+    
     try:
         balance = WalletService.get_wallet_balance(db, user_type, user_id)
         return balance
@@ -69,6 +92,7 @@ async def get_transaction_history(
     user_id: int,
     limit: int = 100,
     request: Request = None,
+    current_user: Dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -107,6 +131,28 @@ async def get_transaction_history(
             detail="Invalid user_type. Must be 'distributor', 'order_booker', or 'delivery_man'"
         )
     
+    # Verify user can only view their own transaction history (unless they're a distributor viewing their team's transactions)
+    if current_user['user_role'] == 'distributor':
+        # Distributors can view their own transactions or transactions of their order bookers/delivery men
+        if user_type == 'distributor' and current_user['user_id'] != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only view your own transaction history"
+            )
+        # For order_booker/delivery_man, we'll check in the service if they belong to this distributor
+    elif current_user['user_role'] == 'order_booker':
+        if user_type != 'order_booker' or current_user['user_id'] != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only view your own transaction history"
+            )
+    elif current_user['user_role'] == 'delivery_man':
+        if user_type != 'delivery_man' or current_user['user_id'] != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only view your own transaction history"
+            )
+    
     if limit < 1 or limit > 1000:
         limit = 100
     
@@ -128,6 +174,7 @@ async def get_transaction_history(
 async def transfer_between_wallets(
     transfer: WalletTransferRequest,
     request: Request,
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
     """
@@ -160,14 +207,6 @@ async def transfer_between_wallets(
             "created_at": "2026-01-28T10:30:00"
         }
     """
-    # Get current user from request to check authorization
-    current_user = await get_current_user_from_request(request)
-    if not current_user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required"
-        )
-    
     # RESTRICTION: Only allow transfers FROM order_booker/delivery_man TO distributor
     # AND only if initiated by a distributor
     if transfer.from_user_type not in ['order_booker', 'delivery_man']:
@@ -182,15 +221,8 @@ async def transfer_between_wallets(
             detail="Transfers can only be made TO distributor wallets"
         )
     
-    # Verify that the current user is a distributor and is the one receiving the money
-    if current_user.get('user_role') != 'distributor':
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only distributors can collect money from order bookers and delivery men"
-        )
-    
     # Verify the distributor is collecting to their own wallet
-    if current_user.get('user_id') != transfer.to_user_id:
+    if distributor['user_id'] != transfer.to_user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only collect money to your own wallet"
@@ -200,7 +232,7 @@ async def transfer_between_wallets(
     if transfer.from_user_type == 'order_booker':
         from repositories.order_booker_repository import OrderBookerRepository
         order_booker = OrderBookerRepository.get_by_id(db, transfer.from_user_id)
-        if not order_booker or order_booker.distributor_id != current_user.get('user_id'):
+        if not order_booker or order_booker.distributor_id != distributor['user_id']:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="This order booker does not belong to your distributor account"
@@ -208,7 +240,7 @@ async def transfer_between_wallets(
     elif transfer.from_user_type == 'delivery_man':
         from repositories.delivery_man_repository import DeliveryManRepository
         delivery_man = DeliveryManRepository.get_by_id(db, transfer.from_user_id)
-        if not delivery_man or delivery_man.distributor_id != current_user.get('user_id'):
+        if not delivery_man or delivery_man.distributor_id != distributor['user_id']:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="This delivery man does not belong to your distributor account"
@@ -232,7 +264,7 @@ async def transfer_between_wallets(
             amount=Decimal(str(transfer.amount)),
             description=transfer.description or f"Collection by distributor from {transfer.from_user_type}",
             initiated_by_type='distributor',
-            initiated_by_id=current_user.get('user_id'),
+            initiated_by_id=distributor['user_id'],
             transaction_metadata=transfer.metadata
         )
         return result

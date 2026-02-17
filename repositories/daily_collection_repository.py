@@ -17,7 +17,8 @@ class DailyCollectionRepository:
     def create(db: Session, shop_id: int, collected_by_order_booker: int = None,
               amount: Decimal = None, collection_date: datetime = None,
               visit_id: int = None, order_id: int = None,
-              collected_by_delivery_man: int = None, photo_proof: str = None) -> DailyCollection:
+              collected_by_delivery_man: int = None, photo_proof: str = None,
+              status: str = "pending", auto_commit: bool = True) -> DailyCollection:
         """
         Create a new daily collection entry.
         
@@ -31,6 +32,7 @@ class DailyCollectionRepository:
             order_id: Order ID this collection is for (optional)
             collected_by_delivery_man: Delivery man ID who collected (optional)
             photo_proof: Photo proof URL or base64 (optional)
+            status: Collection status (default: "pending", use "verified" for auto-approval)
         
         Returns:
             Created daily collection instance
@@ -40,14 +42,20 @@ class DailyCollectionRepository:
             collected_by_order_booker=collected_by_order_booker,
             collected_by_delivery_man=collected_by_delivery_man,
             amount=amount,
-            status="pending",
+            status=status,
             collection_date=collection_date or datetime.utcnow(),
             visit_id=visit_id,
             order_id=order_id,
             photo_proof=photo_proof
         )
         db.add(collection)
-        # Do NOT commit - let service layer handle transaction
+        db.flush()
+        db.refresh(collection)
+        
+        # Commit transaction if auto_commit is True
+        if auto_commit:
+            db.commit()
+        
         return collection
     
     @staticmethod

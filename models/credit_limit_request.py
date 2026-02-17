@@ -26,7 +26,7 @@ STATUS VALUES:
 
 DATABASE TABLE: credit_limit_requests
 """
-from sqlalchemy import Column, BigInteger, String, Numeric, DateTime, ForeignKey, Enum, TypeDecorator
+from sqlalchemy import Column, BigInteger, String, Numeric, DateTime, ForeignKey, Enum, TypeDecorator, Boolean
 from sqlalchemy.dialects.postgresql import ENUM
 from sqlalchemy.sql import func
 import enum
@@ -209,6 +209,16 @@ class CreditLimitRequest(Base):
     - Automatically set by database on INSERT
     - Timezone-aware (stores UTC)
     - Used for sorting and filtering requests
+    """
+
+    # Active Status
+    is_active = Column(Boolean, nullable=False, default=True, server_default='true')
+    """
+    Active status flag.
+    - True: Request is active and visible to distributors
+    - False: Request is inactive (hidden from distributors but visible to order bookers)
+    - Default: True when created
+    - Used to control visibility: Distributors see only active requests, Order bookers see all
     """
 
     # Soft Delete

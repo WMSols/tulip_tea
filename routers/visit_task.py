@@ -45,6 +45,12 @@ async def get_tasks_for_today(
     db: Session = Depends(get_db)
 ):
     """Get today's tasks for an order booker."""
+    # Verify order booker can only view their own tasks
+    if current_user['user_role'] == 'order_booker' and current_user['user_id'] != order_booker_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only view tasks for your own account"
+        )
     today = date.today()
     tasks = VisitTaskService.get_tasks_for_order_booker(
         db=db,
@@ -62,6 +68,12 @@ async def get_tasks_for_date(
     db: Session = Depends(get_db)
 ):
     """Get tasks for an order booker for a specific date."""
+    # Verify order booker can only view their own tasks
+    if current_user['user_role'] == 'order_booker' and current_user['user_id'] != order_booker_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only view tasks for your own account"
+        )
     tasks = VisitTaskService.get_tasks_for_order_booker(
         db=db,
         order_booker_id=order_booker_id,
@@ -78,6 +90,12 @@ async def get_tasks_for_week(
     db: Session = Depends(get_db)
 ):
     """Get tasks for an order booker for a week."""
+    # Verify order booker can only view their own tasks
+    if current_user['user_role'] == 'order_booker' and current_user['user_id'] != order_booker_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only view tasks for your own account"
+        )
     tasks = VisitTaskService.get_tasks_for_order_booker_week(
         db=db,
         order_booker_id=order_booker_id,

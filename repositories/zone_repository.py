@@ -28,6 +28,27 @@ class ZoneRepository:
         return query.first()
     
     @staticmethod
+    def get_by_ids(db: Session, zone_ids: List[int], include_deleted: bool = False) -> List[Zone]:
+        """
+        Batch load multiple zones by IDs (optimized to avoid N+1 queries).
+        
+        Args:
+            db: Database session
+            zone_ids: List of zone IDs to fetch
+            include_deleted: If True, includes soft-deleted and inactive records
+        
+        Returns:
+            List of zones
+        """
+        if not zone_ids:
+            return []
+        
+        query = db.query(Zone).filter(Zone.id.in_(zone_ids))
+        if not include_deleted:
+            query = query.filter(Zone.deleted_at.is_(None), Zone.is_active == True)
+        return query.all()
+    
+    @staticmethod
     def get_all(db: Session, skip: int = 0, limit: int = 100, include_deleted: bool = False) -> List[Zone]:
         """Get all zones with pagination (excludes soft-deleted and inactive by default)."""
         query = db.query(Zone)

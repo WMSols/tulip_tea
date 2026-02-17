@@ -36,6 +36,27 @@ class OrderBookerRepository:
         return query.first()
     
     @staticmethod
+    def get_by_ids(db: Session, order_booker_ids: List[int], include_deleted: bool = False) -> List[OrderBooker]:
+        """
+        Batch load multiple order bookers by IDs (optimized to avoid N+1 queries).
+        
+        Args:
+            db: Database session
+            order_booker_ids: List of order booker IDs to fetch
+            include_deleted: If True, includes soft-deleted and inactive records
+        
+        Returns:
+            List of order bookers
+        """
+        if not order_booker_ids:
+            return []
+        
+        query = db.query(OrderBooker).filter(OrderBooker.id.in_(order_booker_ids))
+        if not include_deleted:
+            query = query.filter(OrderBooker.deleted_at.is_(None), OrderBooker.is_active == True)
+        return query.all()
+    
+    @staticmethod
     def get_by_phone(db: Session, phone: str, include_deleted: bool = False) -> Optional[OrderBooker]:
         """Get order booker by phone number (excludes soft-deleted and inactive by default)."""
         query = db.query(OrderBooker).filter(OrderBooker.phone == phone)

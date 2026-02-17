@@ -22,7 +22,8 @@ from repositories.shop_repository import ShopRepository
 from repositories.order_booker_repository import OrderBookerRepository
 from services.activity_log_service import ActivityLogService
 from utils.auth_helpers import get_current_user_from_request
-from utils.dependencies import get_current_distributor
+from utils.dependencies import get_current_distributor, get_current_order_booker, get_current_user
+from typing import Dict
 
 router = APIRouter(prefix="/shops", tags=["Shops"])
 
@@ -32,6 +33,7 @@ async def register_shop(
     order_booker_id: int,
     shop: ShopRegister,
     request: Request,
+    order_booker: Dict = Depends(get_current_order_booker),
     db: Session = Depends(get_db)
 ):
     """
@@ -62,6 +64,13 @@ async def register_shop(
         Shop data with credit_limit_request_id if request was created
     """
     try:
+        # Verify order booker can only register shops for themselves
+        if order_booker['user_id'] != order_booker_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only register shops for your own account"
+            )
+        
         # Convert user GPS coordinates if provided (for location validation)
         user_gps_lat = None
         user_gps_lng = None
@@ -135,6 +144,7 @@ async def register_shop(
 async def list_shops_by_order_booker(
     order_booker_id: int, 
     approved_only: bool = Query(False, description="Filter to show only approved shops (for visit registration)"),
+    order_booker: Dict = Depends(get_current_order_booker),
     db: Session = Depends(get_db)
 ):
     """
@@ -148,12 +158,23 @@ async def list_shops_by_order_booker(
     Response (200):
         List of shops with their details
     """
+    # Verify order booker can only view their own shops
+    if order_booker['user_id'] != order_booker_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only view shops for your own account"
+        )
+    
     shops = ShopService.get_shops_by_order_booker(db=db, order_booker_id=order_booker_id, approved_only=approved_only)
     return shops
 
 
 @router.get("/{shop_id}/credit-info", tags=["Shops", "Order Booker APIs", "Delivery Man APIs"])
-async def get_shop_credit_info(shop_id: int, db: Session = Depends(get_db)):
+async def get_shop_credit_info(
+    shop_id: int,
+    current_user: Dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """
     Get shop's credit limit information including outstanding balance and available credit.
     
@@ -205,6 +226,7 @@ async def get_shop_credit_info(shop_id: int, db: Session = Depends(get_db)):
 @router.get("/pending", response_model=List[ShopResponse], tags=["Shops", "Distributor APIs"])
 async def list_pending_shops(
     distributor_id: int = Query(..., description="Distributor ID to filter pending shops"),
+    distributor: Dict = Depends(get_current_distributor),
     request: Request = None,
     db: Session = Depends(get_db)
 ):
@@ -225,6 +247,13 @@ async def list_pending_shops(
     Response (200):
         List of pending shops awaiting verification
     """
+    # Verify distributor can only view their own pending shops
+    if distributor['user_id'] != distributor_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only view pending shops for your own distributor account"
+        )
+    
     try:
         from models.order_booker import OrderBooker
         # Filter pending shops by distributor: get shops created by order bookers belonging to this distributor
@@ -241,36 +270,19 @@ async def list_pending_shops(
             Shop.is_active == True,
             Shop.created_by_order_booker.in_(db.query(order_booker_ids.c.id))
         ).all()
-        
-        if not shops:
-            return []
-        
-        # Batch load all order bookers (1 query instead of 2N queries)
-        from models.order_booker import OrderBooker
-        order_booker_ids_set = set()
-        for shop in shops:
-            if shop.created_by_order_booker:
-                order_booker_ids_set.add(shop.created_by_order_booker)
-            if shop.assigned_to_order_booker:
-                order_booker_ids_set.add(shop.assigned_to_order_booker)
-        
-        order_bookers_map = {}
-        if order_booker_ids_set:
-            order_bookers = db.query(OrderBooker).filter(OrderBooker.id.in_(list(order_booker_ids_set))).all()
-            order_bookers_map = {ob.id: ob for ob in order_bookers}
-        
-        # Build result using lookup map (no additional queries)
         result = []
         for shop in shops:
             # Get order booker name who created the shop (historical)
             created_by_name = None
-            if shop.created_by_order_booker and shop.created_by_order_booker in order_bookers_map:
-                created_by_name = order_bookers_map[shop.created_by_order_booker].name
+            if shop.created_by_order_booker:
+                order_booker = OrderBookerRepository.get_by_id(db, shop.created_by_order_booker)
+                created_by_name = order_booker.name if order_booker else None
             
             # Get order booker name currently assigned to the shop
             assigned_to_name = None
-            if shop.assigned_to_order_booker and shop.assigned_to_order_booker in order_bookers_map:
-                assigned_to_name = order_bookers_map[shop.assigned_to_order_booker].name
+            if shop.assigned_to_order_booker:
+                assigned_order_booker = OrderBookerRepository.get_by_id(db, shop.assigned_to_order_booker)
+                assigned_to_name = assigned_order_booker.name if assigned_order_booker else None
             
             result.append({
                 "id": shop.id,
@@ -306,6 +318,7 @@ async def list_pending_shops(
 @router.get("/unassigned", response_model=List[ShopResponse])
 async def get_unassigned_shops(
     zone_id: int = Query(None, description="Optional zone ID to filter unassigned shops"),
+    distributor: Dict = Depends(get_current_distributor),
     request: Request = None,
     db: Session = Depends(get_db)
 ):
@@ -347,6 +360,7 @@ async def get_all_shops(
     distributor_id: int = Query(..., description="Distributor ID"),
     zone_id: int = Query(None, description="Optional zone filter"),
     route_id: int = Query(None, description="Optional route filter"),
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
     """
@@ -368,6 +382,13 @@ async def get_all_shops(
     Response (200):
         List of shops with order_booker and route information
     """
+    # Verify distributor can only view their own shops
+    if distributor['user_id'] != distributor_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only view shops for your own distributor account"
+        )
+    
     try:
         shops = ShopService.get_all_shops_with_associations(
             db=db,
@@ -391,6 +412,8 @@ async def get_all_shops(
 async def update_shop(
     shop_id: int,
     shop_update: ShopUpdate,
+    distributor: Dict = Depends(get_current_distributor),
+    request: Request = None,
     db: Session = Depends(get_db)
 ):
     """
@@ -402,7 +425,8 @@ async def update_shop(
     1. Distributor views pending shop
     2. Edits shop details (name, owner, GPS, credit_limit, etc.)
     3. Service updates shop fields
-    4. Returns updated shop
+    4. Logs activity if credit_limit changed
+    5. Returns updated shop
     
     Request Body:
         {
@@ -416,6 +440,13 @@ async def update_shop(
         Updated shop data
     """
     try:
+        # Get shop before update for logging
+        shop_before = ShopRepository.get_by_id(db, shop_id)
+        if not shop_before:
+            raise ValueError("Shop not found")
+        
+        old_credit_limit = float(shop_before.credit_limit) if shop_before.credit_limit else 0
+        
         update_data = {}
         if shop_update.name:
             update_data["name"] = shop_update.name
@@ -437,6 +468,27 @@ async def update_shop(
         updated_shop = ShopRepository.update(db=db, shop_id=shop_id, **update_data)
         if not updated_shop:
             raise ValueError("Shop not found")
+        
+        new_credit_limit = float(updated_shop.credit_limit) if updated_shop.credit_limit else 0
+        
+        # Log activity if credit_limit was changed
+        if shop_update.credit_limit is not None and old_credit_limit != new_credit_limit:
+            ActivityLogService.log_update(
+                db=db,
+                user_id=distributor['user_id'],
+                user_role='distributor',
+                entity_type='shop',
+                entity_id=shop_id,
+                old_values={
+                    'credit_limit': str(old_credit_limit)
+                },
+                new_values={
+                    'credit_limit': str(new_credit_limit)
+                },
+                changes_summary=f"Shop credit limit updated: {shop_before.name} - {old_credit_limit} → {new_credit_limit}",
+                user_name=distributor.get('name'),
+                request=request
+            )
         
         # Get order booker name who created the shop (historical)
         created_by_name = None
@@ -482,6 +534,7 @@ async def resubmit_rejected_shop(
     shop_id: int,
     shop_update: ShopUpdate,
     request: Request,
+    order_booker: Dict = Depends(get_current_order_booker),
     db: Session = Depends(get_db)
 ):
     """
@@ -628,6 +681,7 @@ async def verify_shop(
     verification: ShopVerify,
     distributor_id: int,
     request: Request,
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
     """
@@ -651,6 +705,13 @@ async def verify_shop(
     Response (200):
         Verified shop data with verified_by_distributor and verified_at
     """
+    # Verify distributor can only verify shops for their own account
+    if distributor['user_id'] != distributor_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only verify shops for your own distributor account"
+        )
+    
     try:
         # Get shop before verification for logging
         shop_before = ShopRepository.get_by_id(db, shop_id)
@@ -728,6 +789,8 @@ async def verify_shop(
 async def reassign_shop_to_order_booker(
     shop_id: int,
     new_order_booker_id: int,
+    distributor: Dict = Depends(get_current_distributor),
+    request: Request = None,
     db: Session = Depends(get_db)
 ):
     """
@@ -809,7 +872,7 @@ async def reassign_shop_to_order_booker(
             "gps_lat": float(updated_shop.gps_lat) if updated_shop.gps_lat else None,
             "gps_lng": float(updated_shop.gps_lng) if updated_shop.gps_lng else None,
             "credit_limit": float(updated_shop.credit_limit) if updated_shop.credit_limit else 0,
-            # legacy_balance removed (column no longer exists - was merged into outstanding_balance)
+            "legacy_balance": float(updated_shop.legacy_balance) if updated_shop.legacy_balance else 0,
             "outstanding_balance": float(updated_shop.outstanding_balance) if updated_shop.outstanding_balance else 0,
             "is_registered": updated_shop.is_registered,
             "registration_status": updated_shop.registration_status,
@@ -833,6 +896,7 @@ async def reassign_shop_to_order_booker(
 async def delete_shop(
     shop_id: int,
     request: Request,
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
     """
@@ -855,11 +919,10 @@ async def delete_shop(
         - Can be restored by setting deleted_at to NULL (manual DB operation)
     """
     try:
-        user_info = get_current_user_from_request(request)
         ShopService.delete_shop(
             db=db,
             shop_id=shop_id,
-            deleter_id=user_info['user_id'],
+            deleter_id=distributor['user_id'],
             request=request
         )
         return None

@@ -19,8 +19,26 @@ class ProductService:
         existing = ProductRepository.get_by_code(db, code, include_deleted=True)
         if existing:
             # Check if it belongs to the same distributor
-            if existing.distributor_id != distributor_id:
-                raise ValueError(f"Product with code '{code}' already exists for another distributor")
+            if existing.distributor_id == distributor_id:
+                # Same distributor - product code already exists
+                if existing.deleted_at is None:
+                    raise ValueError(
+                        f"A product with code '{code}' already exists. "
+                        f"Please use a different product code. "
+                        f"Existing product: '{existing.name}' (ID: {existing.id})"
+                    )
+                else:
+                    raise ValueError(
+                        f"A product with code '{code}' was previously deleted. "
+                        f"Please use a different product code or restore the existing product. "
+                        f"Previously deleted product: '{existing.name}' (ID: {existing.id})"
+                    )
+            else:
+                # Different distributor - code conflict
+                raise ValueError(
+                    f"Product code '{code}' is already in use by another distributor. "
+                    f"Please choose a different product code."
+                )
         
         product = ProductRepository.create(db, code, name, unit, distributor_id)
         

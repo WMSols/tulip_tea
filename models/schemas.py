@@ -1,7 +1,6 @@
 """
 Pydantic schemas for request/response validation.
 """
-from __future__ import annotations
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Optional, List, Dict, Any
 
@@ -456,6 +455,8 @@ class OrderCreate(BaseModel):
     scheduled_date: Optional[str] = None  # ISO date string
     visit_id: Optional[int] = None
     final_total_amount: Optional[float] = None  # Final amount after order booker edits (optional, defaults to calculated total)
+    order_resolution_type: Optional[str] = None  # 'normal', 'payment_before_delivery', or None (defaults to 'normal')
+    subsidy_id: Optional[int] = None  # Subsidy ID to apply (can be used with any order_resolution_type)
 
 
 class SubsidyInfo(BaseModel):
@@ -546,6 +547,8 @@ class CreditLimitRequestResponse(BaseModel):
     approved_at: Optional[str] = None
     remarks: Optional[str] = None
     created_at: Optional[str] = None
+    deleted_at: Optional[str] = None  # Soft delete timestamp
+    is_active: Optional[bool] = True  # Active status - distributors see only active requests
 
     class Config:
         from_attributes = True
@@ -579,27 +582,6 @@ class WarehouseResponse(BaseModel):
     zone_id: Optional[int] = None
     address: Optional[str] = None
     is_active: bool
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
-
-    class Config:
-        from_attributes = True
-
-
-class WarehouseDetailsResponse(BaseModel):
-    """Warehouse with all related items (inventory, delivery men, etc.)"""
-    id: int
-    name: str
-    distributor_id: int
-    distributor_name: Optional[str] = None  # Added for super admin view
-    zone_id: Optional[int] = None
-    zone_name: Optional[str] = None
-    address: Optional[str] = None
-    is_active: bool
-    inventory: List[InventoryResponse] = []  # Forward reference - InventoryResponse defined later (works with __future__ annotations)
-    delivery_men: List[Dict] = []
-    inventory_count: int = 0
-    delivery_men_count: int = 0
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 

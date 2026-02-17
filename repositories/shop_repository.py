@@ -46,9 +46,8 @@ class ShopRepository:
             zone_id=zone_id
         )
         db.add(shop)
-        # Do NOT commit - let service layer handle transaction
-        # Note: shop.id will be available after flush, but commit happens in service
-        db.flush()  # Flush to get shop.id without committing
+        db.commit()
+        db.refresh(shop)
         return shop
     
     @staticmethod
@@ -58,6 +57,27 @@ class ShopRepository:
         if not include_deleted:
             query = query.filter(Shop.deleted_at.is_(None), Shop.is_active == True)
         return query.first()
+    
+    @staticmethod
+    def get_by_ids(db: Session, shop_ids: List[int], include_deleted: bool = False) -> List[Shop]:
+        """
+        Batch load multiple shops by IDs (optimized to avoid N+1 queries).
+        
+        Args:
+            db: Database session
+            shop_ids: List of shop IDs to fetch
+            include_deleted: If True, includes soft-deleted and inactive records
+        
+        Returns:
+            List of shops
+        """
+        if not shop_ids:
+            return []
+        
+        query = db.query(Shop).filter(Shop.id.in_(shop_ids))
+        if not include_deleted:
+            query = query.filter(Shop.deleted_at.is_(None), Shop.is_active == True)
+        return query.all()
     
     @staticmethod
     def get_by_order_booker(db: Session, order_booker_id: int, include_deleted: bool = False) -> List[Shop]:
@@ -192,19 +212,18 @@ class ShopRepository:
         return True
     
     @staticmethod
-    def update(db: Session, shop_id: int, **kwargs) -> Optional[Shop]:
+    def update(db: Session, shop_id: int, auto_commit: bool = True, **kwargs) -> Optional[Shop]:
         """
         Update shop fields.
         
         Args:
             db: Database session
             shop_id: Shop ID to update
+            auto_commit: If True, commits transaction immediately. If False, caller must commit.
             **kwargs: Fields to update (name, owner_name, credit_limit, etc.)
         
         Returns:
             Updated shop instance or None if not found
-        
-        Note: Does NOT commit - caller must commit transaction
         """
         shop = db.query(Shop).filter(Shop.id == shop_id).first()
         if not shop:
@@ -215,7 +234,13 @@ class ShopRepository:
             if hasattr(shop, key) and value is not None:
                 setattr(shop, key, value)
         
-        # Do NOT commit - let service layer handle transaction
+        db.flush()
+        db.refresh(shop)
+        
+        # Commit transaction if auto_commit is True
+        if auto_commit:
+            db.commit()
+        
         return shop
     
     @staticmethod

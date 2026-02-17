@@ -104,6 +104,7 @@ async def delete_order_booker(
     reassign_shops_to: Optional[int] = Query(None, description="Optional Order Booker ID to reassign shops to"),
     reassign_routes_to: Optional[int] = Query(None, description="Optional Order Booker ID to reassign routes to"),
     request: Request = None,
+    distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
     """
@@ -140,19 +141,12 @@ async def delete_order_booker(
         404 Not Found if order booker doesn't exist
     """
     try:
-        user_info = get_current_user_from_request(request)
-        if user_info['user_role'] != 'distributor':
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only distributors can delete order bookers."
-            )
-        
         OrderBookerService.delete_order_booker(
             db=db, 
             order_booker_id=order_booker_id,
             reassign_shops_to=reassign_shops_to,
             reassign_routes_to=reassign_routes_to,
-            deleter_id=user_info['user_id'],
+            deleter_id=distributor['user_id'],
             request=request
         )
         return None

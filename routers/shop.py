@@ -446,6 +446,36 @@ async def update_shop(
         if not shop_before:
             raise ValueError("Shop not found")
         
+        # Validate that shop belongs to this distributor
+        # Shop belongs to distributor if:
+        # 1. Created by order booker belonging to this distributor, OR
+        # 2. Assigned to order booker belonging to this distributor, OR
+        # 3. Verified by this distributor
+        from models.order_booker import OrderBooker
+        from sqlalchemy import or_
+        
+        shop_belongs_to_distributor = False
+        
+        # Check if shop was created by order booker belonging to this distributor
+        if shop_before.created_by_order_booker:
+            created_by_ob = OrderBookerRepository.get_by_id(db, shop_before.created_by_order_booker)
+            if created_by_ob and created_by_ob.distributor_id == distributor['user_id']:
+                shop_belongs_to_distributor = True
+        
+        # Check if shop is assigned to order booker belonging to this distributor
+        if not shop_belongs_to_distributor and shop_before.assigned_to_order_booker:
+            assigned_ob = OrderBookerRepository.get_by_id(db, shop_before.assigned_to_order_booker)
+            if assigned_ob and assigned_ob.distributor_id == distributor['user_id']:
+                shop_belongs_to_distributor = True
+        
+        # Check if shop was verified by this distributor
+        if not shop_belongs_to_distributor and shop_before.verified_by_distributor:
+            if shop_before.verified_by_distributor == distributor['user_id']:
+                shop_belongs_to_distributor = True
+        
+        if not shop_belongs_to_distributor:
+            raise ValueError("You can only update shops that belong to your distributor account")
+        
         old_credit_limit = float(shop_before.credit_limit) if shop_before.credit_limit else 0
         
         update_data = {}

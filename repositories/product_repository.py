@@ -11,13 +11,24 @@ class ProductRepository:
     """Repository for Product database operations."""
     
     @staticmethod
-    def create(db: Session, code: str, name: str, unit: str = None, distributor_id: int = None) -> Product:
+    def create(db: Session, code: str, name: str, unit: str = None, distributor_id: int = None, price: float = None) -> Product:
         """Create a new product."""
+        from decimal import Decimal
+        
+        # Convert price to Decimal if provided
+        price_decimal = None
+        if price is not None:
+            try:
+                price_decimal = Decimal(str(price))
+            except (ValueError, TypeError):
+                raise ValueError(f"Invalid price value: {price}. Price must be a valid number.")
+        
         product = Product(
             code=code,
             name=name,
             unit=unit,
             distributor_id=distributor_id,
+            price=price_decimal,
             is_active=True
         )
         db.add(product)

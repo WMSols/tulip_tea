@@ -86,141 +86,153 @@ class ShopService:
             if not is_valid:
                 raise ValueError(message)
         
-        # Create shop with pending status
-        # Note: assigned_to_order_booker is automatically set to order_booker_id
-        # in ShopRepository.create() to match created_by_order_booker initially
-        # Credit limit is set directly on shop (no credit limit request created)
-        shop = ShopRepository.create(
-            db=db,
-            name=name,
-            owner_name=owner_name,
-            owner_phone=owner_phone,
-            gps_lat=gps_lat,
-            gps_lng=gps_lng,
-            credit_limit=credit_limit or Decimal('0'),  # Set credit_limit directly from registration
-            legacy_balance=legacy_balance or Decimal('0'),
-            created_by_order_booker=order_booker_id,
-            zone_id=zone_id,
-            registration_status="pending"  # New shop starts as pending
-        )
-        
-        # Upload CNIC photos to Supabase Storage if provided
-        from services.image_service import ImageService
-        cnic_front_url = None
-        cnic_back_url = None
-        
-        if owner_cnic_front_photo:
-            print(f"INFO: Attempting to upload CNIC front photo for shop {shop.id}")
-            try:
-                cnic_front_url = ImageService.upload_shop_cnic_front(
-                    shop_id=shop.id,
-                    order_booker_id=order_booker_id,
-                    base64_image=owner_cnic_front_photo
-                )
-                if cnic_front_url:
-                    print(f"SUCCESS: CNIC front photo uploaded: {cnic_front_url}")
-                    shop.owner_cnic_front_photo = cnic_front_url
-                    db.commit()
-                    db.refresh(shop)
-                else:
-                    print(f"ERROR: Failed to upload CNIC front photo for shop {shop.id}")
-            except Exception as e:
-                print(f"ERROR: Exception uploading CNIC front photo for shop {shop.id}: {type(e).__name__}: {str(e)}")
-                import traceback
-                traceback.print_exc()
-        
-        if owner_cnic_back_photo:
-            print(f"INFO: Attempting to upload CNIC back photo for shop {shop.id}")
-            try:
-                cnic_back_url = ImageService.upload_shop_cnic_back(
-                    shop_id=shop.id,
-                    order_booker_id=order_booker_id,
-                    base64_image=owner_cnic_back_photo
-                )
-                if cnic_back_url:
-                    print(f"SUCCESS: CNIC back photo uploaded: {cnic_back_url}")
-                    shop.owner_cnic_back_photo = cnic_back_url
-                    db.commit()
-                    db.refresh(shop)
-                else:
-                    print(f"ERROR: Failed to upload CNIC back photo for shop {shop.id}")
-            except Exception as e:
-                print(f"ERROR: Exception uploading CNIC back photo for shop {shop.id}: {type(e).__name__}: {str(e)}")
-                import traceback
-                traceback.print_exc()
-        
-        # Upload owner photo to Supabase Storage if provided
-        if owner_photo:
-            print(f"INFO: Attempting to upload owner photo for shop {shop.id}")
-            try:
-                owner_photo_url = ImageService.upload_shop_owner_photo(
-                    shop_id=shop.id,
-                    order_booker_id=order_booker_id,
-                    base64_image=owner_photo
-                )
-                if owner_photo_url:
-                    print(f"SUCCESS: Owner photo uploaded: {owner_photo_url}")
-                    shop.owner_photo = owner_photo_url
-                    db.commit()
-                    db.refresh(shop)
-                else:
-                    print(f"ERROR: Failed to upload owner photo for shop {shop.id}")
-            except Exception as e:
-                print(f"ERROR: Exception uploading owner photo for shop {shop.id}: {type(e).__name__}: {str(e)}")
-                import traceback
-                traceback.print_exc()
-        
-        # Upload shop exterior photo to Supabase Storage if provided
-        if shop_exterior_photo:
-            print(f"INFO: Attempting to upload shop exterior photo for shop {shop.id}")
-            try:
-                shop_exterior_url = ImageService.upload_shop_exterior(
-                    shop_id=shop.id,
-                    order_booker_id=order_booker_id,
-                    base64_image=shop_exterior_photo
-                )
-                if shop_exterior_url:
-                    print(f"SUCCESS: Shop exterior photo uploaded: {shop_exterior_url}")
-                    shop.shop_exterior_photo = shop_exterior_url
-                    db.commit()
-                    db.refresh(shop)
-                else:
-                    print(f"ERROR: Failed to upload shop exterior photo for shop {shop.id}")
-            except Exception as e:
-                print(f"ERROR: Exception uploading shop exterior photo for shop {shop.id}: {type(e).__name__}: {str(e)}")
-                import traceback
-                traceback.print_exc()
-        
-        # Assign shop to route if route_id is provided
-        if route_id:
-            # Verify route exists
-            route = RouteRepository.get_by_id(db, route_id)
-            if not route:
-                raise ValueError("Route not found")
+        # Wrap all database operations in a single transaction to prevent partial execution
+        # If any operation fails, all changes will be rolled back
+        try:
+            # Create shop with pending status (don't commit yet - auto_commit=False)
+            # Note: assigned_to_order_booker is automatically set to order_booker_id
+            # in ShopRepository.create() to match created_by_order_booker initially
+            # Credit limit is set directly on shop (no credit limit request created)
+            shop = ShopRepository.create(
+                db=db,
+                name=name,
+                owner_name=owner_name,
+                owner_phone=owner_phone,
+                gps_lat=gps_lat,
+                gps_lng=gps_lng,
+                credit_limit=credit_limit or Decimal('0'),  # Set credit_limit directly from registration
+                legacy_balance=legacy_balance or Decimal('0'),
+                created_by_order_booker=order_booker_id,
+                zone_id=zone_id,
+                registration_status="pending",  # New shop starts as pending
+                auto_commit=False  # Don't commit yet - wait for all operations
+            )
             
-            # Verify route is assigned to this order booker
-            if route.order_booker_id != order_booker_id:
-                raise ValueError("Route is not assigned to this order booker")
+            # Upload CNIC photos to Supabase Storage if provided
+            from services.image_service import ImageService
+            cnic_front_url = None
+            cnic_back_url = None
             
-            # If zone_id is provided, verify route belongs to that zone
-            if zone_id and route.zone_id != zone_id:
-                raise ValueError(f"Route belongs to zone {route.zone_id}, but shop zone is {zone_id}. They must match.")
+            if owner_cnic_front_photo:
+                print(f"INFO: Attempting to upload CNIC front photo for shop {shop.id}")
+                try:
+                    cnic_front_url = ImageService.upload_shop_cnic_front(
+                        shop_id=shop.id,
+                        order_booker_id=order_booker_id,
+                        base64_image=owner_cnic_front_photo
+                    )
+                    if cnic_front_url:
+                        print(f"SUCCESS: CNIC front photo uploaded: {cnic_front_url}")
+                        shop.owner_cnic_front_photo = cnic_front_url
+                        # Don't commit here - wait for all operations
+                    else:
+                        print(f"ERROR: Failed to upload CNIC front photo for shop {shop.id}")
+                except Exception as e:
+                    print(f"ERROR: Exception uploading CNIC front photo for shop {shop.id}: {type(e).__name__}: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                    raise  # Re-raise to trigger rollback
             
-            # If no zone_id provided but route has zone, update shop's zone_id to match route
-            if not zone_id and route.zone_id:
-                shop.zone_id = route.zone_id
-                db.commit()
-                db.refresh(shop)
+            if owner_cnic_back_photo:
+                print(f"INFO: Attempting to upload CNIC back photo for shop {shop.id}")
+                try:
+                    cnic_back_url = ImageService.upload_shop_cnic_back(
+                        shop_id=shop.id,
+                        order_booker_id=order_booker_id,
+                        base64_image=owner_cnic_back_photo
+                    )
+                    if cnic_back_url:
+                        print(f"SUCCESS: CNIC back photo uploaded: {cnic_back_url}")
+                        shop.owner_cnic_back_photo = cnic_back_url
+                        # Don't commit here - wait for all operations
+                    else:
+                        print(f"ERROR: Failed to upload CNIC back photo for shop {shop.id}")
+                except Exception as e:
+                    print(f"ERROR: Exception uploading CNIC back photo for shop {shop.id}: {type(e).__name__}: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                    raise  # Re-raise to trigger rollback
             
-            # Get next sequence number for this route (count shops already on this route)
-            existing_shops = ShopRepository.get_by_route(db, route_id)
-            next_sequence = len(existing_shops) + 1 if existing_shops else 1
+            # Upload owner photo to Supabase Storage if provided
+            if owner_photo:
+                print(f"INFO: Attempting to upload owner photo for shop {shop.id}")
+                try:
+                    owner_photo_url = ImageService.upload_shop_owner_photo(
+                        shop_id=shop.id,
+                        order_booker_id=order_booker_id,
+                        base64_image=owner_photo
+                    )
+                    if owner_photo_url:
+                        print(f"SUCCESS: Owner photo uploaded: {owner_photo_url}")
+                        shop.owner_photo = owner_photo_url
+                        # Don't commit here - wait for all operations
+                    else:
+                        print(f"ERROR: Failed to upload owner photo for shop {shop.id}")
+                except Exception as e:
+                    print(f"ERROR: Exception uploading owner photo for shop {shop.id}: {type(e).__name__}: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                    raise  # Re-raise to trigger rollback
             
-            # Assign shop to route directly (using shop.route_id)
-            shop.route_id = route_id
-            shop.route_sequence = next_sequence
+            # Upload shop exterior photo to Supabase Storage if provided
+            if shop_exterior_photo:
+                print(f"INFO: Attempting to upload shop exterior photo for shop {shop.id}")
+                try:
+                    shop_exterior_url = ImageService.upload_shop_exterior(
+                        shop_id=shop.id,
+                        order_booker_id=order_booker_id,
+                        base64_image=shop_exterior_photo
+                    )
+                    if shop_exterior_url:
+                        print(f"SUCCESS: Shop exterior photo uploaded: {shop_exterior_url}")
+                        shop.shop_exterior_photo = shop_exterior_url
+                        # Don't commit here - wait for all operations
+                    else:
+                        print(f"ERROR: Failed to upload shop exterior photo for shop {shop.id}")
+                except Exception as e:
+                    print(f"ERROR: Exception uploading shop exterior photo for shop {shop.id}: {type(e).__name__}: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                    raise  # Re-raise to trigger rollback
+            
+            # Assign shop to route if route_id is provided
+            if route_id:
+                # Verify route exists
+                route = RouteRepository.get_by_id(db, route_id)
+                if not route:
+                    raise ValueError("Route not found")
+                
+                # Verify route is assigned to this order booker
+                if route.order_booker_id != order_booker_id:
+                    raise ValueError("Route is not assigned to this order booker")
+                
+                # If zone_id is provided, verify route belongs to that zone
+                if zone_id and route.zone_id != zone_id:
+                    raise ValueError(f"Route belongs to zone {route.zone_id}, but shop zone is {zone_id}. They must match.")
+                
+                # If no zone_id provided but route has zone, update shop's zone_id to match route
+                if not zone_id and route.zone_id:
+                    shop.zone_id = route.zone_id
+                    # Don't commit here - wait for all operations
+                
+                # Get next sequence number for this route (count shops already on this route)
+                existing_shops = ShopRepository.get_by_route(db, route_id)
+                next_sequence = len(existing_shops) + 1 if existing_shops else 1
+                
+                # Assign shop to route directly (using shop.route_id)
+                shop.route_id = route_id
+                shop.route_sequence = next_sequence
+                # Don't commit here - wait for all operations
+            
+            # Commit all database operations at once (atomic transaction)
             db.commit()
             db.refresh(shop)
+            
+        except Exception as e:
+            # Rollback all changes if any operation fails
+            db.rollback()
+            print(f"Error in register_shop transaction: {e}")
+            raise
         
         # Create credit limit request if credit_limit is provided and > 0
         # Credit limit is set directly on shop, no credit limit request created

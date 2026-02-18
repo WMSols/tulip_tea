@@ -68,9 +68,14 @@ async def submit_daily_collection_by_delivery_man(
     
     try:
         from datetime import datetime
-        collected_at = None
-        if collection.collected_at:
+        # collected_at is now required from frontend
+        if not collection.collected_at:
+            raise ValueError("collected_at is required")
+        
+        try:
             collected_at = datetime.fromisoformat(collection.collected_at.replace('Z', '+00:00'))
+        except (ValueError, AttributeError):
+            raise ValueError("Invalid collected_at format. Use ISO format: 2026-01-05T10:30:00")
         
         result = DailyCollectionService.create_collection_for_delivery_man(
             db=db,
@@ -140,7 +145,7 @@ async def submit_daily_collection(
         {
             "shop_id": 1,
             "amount": 5000.00,
-            "collected_at": "2026-01-05T10:30:00",  // Optional
+            "collected_at": "2026-01-05T10:30:00",  // Required
             "remarks": "Cash collection from shop owner"
         }
     
@@ -156,9 +161,14 @@ async def submit_daily_collection(
     
     try:
         from datetime import datetime
-        collected_at = None
-        if collection.collected_at:
+        # collected_at is now required from frontend
+        if not collection.collected_at:
+            raise ValueError("collected_at is required")
+        
+        try:
             collected_at = datetime.fromisoformat(collection.collected_at.replace('Z', '+00:00'))
+        except (ValueError, AttributeError):
+            raise ValueError("Invalid collected_at format. Use ISO format: 2026-01-05T10:30:00")
         
         result = DailyCollectionService.create_collection(
             db=db,

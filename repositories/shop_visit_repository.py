@@ -69,9 +69,9 @@ class ShopVisitRepository:
             - At least one of order_booker_id or delivery_man_id should be provided
             - visit_date defaults to current time if not provided
         """
-        # Use current time if visit_date not provided
+        # visit_date is required from frontend (no default)
         if visit_date is None:
-            visit_date = datetime.utcnow()
+            raise ValueError("visit_date is required")
         
         # Convert single photo to photos array if needed
         photos_json = photos

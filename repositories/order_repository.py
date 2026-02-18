@@ -128,16 +128,29 @@ class OrderRepository:
         return query.order_by(Order.created_at.desc()).all()
     
     @staticmethod
-    def assign_delivery_man(db: Session, order_id: int, delivery_man_id: int) -> Optional[Order]:
-        """Assign order to a delivery man."""
+    def assign_delivery_man(db: Session, order_id: int, delivery_man_id: int, auto_commit: bool = True) -> Optional[Order]:
+        """
+        Assign order to a delivery man.
+        
+        Args:
+            db: Database session
+            order_id: Order ID
+            delivery_man_id: Delivery man ID
+            auto_commit: If True, commits immediately. If False, caller must commit.
+        
+        Returns:
+            Updated order or None if not found
+        """
         order = db.query(Order).filter(Order.id == order_id).first()
         if not order:
             return None
         order.delivery_man_id = delivery_man_id
         # Status remains "pending" until delivery man marks it as delivered or disapproved
         # order.status = "pending"  # Already pending, no need to change
-        db.commit()
+        db.flush()
         db.refresh(order)
+        if auto_commit:
+            db.commit()
         return order
     
     @staticmethod

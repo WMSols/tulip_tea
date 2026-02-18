@@ -460,10 +460,14 @@ async def deliver_order(
         )
         
         # Create visit type in junction table
+        # Note: shop_visit is already committed, so visit_type should also commit immediately
+        # If visit_type creation fails, it's logged but doesn't fail the delivery update
         try:
-            VisitTypeRepository.create(db, shop_visit.id, visit_type)
+            VisitTypeRepository.create(db, shop_visit.id, visit_type, auto_commit=True)
         except Exception as e:
+            # Log error but don't fail the delivery - visit is already created
             print(f"Warning: Failed to create visit type '{visit_type}': {e}")
+            # This is acceptable since visit_type is supplementary data
         
         # Update order with delivery proof (without GPS - GPS is in shop_visits now)
         from models.order import OrderStatus
@@ -678,6 +682,7 @@ async def assign_order_to_delivery_man(
     3. Service assigns order
     4. Order status remains "pending" until delivery man marks it as "delivered" or "disapproved"
     """
+    # Wrap all database operations in a single transaction to prevent partial execution
     try:
         # Get order before assignment for logging
         from repositories.order_repository import OrderRepository
@@ -688,7 +693,9 @@ async def assign_order_to_delivery_man(
         old_delivery_man_id = order_before.delivery_man_id
         old_status = order_before.status.value if hasattr(order_before.status, 'value') else str(order_before.status)
         
-        result = OrderService.assign_delivery_man(db, order_id, delivery_man_id)
+        # Assign delivery man with auto_commit=False to control transaction
+        result = OrderService.assign_delivery_man(db, order_id, delivery_man_id, auto_commit=False)
+        
         # Get full order data
         order = OrderRepository.get_by_id(db, order_id)
         if not order:
@@ -696,28 +703,41 @@ async def assign_order_to_delivery_man(
         orders = OrderService._format_orders(db, [order])
         order_data = orders[0] if orders else result
         
-        # Log order assignment
-        ActivityLogService.log_activity(
-            db=db,
-            user_id=distributor['user_id'],
-            user_role='distributor',
-            action_type='ASSIGN',
-            entity_type='order',
-            entity_id=order_id,
-            old_values={
-                'delivery_man_id': old_delivery_man_id,
-                'status': old_status
-            },
-            new_values={
-                'delivery_man_id': delivery_man_id,
-                'status': order_data.get('status')
-            },
-            changes_summary=f"Order assigned to delivery man: {order_data.get('delivery_man_name', 'N/A')}",
-            metadata={'shop_id': order_data.get('shop_id'), 'shop_name': order_data.get('shop_name')},
-            request=request
-        )
+        # Log order assignment (with error handling to prevent transaction rollback)
+        try:
+            ActivityLogService.log_activity(
+                db=db,
+                user_id=distributor['user_id'],
+                user_role='distributor',
+                action_type='ASSIGN',
+                entity_type='order',
+                entity_id=order_id,
+                old_values={
+                    'delivery_man_id': old_delivery_man_id,
+                    'status': old_status
+                },
+                new_values={
+                    'delivery_man_id': delivery_man_id,
+                    'status': order_data.get('status')
+                },
+                changes_summary=f"Order assigned to delivery man: {order_data.get('delivery_man_name', 'N/A')}",
+                metadata={'shop_id': order_data.get('shop_id'), 'shop_name': order_data.get('shop_name')},
+                request=request
+            )
+        except Exception as log_error:
+            # Logging failures should not break the operation
+            print(f"⚠️ Failed to log order assignment (non-critical): {log_error}")
+            import traceback
+            traceback.print_exc()
+        
+        # Commit transaction after all operations succeed
+        db.commit()
         
         return order_data
+    except Exception as e:
+        # Rollback on any error
+        db.rollback()
+        raise
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

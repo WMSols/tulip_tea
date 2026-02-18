@@ -55,7 +55,7 @@ async def register_visit(
             "visit_type": "order_booking",  // Optional: "order_booking", "delivery", "collection", "inspection", "other"
             "gps_lat": 33.6844,  // Optional
             "gps_lng": 73.0479,  // Optional
-            "visit_time": "2026-01-07T10:30:00",  // Optional (ISO format)
+            "visit_time": "2026-01-07T10:30:00",  // Required (ISO format)
             "photo": "data:image/jpeg;base64,...",  // Optional (base64 or URL)
             "reason": "Regular order booking visit"  // Optional
         }

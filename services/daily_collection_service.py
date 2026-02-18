@@ -40,13 +40,16 @@ class DailyCollectionService:
             shop_id: Shop ID where collection was made
             order_booker_id: Order booker ID who collected
             amount: Collection amount
-            collected_at: Timestamp when collection was made (will be stored as collection_date)
+            collected_at: Timestamp when collection was made (required from frontend, will be stored as collection_date)
             remarks: Optional remarks (not stored in database, kept for API compatibility)
             visit_id: Optional visit ID this collection is linked to
         
         Returns:
             Dict: Collection data with updated outstanding balance
         """
+        # Validate collected_at is provided (required from frontend)
+        if collected_at is None:
+            raise ValueError("collected_at is required")
         # Validate shop exists
         shop = ShopRepository.get_by_id(db, shop_id)
         if not shop:
@@ -437,13 +440,17 @@ class DailyCollectionService:
             shop_id: Shop ID where collection was made
             delivery_man_id: Delivery man ID who collected
             amount: Collection amount
-            collected_at: Timestamp when collection was made (will be stored as collection_date)
+            collected_at: Timestamp when collection was made (required from frontend, will be stored as collection_date)
             remarks: Optional remarks (not stored in database, kept for API compatibility)
             order_id: Optional order ID this collection is linked to
         
         Returns:
             Dict: Collection data with updated outstanding balance
         """
+        # Validate collected_at is provided (required from frontend)
+        if collected_at is None:
+            raise ValueError("collected_at is required")
+        
         # Validate shop exists
         shop = ShopRepository.get_by_id(db, shop_id)
         if not shop:

@@ -221,30 +221,73 @@ class EntityDeleter:
     
     def get_order_booker_related_data(self, order_booker_id: int) -> Dict:
         """Get all data related to an order booker."""
+        # Get wallet for this order booker
+        wallet = self.db.query(Wallet).filter(
+            Wallet.user_type == 'order_booker',
+            Wallet.user_id == order_booker_id
+        ).first()
+        
+        wallet_data = {}
+        if wallet:
+            wallet_data = self.get_wallet_related_data(wallet.id)
+        
         return {
             'shops_created': self.db.query(Shop).filter(Shop.created_by_order_booker == order_booker_id).all(),
             'shops_assigned': self.db.query(Shop).filter(Shop.assigned_to_order_booker == order_booker_id).all(),
             'routes': self.db.query(Route).filter(Route.order_booker_id == order_booker_id).all(),
             'orders': self.db.query(Order).filter(Order.order_booker_id == order_booker_id).all(),
             'shop_visits': self.db.query(ShopVisit).filter(ShopVisit.order_booker_id == order_booker_id).all(),
+            'wallet': wallet,
+            'wallet_transactions': wallet_data.get('wallet_transactions', []),
+            'related_wallet_transactions': wallet_data.get('related_wallet_transactions', []),
         }
     
     def get_delivery_man_related_data(self, delivery_man_id: int) -> Dict:
         """Get all data related to a delivery man."""
+        # Try to get delivery_man_routes, but handle case where table doesn't exist
+        try:
+            delivery_man_routes = self.db.query(DeliveryManRoute).filter(DeliveryManRoute.delivery_man_id == delivery_man_id).all()
+        except Exception:
+            # Table doesn't exist or other error - rollback transaction and return empty list
+            self.db.rollback()
+            delivery_man_routes = []
+        
+        # Get wallet for this delivery man
+        wallet = self.db.query(Wallet).filter(
+            Wallet.user_type == 'delivery_man',
+            Wallet.user_id == delivery_man_id
+        ).first()
+        
+        wallet_data = {}
+        if wallet:
+            wallet_data = self.get_wallet_related_data(wallet.id)
+        
         return {
             'orders': self.db.query(Order).filter(Order.delivery_man_id == delivery_man_id).all(),
             'daily_collections': self.db.query(DailyCollection).filter(DailyCollection.collected_by_delivery_man == delivery_man_id).all(),
             'shop_visits': self.db.query(ShopVisit).filter(ShopVisit.delivery_man_id == delivery_man_id).all(),
-            'delivery_man_routes': self.db.query(DeliveryManRoute).filter(DeliveryManRoute.delivery_man_id == delivery_man_id).all(),
+            'delivery_man_routes': delivery_man_routes,
+            'wallet': wallet,
+            'wallet_transactions': wallet_data.get('wallet_transactions', []),
+            'related_wallet_transactions': wallet_data.get('related_wallet_transactions', []),
         }
     
     def get_route_related_data(self, route_id: int) -> Dict:
         """Get all data related to a route."""
         # Get shops that have this route_id (route_shops table doesn't exist - shops have route_id directly)
         shops_with_route = self.db.query(Shop).filter(Shop.route_id == route_id).all()
+        
+        # Try to get delivery_man_routes, but handle case where table doesn't exist
+        try:
+            delivery_man_routes = self.db.query(DeliveryManRoute).filter(DeliveryManRoute.route_id == route_id).all()
+        except Exception:
+            # Table doesn't exist or other error - rollback transaction and return empty list
+            self.db.rollback()
+            delivery_man_routes = []
+        
         return {
             'shops_with_route': shops_with_route,  # Shops that have this route_id
-            'delivery_man_routes': self.db.query(DeliveryManRoute).filter(DeliveryManRoute.route_id == route_id).all(),
+            'delivery_man_routes': delivery_man_routes,
         }
     
     def get_product_related_data(self, product_id: int) -> Dict:
@@ -275,9 +318,32 @@ class EntityDeleter:
         print(f"\n📊 Related data that will be deleted:")
         print(f"   - Credit Limit Requests: {len(related['credit_limit_requests'])}")
         print(f"   - Orders: {len(related['orders'])}")
-        print(f"   - Payments: {len(related['payments'])}")
-        print(f"   - Daily Collections: {len(related['daily_collections'])}")
+        # Count order_items, delivery_items, deliveries, and daily_collections for display
+        order_item_ids = []
+        order_ids = [order.id for order in related['orders']]
+        for order in related['orders']:
+            order_items = self.db.query(OrderItem).filter(OrderItem.order_id == order.id).all()
+            order_item_ids.extend([item.id for item in order_items])
+        if order_item_ids:
+            delivery_items_count = self.db.query(DeliveryItem).filter(DeliveryItem.order_item_id.in_(order_item_ids)).count()
+            if delivery_items_count > 0:
+                print(f"   - Delivery Items: {delivery_items_count}")
+            print(f"   - Order Items: {len(order_item_ids)}")
+        if order_ids:
+            deliveries_count = self.db.query(Delivery).filter(Delivery.order_id.in_(order_ids)).count()
+            if deliveries_count > 0:
+                print(f"   - Deliveries: {deliveries_count} (will be deleted - order_id is NOT NULL)")
+            collections_count = self.db.query(DailyCollection).filter(DailyCollection.order_id.in_(order_ids)).count()
+            if collections_count > 0:
+                print(f"   - Daily Collections (linked to orders): {collections_count} (order_id will be set to NULL)")
+        print(f"   - Payments: {len(related['payments'])} (shop_id will be set to NULL)")
+        print(f"   - Daily Collections (all): {len(related['daily_collections'])}")
         print(f"   - Shop Visits: {len(related['shop_visits'])}")
+        # Count visit_types for display
+        visit_ids = [visit.id for visit in related['shop_visits']]
+        visit_types_count = self.db.query(VisitType).filter(VisitType.visit_id.in_(visit_ids)).count() if visit_ids else 0
+        if visit_types_count > 0:
+            print(f"   - Visit Types: {visit_types_count}")
         # Route info is stored directly on shop (route_id, route_sequence) - no junction table
         
         # Confirm deletion
@@ -293,31 +359,105 @@ class EntityDeleter:
                 self.deleted_summary['credit_limit_requests'] = self.deleted_summary.get('credit_limit_requests', 0) + 1
             
             for order in related['orders']:
-                # Delete order items first (must be done before deleting order)
+                # Get all order items for this order
                 order_items = self.db.query(OrderItem).filter(OrderItem.order_id == order.id).all()
+                order_item_ids = [item.id for item in order_items]
+                
+                # Delete delivery_items first (they reference order_items via foreign key)
+                if order_item_ids:
+                    delivery_items = self.db.query(DeliveryItem).filter(DeliveryItem.order_item_id.in_(order_item_ids)).all()
+                    for di in delivery_items:
+                        self.db.delete(di)
+                        self.deleted_summary['delivery_items'] = self.deleted_summary.get('delivery_items', 0) + 1
+                    
+                    # Flush to ensure delivery_items are deleted before deleting order_items
+                    if delivery_items:
+                        self.db.flush()
+                
+                # Delete order items (must be done before deleting order)
                 for item in order_items:
                     self.db.delete(item)
                     self.deleted_summary['order_items'] = self.deleted_summary.get('order_items', 0) + 1
+                
                 # Flush to ensure order_items are deleted before deleting order
+                if order_items:
+                    self.db.flush()
+                
+                # Delete deliveries (they reference orders via order_id which is NOT NULL)
+                # Since deliveries.order_id is NOT NULL, we must DELETE deliveries instead of setting to NULL
+                related_deliveries = self.db.query(Delivery).filter(Delivery.order_id == order.id).all()
+                for delivery in related_deliveries:
+                    self.db.delete(delivery)
+                    self.deleted_summary['deliveries'] = self.deleted_summary.get('deliveries', 0) + 1
+                
+                # Set foreign keys to NULL in daily_collections (they reference orders via order_id which is nullable)
+                related_collections = self.db.query(DailyCollection).filter(DailyCollection.order_id == order.id).all()
+                for collection in related_collections:
+                    collection.order_id = None
+                self.deleted_summary['collections_updated'] = self.deleted_summary.get('collections_updated', 0) + len(related_collections)
+                
+                # Set foreign keys to NULL in payments (they reference orders via order_id which is nullable)
+                # Use raw SQL to avoid column mismatch issues (received_by_distributor doesn't exist in DB)
+                payments_result = self.db.execute(
+                    text("SELECT id FROM payments WHERE order_id = :order_id"),
+                    {"order_id": order.id}
+                ).fetchall()
+                if payments_result:
+                    self.db.execute(
+                        text("UPDATE payments SET order_id = NULL WHERE order_id = :order_id"),
+                        {"order_id": order.id}
+                    )
+                    self.deleted_summary['payments_updated'] = self.deleted_summary.get('payments_updated', 0) + len(payments_result)
+                    related_payments = payments_result
+                else:
+                    related_payments = []
+                
+                # Flush to ensure foreign keys are updated/deleted before deleting order
+                # Always flush before deleting order to ensure all related deletions are committed
                 self.db.flush()
+                
                 # Now delete the order
                 self.db.delete(order)
                 self.deleted_summary['orders'] = self.deleted_summary.get('orders', 0) + 1
             
-            for payment in related['payments']:
-                self.db.delete(payment)
-                self.deleted_summary['payments'] = self.deleted_summary.get('payments', 0) + 1
+            # Set foreign keys to NULL in payments (they reference shops via shop_id which is nullable)
+            # Use raw SQL to avoid column mismatch issues (received_by_distributor doesn't exist in DB)
+            # Note: payments.order_id was already set to NULL when processing orders above
+            if related['payments']:
+                # Update all payments for this shop (shop_id will be set to NULL)
+                payments_count = len(related['payments'])
+                self.db.execute(
+                    text("UPDATE payments SET shop_id = NULL WHERE shop_id = :shop_id"),
+                    {"shop_id": shop_id}
+                )
+                self.deleted_summary['payments_updated'] = self.deleted_summary.get('payments_updated', 0) + payments_count
             
             for collection in related['daily_collections']:
                 self.db.delete(collection)
                 self.deleted_summary['daily_collections'] = self.deleted_summary.get('daily_collections', 0) + 1
             
-            # Delete shop visits (must be flushed before deleting shop)
-            for visit in related['shop_visits']:
-                self.db.delete(visit)
-                self.deleted_summary['shop_visits'] = self.deleted_summary.get('shop_visits', 0) + 1
-            if related['shop_visits']:  # Only flush if there are visits to delete
-                self.db.flush()  # Ensure shop_visits are deleted before shop
+            # Delete shop visits (must delete visit_types first due to foreign key constraint)
+            if related['shop_visits']:
+                # Get all visit IDs first
+                visit_ids = [visit.id for visit in related['shop_visits']]
+                
+                # Delete visit_types first (they reference shop_visits via foreign key)
+                visit_types = self.db.query(VisitType).filter(VisitType.visit_id.in_(visit_ids)).all()
+                for vt in visit_types:
+                    self.db.delete(vt)
+                    self.deleted_summary['visit_types'] = self.deleted_summary.get('visit_types', 0) + 1
+                
+                # Flush to ensure visit_types are deleted before deleting shop_visits
+                if visit_types:
+                    self.db.flush()
+                
+                # Now delete shop visits
+                for visit in related['shop_visits']:
+                    self.db.delete(visit)
+                    self.deleted_summary['shop_visits'] = self.deleted_summary.get('shop_visits', 0) + 1
+                
+                # Flush to ensure shop_visits are deleted before shop
+                self.db.flush()
             
             # route_shops table doesn't exist - shops have route_id directly (no junction table to delete)
             
@@ -353,6 +493,10 @@ class EntityDeleter:
         print(f"   - Routes: {len(related['routes'])} (order_booker_id will be set to NULL)")
         print(f"   - Orders: {len(related['orders'])} (order_booker_id will be set to NULL)")
         print(f"   - Shop Visits: {len(related['shop_visits'])} (order_booker_id will be set to NULL)")
+        if related['wallet']:
+            print(f"   - Wallet: 1 (will be deleted)")
+            print(f"   - Wallet Transactions: {len(related['wallet_transactions'])} (will be deleted)")
+            print(f"   - Related Wallet Transactions: {len(related['related_wallet_transactions'])} (related_wallet_id will be set to NULL)")
         
         confirm = input(f"\n⚠️  Are you SURE you want to delete Order Booker '{order_booker.name}'? (type 'del' to confirm): ")
         if confirm != 'del':
@@ -372,6 +516,26 @@ class EntityDeleter:
             for visit in related['shop_visits']:
                 visit.order_booker_id = None
             
+            # Delete wallet and its transactions if it exists
+            if related['wallet']:
+                # Delete wallet transactions first (they have RESTRICT, so must delete first)
+                for transaction in related['wallet_transactions']:
+                    self.db.delete(transaction)
+                self.deleted_summary['wallet_transactions'] = self.deleted_summary.get('wallet_transactions', 0) + len(related['wallet_transactions'])
+                
+                # Set related_wallet_id to NULL in related transactions
+                for transaction in related['related_wallet_transactions']:
+                    transaction.related_wallet_id = None
+                self.deleted_summary['wallet_transactions_updated'] = self.deleted_summary.get('wallet_transactions_updated', 0) + len(related['related_wallet_transactions'])
+                
+                # Flush to ensure transactions are deleted/updated before deleting wallet
+                if related['wallet_transactions'] or related['related_wallet_transactions']:
+                    self.db.flush()
+                
+                # Delete the wallet
+                self.db.delete(related['wallet'])
+                self.deleted_summary['wallets'] = self.deleted_summary.get('wallets', 0) + 1
+            
             # Delete the order booker
             self.db.delete(order_booker)
             self.deleted_summary['order_bookers'] = self.deleted_summary.get('order_bookers', 0) + 1
@@ -379,6 +543,8 @@ class EntityDeleter:
             self.db.commit()
             print(f"✅ Order Booker '{order_booker.name}' (ID: {order_booker_id}) deleted successfully!")
             print(f"   Related data foreign keys have been set to NULL.")
+            if related['wallet']:
+                print(f"   - Wallet and {len(related['wallet_transactions'])} transaction(s) deleted")
             return True
             
         except Exception as e:
@@ -404,6 +570,10 @@ class EntityDeleter:
         print(f"   - Daily Collections: {len(related['daily_collections'])} (collected_by_delivery_man will be set to NULL)")
         print(f"   - Shop Visits: {len(related['shop_visits'])} (delivery_man_id will be set to NULL)")
         print(f"   - Delivery Man-Route Links: {len(related['delivery_man_routes'])} (will be deleted)")
+        if related['wallet']:
+            print(f"   - Wallet: 1 (will be deleted)")
+            print(f"   - Wallet Transactions: {len(related['wallet_transactions'])} (will be deleted)")
+            print(f"   - Related Wallet Transactions: {len(related['related_wallet_transactions'])} (related_wallet_id will be set to NULL)")
         
         confirm = input(f"\n⚠️  Are you SURE you want to delete Delivery Man '{delivery_man.name}'? (type 'del' to confirm): ")
         if confirm != 'del':
@@ -424,6 +594,26 @@ class EntityDeleter:
                 self.db.delete(dm_route)
                 self.deleted_summary['delivery_man_routes'] = self.deleted_summary.get('delivery_man_routes', 0) + 1
             
+            # Delete wallet and its transactions if it exists
+            if related['wallet']:
+                # Delete wallet transactions first (they have RESTRICT, so must delete first)
+                for transaction in related['wallet_transactions']:
+                    self.db.delete(transaction)
+                self.deleted_summary['wallet_transactions'] = self.deleted_summary.get('wallet_transactions', 0) + len(related['wallet_transactions'])
+                
+                # Set related_wallet_id to NULL in related transactions
+                for transaction in related['related_wallet_transactions']:
+                    transaction.related_wallet_id = None
+                self.deleted_summary['wallet_transactions_updated'] = self.deleted_summary.get('wallet_transactions_updated', 0) + len(related['related_wallet_transactions'])
+                
+                # Flush to ensure transactions are deleted/updated before deleting wallet
+                if related['wallet_transactions'] or related['related_wallet_transactions']:
+                    self.db.flush()
+                
+                # Delete the wallet
+                self.db.delete(related['wallet'])
+                self.deleted_summary['wallets'] = self.deleted_summary.get('wallets', 0) + 1
+            
             # Delete the delivery man
             self.db.delete(delivery_man)
             self.deleted_summary['delivery_men'] = self.deleted_summary.get('delivery_men', 0) + 1
@@ -431,6 +621,8 @@ class EntityDeleter:
             self.db.commit()
             print(f"✅ Delivery Man '{delivery_man.name}' (ID: {delivery_man_id}) deleted successfully!")
             print(f"   Related data foreign keys have been set to NULL.")
+            if related['wallet']:
+                print(f"   - Wallet and {len(related['wallet_transactions'])} transaction(s) deleted")
             return True
             
         except Exception as e:
@@ -1453,12 +1645,17 @@ class EntityDeleter:
             self.deleted_summary['shops_route_cleared'] = len(shops_with_routes)
             print(f"   ✅ Cleared route_id from {len(shops_with_routes)} shops (route_shops table doesn't exist)")
             
-            # Delivery Man Routes
-            delivery_man_routes = self.db.query(DeliveryManRoute).all()
-            for dmr in delivery_man_routes:
-                self.db.delete(dmr)
-            self.deleted_summary['delivery_man_routes'] = len(delivery_man_routes)
-            print(f"   ✅ Deleted {len(delivery_man_routes)} delivery man-route links")
+            # Delivery Man Routes (handle case where table doesn't exist)
+            try:
+                delivery_man_routes = self.db.query(DeliveryManRoute).all()
+                for dmr in delivery_man_routes:
+                    self.db.delete(dmr)
+                self.deleted_summary['delivery_man_routes'] = len(delivery_man_routes)
+                print(f"   ✅ Deleted {len(delivery_man_routes)} delivery man-route links")
+            except Exception:
+                # Table doesn't exist - rollback transaction and skip
+                self.db.rollback()
+                print(f"   ⚠️  delivery_man_routes table does not exist - skipping")
             
             # Delivery Man Warehouses
             delivery_man_warehouses = self.db.query(DeliveryManWarehouse).all()

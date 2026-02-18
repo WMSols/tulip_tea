@@ -52,6 +52,10 @@ class CreditLimitRequestService:
         Returns:
             Dict: Request data
         """
+        # Validate requested_credit_limit is positive
+        if requested_credit_limit is None or requested_credit_limit <= 0:
+            raise ValueError("Requested credit limit must be greater than 0")
+        
         # Validate shop exists
         shop = ShopRepository.get_by_id(db, shop_id)
         if not shop:

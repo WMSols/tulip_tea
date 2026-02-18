@@ -759,9 +759,9 @@
                             <small style="color: #666; display: block; margin-top: 5px;">Click the button to automatically capture your current GPS coordinates</small>
                         </div>
                         <div class="form-group">
-                            <label>Visit Time (Optional)</label>
-                            <input type="datetime-local" id="visitTime">
-                            <small style="color: #666; display: block; margin-top: 5px;">Leave empty to use current time</small>
+                            <label>Visit Time *</label>
+                            <input type="datetime-local" id="visitTime" required>
+                            <small style="color: #666; display: block; margin-top: 5px;">Required: Enter the date and time of your visit</small>
                         </div>
                         <div class="form-group">
                             <label>Photo (Optional)</label>
@@ -1002,6 +1002,8 @@
                 } else if (tabName === 'registerVisit') {
                     // Load shops for visit registration dropdown
                     loadShopsForVisitRegistration();
+                    // Set default visit time to current date/time
+                    setDefaultVisitTime();
                 } else if (tabName === 'visitHistory') {
                     loadMyVisits();
                 } else if (tabName === 'schedule') {
@@ -1769,6 +1771,23 @@
             );
         }
 
+        // Set default visit time to current date/time
+        function setDefaultVisitTime() {
+            const visitTimeInput = document.getElementById('visitTime');
+            if (visitTimeInput && !visitTimeInput.value) {
+                // Get current date/time in local timezone
+                const now = new Date();
+                // Format as YYYY-MM-DDTHH:mm for datetime-local input
+                const year = now.getFullYear();
+                const month = String(now.getMonth() + 1).padStart(2, '0');
+                const day = String(now.getDate()).padStart(2, '0');
+                const hours = String(now.getHours()).padStart(2, '0');
+                const minutes = String(now.getMinutes()).padStart(2, '0');
+                const datetimeLocal = `${year}-${month}-${day}T${hours}:${minutes}`;
+                visitTimeInput.value = datetimeLocal;
+            }
+        }
+
         // Toggle Order Booking Form
         async function toggleOrderForm() {
             const checkbox = document.getElementById('visitTypeOrderBooking');
@@ -2353,19 +2372,78 @@
                 }
             }
 
+            // Get order resolution type and subsidy_id if order_booking is selected
+            let orderResolutionType = null;
+            let subsidyId = null;
+            if (visitTypes.includes('order_booking')) {
+                // Get selected order resolution type from radio buttons
+                const resolutionTypeRadios = document.querySelectorAll('input[name="orderResolutionType"]');
+                for (const radio of resolutionTypeRadios) {
+                    if (radio.checked) {
+                        orderResolutionType = radio.value;
+                        break;
+                    }
+                }
+                
+                // If subsidy is selected, get subsidy_id
+                if (orderResolutionType === 'subsidy') {
+                    const subsidySelect = document.getElementById('orderSubsidyId');
+                    if (subsidySelect && subsidySelect.value) {
+                        subsidyId = parseInt(subsidySelect.value);
+                        if (!subsidyId || isNaN(subsidyId)) {
+                            resultDiv.className = 'result error';
+                            resultDiv.textContent = 'Please select a subsidy when using subsidy option';
+                            return;
+                        }
+                    } else {
+                        resultDiv.className = 'result error';
+                        resultDiv.textContent = 'Please select a subsidy when using subsidy option';
+                        return;
+                    }
+                }
+                
+                // Frontend validation: Check if payment_before_delivery is selected when credit is sufficient
+                if (orderResolutionType === 'payment_before_delivery') {
+                    const calculatedTotal = parseFloat(document.getElementById('orderCalculatedTotal')?.textContent.replace('Rs. ', '').replace(/,/g, '') || 0);
+                    const availableCreditElement = document.getElementById('availableCreditValue');
+                    if (availableCreditElement && currentShopCreditInfo) {
+                        const availableCredit = parseFloat(availableCreditElement.textContent.replace('Rs. ', '').replace(/,/g, '') || 0);
+                        // Use final_total_amount if provided, otherwise use calculated total
+                        // Note: If subsidy is applied, the backend will handle it, but we check the calculated amount here
+                        const orderAmount = finalTotalAmount || calculatedTotal;
+                        
+                        if (orderAmount > 0 && availableCredit > 0 && orderAmount <= availableCredit) {
+                            resultDiv.className = 'result error';
+                            resultDiv.textContent = `Credit is sufficient (Rs. ${availableCredit.toFixed(2)} available). Payment before delivery is not needed. Please use normal delivery option instead.`;
+                            return;
+                        }
+                    }
+                }
+            }
+
+            // Validate visit_time is provided (required from backend)
+            const visitTimeInput = document.getElementById('visitTime');
+            if (!visitTimeInput || !visitTimeInput.value) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Visit time is required. Please enter the date and time of your visit.';
+                return;
+            }
+
             const visitData = {
                 shop_id: document.getElementById('visitShopId').value ? parseInt(document.getElementById('visitShopId').value) : null,
                 visit_types: visitTypes,
                 gps_lat: document.getElementById('visitGpsLat').value ? parseFloat(document.getElementById('visitGpsLat').value) : null,
                 gps_lng: document.getElementById('visitGpsLng').value ? parseFloat(document.getElementById('visitGpsLng').value) : null,
-                visit_time: document.getElementById('visitTime').value ? new Date(document.getElementById('visitTime').value).toISOString() : null,
+                visit_time: new Date(visitTimeInput.value).toISOString(), // Required - convert to ISO format
                 photo: visitPhotoBase64,
                 reason: document.getElementById('visitReason').value || null,
                 order_items: orderItems,
                 scheduled_date: scheduledDate,
                 collection_amount: collectionAmount,
                 collection_remarks: collectionRemarks,
-                final_total_amount: finalTotalAmount
+                final_total_amount: finalTotalAmount,
+                order_resolution_type: orderResolutionType, // Send order resolution type to backend
+                subsidy_id: subsidyId // Send subsidy_id if subsidy is selected
             };
 
             const endpoint = `${API_BASE}/shop-visits/order-booker/${currentUser.id}`;
@@ -2465,6 +2543,8 @@
                 }
 
                 document.getElementById('visitRegistrationForm').reset();
+                // Reset visit time to current time after form reset
+                setDefaultVisitTime();
                 clearPhoto();
                 // Reset visit type checkboxes
                 document.getElementById('visitTypeOrderBooking').checked = false;

@@ -189,7 +189,7 @@ class ShopVisitService:
         """
         # Validate that at least one of order_booker_id or delivery_man_id is provided
         if not order_booker_id and not delivery_man_id:
-            raise ValueError("Either order_booker_id or delivery_man_id must be provided")
+            raise ValueError("Provide order booker ID or delivery man ID")
         
         # Validate shop exists and is approved if shop_id provided
         if shop_id:
@@ -198,7 +198,7 @@ class ShopVisitService:
                 raise ValueError("Shop not found")
             # Only approved shops can have visits registered
             if shop.registration_status != "approved":
-                raise ValueError(f"Visits can only be registered for approved shops. This shop status is: {shop.registration_status}")
+                raise ValueError(f"Shop is not approved. Status: {shop.registration_status}")
             
             # Validate GPS location if both shop and visit GPS coordinates are provided
             # This ensures order booker/delivery man is within 100m of shop location
@@ -218,20 +218,22 @@ class ShopVisitService:
         if order_booker_id:
             order_booker = OrderBookerRepository.get_by_id(db, order_booker_id)
             if not order_booker:
-                raise ValueError("Order Booker not found")
+                raise ValueError("Order booker not found")
         
         # Convert GPS coordinates to Decimal
         gps_lat_decimal = Decimal(str(gps_lat)) if gps_lat is not None else None
         gps_lng_decimal = Decimal(str(gps_lng)) if gps_lng is not None else None
         
-        # Parse visit_time if provided (API uses visit_time, model uses visit_date)
+        # Parse visit_time (required from frontend - API uses visit_time, model uses visit_date)
+        if not visit_time:
+            raise ValueError("visit_time is required")
+        
         visit_date_datetime = None
-        if visit_time:
-            try:
-                # Try parsing ISO format
-                visit_date_datetime = datetime.fromisoformat(visit_time.replace('Z', '+00:00'))
-            except (ValueError, AttributeError):
-                raise ValueError("Invalid visit_time format. Use ISO format (e.g., 2026-01-07T10:30:00)")
+        try:
+            # Try parsing ISO format
+            visit_date_datetime = datetime.fromisoformat(visit_time.replace('Z', '+00:00'))
+        except (ValueError, AttributeError):
+            raise ValueError("Invalid visit time format. Use ISO format: 2026-01-07T10:30:00")
         
         # Store original photo (base64) temporarily - we'll upload it after creating the visit
         photo_base64 = photo
@@ -245,6 +247,32 @@ class ShopVisitService:
         else:
             # Photo is base64, will upload after visit creation
             photo_url = None
+        
+        # Validate required fields based on visit types BEFORE creating visit
+        if visit_types:
+            # Check if any visit type requires shop_id
+            visit_types_requiring_shop = ["order_booking", "daily_collections"]
+            requires_shop = any(vt in visit_types_requiring_shop for vt in visit_types)
+            
+            if requires_shop and not shop_id:
+                visit_type_names = ", ".join(visit_types_requiring_shop)
+                raise ValueError(f"Shop ID is required for visit types: {visit_type_names}")
+            
+            # Validate order_booking specific requirements
+            if "order_booking" in visit_types:
+                if not shop_id:
+                    raise ValueError("Shop ID is required for order booking")
+                if not order_items or len(order_items) == 0:
+                    raise ValueError("Order items are required for order booking")
+            
+            # Validate daily_collections specific requirements
+            if "daily_collections" in visit_types:
+                if not shop_id:
+                    raise ValueError("Shop ID is required for daily collections")
+                if not collection_amount or collection_amount <= 0:
+                    raise ValueError("Collection amount must be greater than 0")
+                if not order_booker_id:
+                    raise ValueError("Order booker ID is required for daily collections")
         
         # Create visit (visit_type is deprecated, but keep for backward compatibility)
         # We'll use visit_types table instead
@@ -272,19 +300,20 @@ class ShopVisitService:
             created_visit_types = []
             if visit_types:
                 for vt in visit_types:
-                    try:
-                        visit_type_obj = VisitTypeRepository.create(db, visit.id, vt)
-                        created_visit_types.append(vt)
-                    except Exception as e:
-                        print(f"Warning: Failed to create visit type '{vt}': {e}")
+                    # Create visit type without committing (auto_commit=False)
+                    # If this fails, the outer transaction will rollback everything
+                    visit_type_obj = VisitTypeRepository.create(
+                        db=db, 
+                        visit_id=visit.id, 
+                        visit_type=vt,
+                        auto_commit=False  # Don't commit yet - wait for outer transaction
+                    )
+                    created_visit_types.append(vt)
             
             # Handle order_booking type - create order
+            # Note: shop_id and order_items are already validated above before visit creation
             order_id = None
             if visit_types and "order_booking" in visit_types:
-                if not shop_id:
-                    raise ValueError("shop_id is required when visit_type includes 'order_booking'")
-                if not order_items or len(order_items) == 0:
-                    raise ValueError("order_items are required when visit_type includes 'order_booking'")
                 
                 # Parse scheduled_date if provided
                 scheduled_date_obj = None
@@ -295,7 +324,7 @@ class ShopVisitService:
                         try:
                             scheduled_date_obj = date.fromisoformat(scheduled_date)
                         except (ValueError, AttributeError):
-                            raise ValueError("Invalid scheduled_date format. Use ISO date format (e.g., 2026-01-10)")
+                            raise ValueError("Invalid scheduled date format. Use ISO format: 2026-01-10")
                 
                 # Get distributor_id from order_booker
                 distributor_id = None
@@ -326,15 +355,10 @@ class ShopVisitService:
                 order_id = order_data["id"]
             
             # Handle daily_collections type - create collection
+            # Note: shop_id, collection_amount, and order_booker_id are already validated above before visit creation
             collection_id = None
             collection_credit_info = None  # Store collection credit info to include in response
             if visit_types and "daily_collections" in visit_types:
-                if not shop_id:
-                    raise ValueError("shop_id is required when visit_type includes 'daily_collections'")
-                if not collection_amount or collection_amount <= 0:
-                    raise ValueError("collection_amount is required and must be greater than 0 when visit_type includes 'daily_collections'")
-                if not order_booker_id:
-                    raise ValueError("order_booker_id is required when visit_type includes 'daily_collections'")
                 
                 # Create daily collection (don't commit yet - auto_commit=False)
                 collection_data = DailyCollectionService.create_collection(

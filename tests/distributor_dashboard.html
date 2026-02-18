@@ -742,6 +742,11 @@
                             <input type="text" id="productUnit" placeholder="e.g., kg, pcs, box, pack" maxlength="20">
                             <small style="color: #666;">Unit of measurement for this product</small>
                         </div>
+                        <div class="form-group">
+                            <label>Price (Optional)</label>
+                            <input type="number" id="productPrice" step="0.01" min="0" placeholder="e.g., 500.00">
+                            <small style="color: #666;">Price per unit in Pakistani Rupees (PKR)</small>
+                        </div>
                         <button type="submit" class="btn btn-primary">Create Product</button>
                     </form>
                     <div id="productResult" class="result"></div>
@@ -5912,10 +5917,14 @@
                 return;
             }
 
+            const priceInput = document.getElementById('productPrice').value.trim();
+            const price = priceInput ? parseFloat(priceInput) : null;
+
             const productData = {
                 code: document.getElementById('productCode').value.trim(),
                 name: document.getElementById('productName').value.trim(),
-                unit: document.getElementById('productUnit').value.trim() || null
+                unit: document.getElementById('productUnit').value.trim() || null,
+                price: (price !== null && !isNaN(price) && price >= 0) ? price : null
             };
 
             const endpoint = `${API_BASE}/products/`;

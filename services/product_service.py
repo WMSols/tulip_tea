@@ -10,7 +10,7 @@ class ProductService:
     """Service for Product business logic."""
     
     @staticmethod
-    def create_product(db: Session, code: str, name: str, unit: str = None, distributor_id: int = None) -> Dict:
+    def create_product(db: Session, code: str, name: str, unit: str = None, distributor_id: int = None, price: float = None) -> Dict:
         """Create a new product."""
         if distributor_id is None:
             raise ValueError("distributor_id is required to create a product")
@@ -40,7 +40,7 @@ class ProductService:
                     f"Please choose a different product code."
                 )
         
-        product = ProductRepository.create(db, code, name, unit, distributor_id)
+        product = ProductRepository.create(db, code, name, unit, distributor_id, price)
         
         # Safely format datetime fields
         created_at_str = None
@@ -63,11 +63,20 @@ class ProductService:
             except Exception:
                 updated_at_str = str(product.updated_at) if product.updated_at else None
         
+        # Format price - convert Decimal to float for JSON serialization
+        price_value = None
+        if product.price is not None:
+            try:
+                price_value = float(product.price)
+            except (ValueError, TypeError):
+                price_value = None
+        
         return {
             "id": product.id,
             "code": product.code,
             "name": product.name,
             "unit": product.unit,
+            "price": price_value,
             "distributor_id": product.distributor_id,
             "is_active": product.is_active,
             "created_at": created_at_str,

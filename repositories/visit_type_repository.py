@@ -12,7 +12,7 @@ class VisitTypeRepository:
     """Repository for Visit Type database operations."""
     
     @staticmethod
-    def create(db: Session, visit_id: int, visit_type: str) -> VisitType:
+    def create(db: Session, visit_id: int, visit_type: str, auto_commit: bool = True) -> VisitType:
         """
         Create a new visit type association.
         
@@ -20,6 +20,7 @@ class VisitTypeRepository:
             db: Database session
             visit_id: Visit ID
             visit_type: Type of visit (e.g., "order_booking", "daily_collections")
+            auto_commit: If True, commits immediately. If False, caller must commit.
         
         Returns:
             Created visit type instance
@@ -29,8 +30,13 @@ class VisitTypeRepository:
             visit_type=visit_type
         )
         db.add(visit_type_obj)
-        db.commit()
+        db.flush()  # Flush to get ID without committing
         db.refresh(visit_type_obj)
+        
+        # Commit only if auto_commit is True
+        if auto_commit:
+            db.commit()
+        
         return visit_type_obj
     
     @staticmethod

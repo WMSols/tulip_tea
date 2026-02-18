@@ -15,7 +15,7 @@ class ShopRepository:
     def create(db: Session, name: str, owner_name: str = None, owner_phone: str = None,
               gps_lat: Decimal = None, gps_lng: Decimal = None, credit_limit: Decimal = None,
               legacy_balance: Decimal = None, created_by_order_booker: int = None,
-              zone_id: int = None, registration_status: str = "pending") -> Shop:
+              zone_id: int = None, registration_status: str = "pending", auto_commit: bool = True) -> Shop:
         """
         Create a new shop.
         
@@ -27,6 +27,7 @@ class ShopRepository:
         Args:
             registration_status: Status of registration ("pending", "approved", "rejected")
             created_by_order_booker: Order booker who is registering the shop
+            auto_commit: If True, commits transaction immediately. If False, caller must commit.
         """
         # Legacy balance input is now added directly to outstanding_balance
         # (legacy_balance column has been removed from database)
@@ -46,8 +47,13 @@ class ShopRepository:
             zone_id=zone_id
         )
         db.add(shop)
-        db.commit()
+        db.flush()  # Flush to get the ID without committing
         db.refresh(shop)
+        
+        # Commit transaction if auto_commit is True
+        if auto_commit:
+            db.commit()
+        
         return shop
     
     @staticmethod

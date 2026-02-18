@@ -37,13 +37,17 @@ class DailyCollectionRepository:
         Returns:
             Created daily collection instance
         """
+        # collection_date is required from frontend (no default)
+        if collection_date is None:
+            raise ValueError("collection_date is required")
+        
         collection = DailyCollection(
             shop_id=shop_id,
             collected_by_order_booker=collected_by_order_booker,
             collected_by_delivery_man=collected_by_delivery_man,
             amount=amount,
             status=status,
-            collection_date=collection_date or datetime.utcnow(),
+            collection_date=collection_date,
             visit_id=visit_id,
             order_id=order_id,
             photo_proof=photo_proof

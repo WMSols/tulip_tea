@@ -122,7 +122,7 @@ class OrderService:
         db.refresh(shop)
         
         if shop.registration_status != "approved":
-            raise ValueError(f"Orders can only be placed for approved shops. Shop status: {shop.registration_status}")
+            raise ValueError(f"Shop is not approved. Current status: {shop.registration_status}")
         
         # Validate credit limit approval
         # If shop has ANY credit_limit_request (pending or approved), at least one must be approved
@@ -181,16 +181,10 @@ class OrderService:
                 )
                 
                 if has_pending_request:
-                    raise ValueError(
-                        "Orders cannot be placed for this shop. Credit limit request is pending approval. "
-                        "Please wait for distributor to approve the credit limit request."
-                    )
+                    raise ValueError("Credit limit request is pending approval. Wait for distributor approval")
                 else:
                     # No approved request found - could be rejected or never created
-                    raise ValueError(
-                        "Orders cannot be placed for this shop. Credit limit request has not been approved. "
-                        "Please ensure the credit limit request is approved by the distributor before placing orders."
-                    )
+                    raise ValueError("Credit limit request not approved. Contact distributor")
         
         # Validate order booker exists
         order_booker = OrderBookerRepository.get_by_id(db, order_booker_id)
@@ -209,9 +203,9 @@ class OrderService:
             if product_id:
                 product = ProductRepository.get_by_id(db, product_id)
                 if not product:
-                    raise ValueError(f"Product with ID {product_id} not found")
+                    raise ValueError(f"Product not found")
                 if not product.is_active:
-                    raise ValueError(f"Product with ID {product_id} is not active")
+                    raise ValueError(f"Product is not active")
                 
                 # Use product price if available, otherwise use provided unit_price
                 # Handle Decimal type from database
@@ -219,14 +213,14 @@ class OrderService:
                 if product_price and product_price > 0:
                     unit_price = product_price
                 elif not unit_price or unit_price <= 0:
-                    raise ValueError(f"Product '{product.name}' (ID: {product_id}) does not have a price set. Please set the price in the product table.")
+                    raise ValueError(f"Product '{product.name}' has no price set")
                 
                 # Always use product name from database when product_id is provided
                 # This ensures consistency and prevents incorrect names (e.g., product code) from being stored
                 product_name = product.name
             elif not unit_price or unit_price <= 0:
                 # No product_id and no valid unit_price
-                raise ValueError("Either product_id must be provided (to fetch price from product table) or unit_price must be provided")
+                raise ValueError("Provide product_id or unit_price")
             
             processed_items.append({
                 'product_id': product_id,
@@ -244,7 +238,7 @@ class OrderService:
             calculated_total_amount += item_total
         
         if calculated_total_amount <= 0:
-            raise ValueError("Order total amount must be greater than 0")
+            raise ValueError("Order amount must be greater than 0")
         
         # Determine final_total_amount
         # If provided, use it; otherwise use calculated_total_amount
@@ -252,9 +246,9 @@ class OrderService:
             final_total_amount_decimal = Decimal(str(final_total_amount))
             # Validate final_total_amount
             if final_total_amount_decimal <= 0:
-                raise ValueError("final_total_amount must be greater than 0")
+                raise ValueError("Final amount must be greater than 0")
             if final_total_amount_decimal > calculated_total_amount:
-                raise ValueError(f"final_total_amount ({final_total_amount_decimal}) cannot exceed calculated_total_amount ({calculated_total_amount})")
+                raise ValueError(f"Final amount (Rs. {final_total_amount_decimal}) cannot exceed order amount (Rs. {calculated_total_amount})")
         else:
             final_total_amount_decimal = calculated_total_amount
         
@@ -287,95 +281,85 @@ class OrderService:
             # Available credit cannot be negative - if outstanding > credit_limit, available = 0
             available_credit = max(Decimal('0'), credit_limit - current_outstanding)
             
-            # Check if credit is sufficient (use final_total_amount for check)
-            if current_outstanding + final_total_amount_decimal > credit_limit:
-                # Credit insufficient - need conditional order resolution
-                # If using new system (final_total_amount provided), check if it requires approval
-                if final_total_amount_decimal < calculated_total_amount:
-                    # Order booker reduced amount, but still exceeds credit - needs approval
-                    # Allow order creation with pending_approval status
-                    print(f"[DEBUG OrderService] Order requires approval: final={final_total_amount_decimal}, calculated={calculated_total_amount}, credit_limit={credit_limit}, outstanding={current_outstanding}")
-                elif not order_resolution_type or order_resolution_type == 'normal':
-                    # Normal delivery: credit insufficient - REJECT
+            # Step 1: Apply subsidy if provided (can be combined with payment_before_delivery)
+            subsidized_amount = final_total_amount_decimal
+            subsidy_applied = False
+            subsidy_percentage = None
+            if subsidy_id:
+                from repositories.subsidy_repository import SubsidyRepository
+                subsidy = SubsidyRepository.get_by_id(db, subsidy_id, include_deleted=False)
+                if not subsidy:
+                    raise ValueError(f"Subsidy not found")
+                
+                if not subsidy.is_active:
+                    raise ValueError(f"Subsidy is not active")
+                
+                # Calculate discounted amount
+                subsidy_percentage = Decimal(str(subsidy.percentage))
+                subsidized_amount = calculated_total_amount * (1 - subsidy_percentage / 100)  # Discounted amount
+                subsidy_applied = True
+                print(f"[DEBUG OrderService] Subsidy applied: Original={calculated_total_amount}, Discounted={subsidized_amount}, Percentage={subsidy_percentage}%")
+            
+            # Step 2: Determine final order amount (after subsidy if applied)
+            # Final amount is the subsidized amount if subsidy was applied, otherwise use final_total_amount_decimal
+            final_order_amount = subsidized_amount if subsidy_applied else final_total_amount_decimal
+            
+            # Step 3: CRITICAL VALIDATION - Order amount must NEVER exceed credit limit
+            # This applies to ALL order types: normal, subsidized, payment_before_delivery
+            # Formula: current_outstanding + final_order_amount <= credit_limit
+            # Allow equality: if order amount equals available credit, it's allowed
+            new_outstanding_after_order = current_outstanding + final_order_amount
+            
+            if new_outstanding_after_order > credit_limit:
+                # Order exceeds credit limit - REJECT with clear error message
+                if subsidy_applied:
+                    subsidy_pct_str = f"{subsidy_percentage}%" if subsidy_percentage else "applied"
                     raise ValueError(
-                        f"Order amount (Rs. {final_total_amount_decimal}) is out of range from available credit_limit. "
-                        f"Credit limit: Rs. {credit_limit}, Outstanding: Rs. {current_outstanding}, "
-                        f"Available: Rs. {available_credit}. "
-                        f"Please reduce the order amount or use payment_before_delivery option"
-                    )
-                
-                if order_resolution_type == 'subsidy':
-                    # Apply subsidy to reduce order amount
-                    if not subsidy_id:
-                        raise ValueError("subsidy_id is required when using subsidy resolution")
-                    
-                    from repositories.subsidy_repository import SubsidyRepository
-                    subsidy = SubsidyRepository.get_by_id(db, subsidy_id, include_deleted=False)
-                    if not subsidy:
-                        raise ValueError(f"Subsidy with ID {subsidy_id} not found")
-                    
-                    if not subsidy.is_active:
-                        raise ValueError(f"Subsidy with ID {subsidy_id} is not active")
-                    
-                    # Calculate discounted amount
-                    original_amount = total_amount  # Store original before discount
-                    discount_percentage = Decimal(str(subsidy.percentage))
-                    final_amount = total_amount * (1 - discount_percentage / 100)  # Discounted amount
-                    
-                    # Check if discounted amount fits in credit
-                    if current_outstanding + final_amount > credit_limit:
-                        raise ValueError(
-                            f"Even with {subsidy.percentage}% subsidy, order doesn't fit in credit. "
-                            f"Original: Rs. {total_amount}, Discounted: Rs. {final_amount}, "
-                            f"Available credit: Rs. {available_credit}"
-                        )
-                    
-                    resolution_type = 'subsidy'
-                
-                elif order_resolution_type == 'payment_before_delivery':
-                    # Payment before delivery: credit insufficient - ALLOW
-                    # Credit limit check will use full amount (payment will be collected before delivery)
-                    final_amount = total_amount
-                    resolution_type = 'payment_before_delivery'
-                
-                else:
-                    raise ValueError(f"Invalid order_resolution_type: {order_resolution_type}. Must be 'normal', 'subsidy', or 'payment_before_delivery'")
-            else:
-                # Credit is sufficient - validate order_resolution_type
-                print(f"[DEBUG OrderService] Credit sufficient. order_resolution_type: {order_resolution_type}, subsidy_id: {subsidy_id}")
-                
-                if order_resolution_type == 'payment_before_delivery':
-                    # Payment before delivery: credit sufficient - REJECT (should use normal delivery)
-                    raise ValueError(
-                        f"Total order amount (Rs. {final_total_amount_decimal}) is in range of available credit limit. "
+                        f"Order amount exceeds credit limit. "
+                        f"Original: Rs. {calculated_total_amount}, After {subsidy_pct_str} subsidy: Rs. {subsidized_amount}. "
+                        f"Credit limit: Rs. {credit_limit}, Current outstanding: Rs. {current_outstanding}, "
                         f"Available credit: Rs. {available_credit}. "
-                        f"Please use normal delivery option instead of payment_before_delivery"
+                        f"Maximum order amount allowed: Rs. {available_credit}. "
+                        f"Please reduce order quantity or items to stay within credit limit."
                     )
-                
-                if order_resolution_type == 'subsidy':
-                    # User selected subsidy even though credit is sufficient - apply it anyway (subsidy is global)
-                    print(f"[DEBUG OrderService] Applying subsidy even though credit is sufficient")
-                    if not subsidy_id:
-                        raise ValueError("subsidy_id is required when using subsidy resolution")
-                    
-                    from repositories.subsidy_repository import SubsidyRepository
-                    subsidy = SubsidyRepository.get_by_id(db, subsidy_id, include_deleted=False)
-                    if not subsidy:
-                        raise ValueError(f"Subsidy with ID {subsidy_id} not found")
-                    
-                    if not subsidy.is_active:
-                        raise ValueError(f"Subsidy with ID {subsidy_id} is not active")
-                    
-                    # Calculate discounted amount
-                    original_amount = total_amount  # Store original before discount
-                    discount_percentage = Decimal(str(subsidy.percentage))
-                    final_amount = total_amount * (1 - discount_percentage / 100)  # Discounted amount
-                    resolution_type = 'subsidy'
-                    print(f"[DEBUG OrderService] Subsidy applied. Original: {total_amount}, Discounted: {final_amount}, resolution_type: {resolution_type}")
                 else:
-                    # Credit is sufficient and normal delivery (or no resolution type specified) - normal order
-                    resolution_type = 'normal'
-                    print(f"[DEBUG OrderService] Normal order (credit sufficient). resolution_type: {resolution_type}")
+                    raise ValueError(
+                        f"Order amount (Rs. {final_order_amount}) exceeds credit limit (Rs. {credit_limit}). "
+                        f"Current outstanding: Rs. {current_outstanding}, Available credit: Rs. {available_credit}. "
+                        f"Maximum order amount allowed: Rs. {available_credit}. "
+                        f"Please reduce order quantity or items, apply subsidy, or request credit limit increase."
+                    )
+            
+            # Step 4: Credit is sufficient - validate and set resolution type
+            credit_sufficient = (new_outstanding_after_order <= credit_limit)
+            
+            if not credit_sufficient:
+                # This should not happen due to check above, but keep for safety
+                raise ValueError(
+                    f"Order amount (Rs. {final_order_amount}) exceeds available credit (Rs. {available_credit}). "
+                    f"Credit limit: Rs. {credit_limit}, Outstanding: Rs. {current_outstanding}. "
+                    f"Maximum order amount: Rs. {available_credit}"
+                )
+            
+            # Credit is sufficient - set final amount and resolution type
+            final_total_amount_decimal = final_order_amount
+            
+            # Determine resolution type based on order_resolution_type and subsidy
+            if order_resolution_type == 'payment_before_delivery':
+                # Payment before delivery is allowed if credit is sufficient
+                # (Shop wants to pay before delivery even though credit is available)
+                resolution_type = 'payment_before_delivery'
+                if subsidy_applied:
+                    print(f"[DEBUG OrderService] Payment before delivery with subsidy: Amount={final_total_amount_decimal}")
+            elif subsidy_applied or order_resolution_type == 'subsidy':
+                # Validate subsidy_id is provided if subsidy is selected
+                if order_resolution_type == 'subsidy' and not subsidy_id:
+                    raise ValueError("Subsidy ID is required when using subsidy option")
+                resolution_type = 'subsidy'
+                print(f"[DEBUG OrderService] Subsidy applied: Original={calculated_total_amount}, Discounted={subsidized_amount}, Resolution={resolution_type}")
+            else:
+                resolution_type = 'normal'
+                print(f"[DEBUG OrderService] Normal order: Amount={final_total_amount_decimal}, Resolution={resolution_type}")
         
         # Create order with new subsidy approval system
         print(f"[DEBUG OrderService] Creating order: calculated_total={calculated_total_amount}, final_total={final_total_amount_decimal}, subsidy_status={subsidy_status}")
@@ -394,7 +378,7 @@ class OrderService:
             subsidy_status=subsidy_status,  # 'none' or 'pending_approval'
             # Legacy fields (for backward compatibility)
             order_resolution_type=resolution_type if order_resolution_type else None,
-            subsidy_id=subsidy_id if resolution_type == 'subsidy' else None,
+            subsidy_id=subsidy_id if subsidy_id else None,  # Store subsidy_id if provided, regardless of resolution_type
             auto_commit=auto_commit
         )
         print(f"[DEBUG OrderService] After creating order: order.id={order.id}, order.order_resolution_type={order.order_resolution_type}, order.subsidy_id={order.subsidy_id}, order.original_amount={order.original_amount}")
@@ -891,8 +875,19 @@ class OrderService:
         return result
     
     @staticmethod
-    def assign_delivery_man(db: Session, order_id: int, delivery_man_id: int) -> Dict:
-        """Assign order to a delivery man."""
+    def assign_delivery_man(db: Session, order_id: int, delivery_man_id: int, auto_commit: bool = True) -> Dict:
+        """
+        Assign order to a delivery man.
+        
+        Args:
+            db: Database session
+            order_id: Order ID
+            delivery_man_id: Delivery man ID
+            auto_commit: If True, commits immediately. If False, caller must commit.
+        
+        Returns:
+            Dict with order assignment details
+        """
         from repositories.delivery_man_repository import DeliveryManRepository
         
         # Validate order exists
@@ -903,16 +898,16 @@ class OrderService:
         # Validate order can be assigned (subsidy_status must be 'none' or 'approved')
         subsidy_status = getattr(order, 'subsidy_status', None) or 'none'
         if subsidy_status == 'pending_approval':
-            raise ValueError("Cannot assign order. Order requires distributor approval for subsidy.")
+            raise ValueError("Order requires distributor approval for subsidy")
         if subsidy_status == 'rejected':
-            raise ValueError("Cannot assign order. Order subsidy was rejected by distributor.")
+            raise ValueError("Order subsidy was rejected by distributor")
         
         # Validate delivery man exists
         delivery_man = DeliveryManRepository.get_by_id(db, delivery_man_id)
         if not delivery_man:
-            raise ValueError("Delivery Man not found")
+            raise ValueError("Delivery man not found")
         
-        order = OrderRepository.assign_delivery_man(db, order_id, delivery_man_id)
+        order = OrderRepository.assign_delivery_man(db, order_id, delivery_man_id, auto_commit=auto_commit)
         if not order:
             raise ValueError("Order not found")
         
@@ -968,11 +963,11 @@ class OrderService:
         # Validate order is pending approval
         subsidy_status = getattr(order, 'subsidy_status', None) or 'none'
         if subsidy_status != 'pending_approval':
-            raise ValueError(f"Order is not pending approval. Current status: {subsidy_status}")
+            raise ValueError(f"Order is not pending approval. Status: {subsidy_status}")
         
         # Validate distributor has permission (order belongs to their order booker)
         if order.distributor_id and order.distributor_id != distributor_id:
-            raise ValueError("You do not have permission to approve this order")
+            raise ValueError("No permission to approve this order")
         
         # Update order
         order.subsidy_status = 'approved'
@@ -1030,11 +1025,11 @@ class OrderService:
         # Validate order is pending approval
         subsidy_status = getattr(order, 'subsidy_status', None) or 'none'
         if subsidy_status != 'pending_approval':
-            raise ValueError(f"Order is not pending approval. Current status: {subsidy_status}")
+            raise ValueError(f"Order is not pending approval. Status: {subsidy_status}")
         
         # Validate distributor has permission
         if order.distributor_id and order.distributor_id != distributor_id:
-            raise ValueError("You do not have permission to reject this order")
+            raise ValueError("No permission to reject this order")
         
         # Update order
         order.subsidy_status = 'rejected'

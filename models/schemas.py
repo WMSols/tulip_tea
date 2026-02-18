@@ -322,7 +322,7 @@ class ShopVerify(BaseModel):
 class DailyCollectionCreate(BaseModel):
     shop_id: int
     amount: float
-    collected_at: Optional[str] = None  # ISO format datetime string
+    collected_at: str  # ISO format datetime string - Required from frontend
     remarks: Optional[str] = None
     visit_id: Optional[int] = None  # Link to visit if created during visit
     order_id: Optional[int] = None  # Link to order if collection is for a specific order
@@ -394,7 +394,7 @@ class ShopVisitCreate(BaseModel):
     visit_types: Optional[List[str]] = []  # List of visit types: ["order_booking", "daily_collections", etc.]
     gps_lat: Optional[float] = None
     gps_lng: Optional[float] = None
-    visit_time: Optional[str] = None  # ISO format string (e.g., "2026-01-07T10:30:00")
+    visit_time: str  # ISO format string (e.g., "2026-01-07T10:30:00") - Required from frontend
     photo: Optional[str] = None  # Base64 string or URL
     reason: Optional[str] = None
     # Order data (if visit_types includes "order_booking")
@@ -631,6 +631,7 @@ class ProductCreate(BaseModel):
     code: str
     name: str
     unit: Optional[str] = None
+    price: Optional[float] = None
 
 
 class ProductResponse(BaseModel):

@@ -21,7 +21,11 @@ async def create_zone(
 ):
     """Create a new zone. Only distributors can create zones."""
     try:
-        result = ZoneService.create_zone(db=db, name=zone.name)
+        result = ZoneService.create_zone(
+            db=db, 
+            name=zone.name,
+            distributor_id=distributor['user_id']  # Store distributor_id
+        )
         return result
     except ValueError as e:
         raise HTTPException(
@@ -35,8 +39,26 @@ async def list_zones(
     current_user: Dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """List all zones. Requires authentication."""
-    zones = ZoneService.get_all_zones(db=db)
+    """List zones. Filters by distributor for distributors, shows zones from their distributor for order bookers/delivery men."""
+    distributor_id = None
+    
+    # If user is a distributor, filter by their zones
+    if current_user.get('role') == 'distributor':
+        distributor_id = current_user.get('user_id')
+    # If user is an order booker, filter by their distributor's zones
+    elif current_user.get('role') == 'order_booker':
+        from repositories.order_booker_repository import OrderBookerRepository
+        order_booker = OrderBookerRepository.get_by_id(db, current_user.get('user_id'))
+        if order_booker and order_booker.distributor_id:
+            distributor_id = order_booker.distributor_id
+    # If user is a delivery man, filter by their distributor's zones
+    elif current_user.get('role') == 'delivery_man':
+        from repositories.delivery_man_repository import DeliveryManRepository
+        delivery_man = DeliveryManRepository.get_by_id(db, current_user.get('user_id'))
+        if delivery_man and delivery_man.distributor_id:
+            distributor_id = delivery_man.distributor_id
+    
+    zones = ZoneService.get_all_zones(db=db, distributor_id=distributor_id)
     return zones
 
 
@@ -64,9 +86,14 @@ async def update_zone(
     distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
-    """Update zone name. Only distributors can update zones."""
+    """Update zone name. Only the owning distributor can update."""
     try:
-        result = ZoneService.update_zone(db=db, zone_id=zone_id, name=zone.name)
+        result = ZoneService.update_zone(
+            db=db, 
+            zone_id=zone_id, 
+            name=zone.name,
+            distributor_id=distributor['user_id']  # Validate ownership
+        )
         return result
     except ValueError as e:
         raise HTTPException(
@@ -81,9 +108,13 @@ async def delete_zone(
     distributor: Dict = Depends(get_current_distributor),
     db: Session = Depends(get_db)
 ):
-    """Delete a zone. Only distributors can delete zones."""
+    """Delete a zone. Only the owning distributor can delete."""
     try:
-        ZoneService.delete_zone(db=db, zone_id=zone_id)
+        ZoneService.delete_zone(
+            db=db, 
+            zone_id=zone_id,
+            distributor_id=distributor['user_id']  # Validate ownership
+        )
         return None
     except ValueError as e:
         raise HTTPException(

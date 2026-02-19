@@ -35,7 +35,7 @@ IMPORTANT:
 
 DATABASE TABLE: zones
 """
-from sqlalchemy import Column, BigInteger, String, DateTime, Boolean
+from sqlalchemy import Column, BigInteger, String, DateTime, Boolean, ForeignKey
 from sqlalchemy.sql import func
 from config.database import Base
 
@@ -56,6 +56,16 @@ class Zone(Base):
     Auto-incremented by database.
     Used as foreign key in: order_bookers, delivery_men, routes, shops
     Note: Distributors are NOT assigned to zones - they create zones but are not assigned to them
+    """
+
+    # Relationships
+    distributor_id = Column(BigInteger, ForeignKey("distributors.id"), nullable=True)
+    """
+    Foreign key to distributors table.
+    - Links zone to the distributor who created it
+    - Nullable: For backward compatibility with existing zones
+    - Used for data isolation: distributors can only see/manage their own zones
+    - Order Bookers and Delivery Men see zones from their distributor
     """
 
     # Basic Information

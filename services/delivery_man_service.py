@@ -46,11 +46,13 @@ class DeliveryManService:
         if not distributor:
             raise ValueError("Distributor not found")
         
-        # Verify zone exists (if provided)
+        # Verify zone exists and belongs to distributor (if provided)
         if zone_id:
             zone = ZoneRepository.get_by_id(db, zone_id)
             if not zone:
                 raise ValueError(f"Zone with ID {zone_id} not found")
+            if zone.distributor_id != distributor_id:
+                raise ValueError("Zone does not belong to your distributor")
         
         # Note: route_ids parameter is ignored - delivery men work by zone only
         # Routes are no longer assigned to delivery men
@@ -173,6 +175,15 @@ class DeliveryManService:
         password_hash = None
         if password:
             password_hash = get_password_hash(password)
+        
+        # Validate zone belongs to delivery man's distributor if zone_id is provided
+        if zone_id:
+            from repositories.zone_repository import ZoneRepository
+            zone = ZoneRepository.get_by_id(db, zone_id)
+            if not zone:
+                raise ValueError("Zone not found")
+            if zone.distributor_id != delivery_man.distributor_id:
+                raise ValueError("Zone does not belong to your distributor")
         
         updated = DeliveryManRepository.update(
             db=db,

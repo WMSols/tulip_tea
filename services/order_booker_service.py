@@ -34,6 +34,15 @@ class OrderBookerService:
         # Hash password
         password_hash = get_password_hash(password)
         
+        # Validate zone belongs to distributor if zone_id is provided
+        if zone_id:
+            from repositories.zone_repository import ZoneRepository
+            zone = ZoneRepository.get_by_id(db, zone_id)
+            if not zone:
+                raise ValueError("Zone not found")
+            if zone.distributor_id != distributor_id:
+                raise ValueError("Zone does not belong to your distributor")
+        
         # Create order booker
         order_booker = OrderBookerRepository.create(
             db=db,
@@ -202,6 +211,15 @@ class OrderBookerService:
         password_hash = None
         if password:
             password_hash = get_password_hash(password)
+        
+        # Validate zone belongs to order booker's distributor if zone_id is provided
+        if zone_id:
+            from repositories.zone_repository import ZoneRepository
+            zone = ZoneRepository.get_by_id(db, zone_id)
+            if not zone:
+                raise ValueError("Zone not found")
+            if zone.distributor_id != order_booker.distributor_id:
+                raise ValueError("Zone does not belong to your distributor")
         
         updated = OrderBookerRepository.update(
             db=db,

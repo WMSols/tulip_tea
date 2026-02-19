@@ -11,9 +11,9 @@ class ZoneRepository:
     """Repository for Zone database operations."""
     
     @staticmethod
-    def create(db: Session, name: str) -> Zone:
+    def create(db: Session, name: str, distributor_id: int = None) -> Zone:
         """Create a new zone."""
-        zone = Zone(name=name)
+        zone = Zone(name=name, distributor_id=distributor_id)
         db.add(zone)
         db.commit()
         db.refresh(zone)
@@ -49,12 +49,22 @@ class ZoneRepository:
         return query.all()
     
     @staticmethod
-    def get_all(db: Session, skip: int = 0, limit: int = 100, include_deleted: bool = False) -> List[Zone]:
+    def get_all(db: Session, skip: int = 0, limit: int = 100, include_deleted: bool = False, distributor_id: int = None) -> List[Zone]:
         """Get all zones with pagination (excludes soft-deleted and inactive by default)."""
         query = db.query(Zone)
+        if distributor_id is not None:
+            query = query.filter(Zone.distributor_id == distributor_id)
         if not include_deleted:
             query = query.filter(Zone.deleted_at.is_(None), Zone.is_active == True)
         return query.offset(skip).limit(limit).all()
+    
+    @staticmethod
+    def get_by_distributor(db: Session, distributor_id: int, include_deleted: bool = False) -> List[Zone]:
+        """Get all zones for a distributor."""
+        query = db.query(Zone).filter(Zone.distributor_id == distributor_id)
+        if not include_deleted:
+            query = query.filter(Zone.deleted_at.is_(None), Zone.is_active == True)
+        return query.all()
     
     @staticmethod
     def get_by_name(db: Session, name: str) -> Optional[Zone]:

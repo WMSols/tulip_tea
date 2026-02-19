@@ -12,14 +12,14 @@ class ZoneService:
     """Service for Zone business logic."""
     
     @staticmethod
-    def create_zone(db: Session, name: str) -> Dict:
+    def create_zone(db: Session, name: str, distributor_id: int = None) -> Dict:
         """Create a new zone."""
         # Check if zone with same name exists
         existing = ZoneRepository.get_by_name(db, name)
         if existing:
             raise ValueError("Zone with this name already exists")
         
-        zone = ZoneRepository.create(db=db, name=name)
+        zone = ZoneRepository.create(db=db, name=name, distributor_id=distributor_id)
         
         # Get counts (will be 0 for new zone)
         routes = RouteRepository.get_by_zone(db, zone.id, include_deleted=False)
@@ -34,9 +34,9 @@ class ZoneService:
         }
     
     @staticmethod
-    def get_all_zones(db: Session) -> List[Dict]:
-        """Get all zones."""
-        zones = ZoneRepository.get_all(db)
+    def get_all_zones(db: Session, distributor_id: int = None) -> List[Dict]:
+        """Get all zones, optionally filtered by distributor."""
+        zones = ZoneRepository.get_all(db, distributor_id=distributor_id)
         result = []
         for zone in zones:
             # Get counts for each zone
@@ -72,12 +72,16 @@ class ZoneService:
         }
     
     @staticmethod
-    def update_zone(db: Session, zone_id: int, name: str) -> Dict:
-        """Update zone name."""
+    def update_zone(db: Session, zone_id: int, name: str, distributor_id: int = None) -> Dict:
+        """Update zone name. Validates ownership if distributor_id provided."""
         # Check if zone exists
         zone = ZoneRepository.get_by_id(db, zone_id)
         if not zone:
             raise ValueError("Zone not found")
+        
+        # Validate ownership
+        if distributor_id is not None and zone.distributor_id != distributor_id:
+            raise ValueError("You don't have permission to update this zone")
         
         # Check if another zone with the same name exists (excluding current zone)
         existing = ZoneRepository.get_by_name(db, name)
@@ -101,11 +105,15 @@ class ZoneService:
         }
     
     @staticmethod
-    def delete_zone(db: Session, zone_id: int) -> bool:
-        """Delete a zone."""
+    def delete_zone(db: Session, zone_id: int, distributor_id: int = None) -> bool:
+        """Delete a zone. Validates ownership if distributor_id provided."""
         zone = ZoneRepository.get_by_id(db, zone_id)
         if not zone:
             raise ValueError("Zone not found")
+        
+        # Validate ownership
+        if distributor_id is not None and zone.distributor_id != distributor_id:
+            raise ValueError("You don't have permission to delete this zone")
         
         return ZoneRepository.delete(db, zone_id)
 

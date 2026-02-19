@@ -35,12 +35,13 @@ from config.database import Base
 class OrderStatus(str, enum.Enum):
     """Order status enumeration.
     
-    NOTE: Database enum uses UPPERCASE values ('PENDING', 'DELIVERED', 'DISAPPROVED').
+    NOTE: Database enum uses UPPERCASE values ('PENDING', 'DELIVERED', 'DISAPPROVED', 'PARTIAL_DELIVERED').
     Python enum values match the database exactly.
     """
     PENDING = "PENDING"  # Match database enum (uppercase)
     DELIVERED = "DELIVERED"  # Match database enum (uppercase)
     DISAPPROVED = "DISAPPROVED"  # Match database enum (uppercase)
+    PARTIAL_DELIVERED = "PARTIAL_DELIVERED"  # Match database enum (uppercase)
     
     def __str__(self):
         """Return the enum value when converted to string."""
@@ -114,6 +115,8 @@ class OrderStatusEnum(TypeDecorator):
             return OrderStatus.DELIVERED
         elif value_upper == 'DISAPPROVED':
             return OrderStatus.DISAPPROVED
+        elif value_upper == 'PARTIAL_DELIVERED':
+            return OrderStatus.PARTIAL_DELIVERED
         return OrderStatus.PENDING
 
 
@@ -298,11 +301,12 @@ class Order(Base):
     )
     """
     Order status.
-    - Values: "pending", "delivered", "disapproved"
-    - Default: "pending" when first created
-    - "pending": Order placed, awaiting delivery
-    - "delivered": Order delivered to shop
-    - "disapproved": Order disapproved/rejected
+    - Values: "PENDING", "DELIVERED", "DISAPPROVED", "PARTIAL_DELIVERED"
+    - Default: "PENDING" when first created
+    - "PENDING": Order placed, awaiting delivery
+    - "DELIVERED": Order fully delivered to shop
+    - "PARTIAL_DELIVERED": Order partially delivered (some items delivered, some returned)
+    - "DISAPPROVED": Order disapproved/rejected
     """
 
     scheduled_date = Column(Date, nullable=True)

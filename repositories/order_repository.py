@@ -51,13 +51,15 @@ class OrderRepository:
             print(f"[DEBUG OrderRepository.create] Status is enum: {status_enum}, value: {status_enum.value}")
         else:
             # Convert string to enum
-            status_str = str(status).lower()
-            if status_str == 'pending':
+            status_str = str(status).upper()
+            if status_str == 'PENDING':
                 status_enum = OrderStatus.PENDING
-            elif status_str == 'delivered':
+            elif status_str == 'DELIVERED':
                 status_enum = OrderStatus.DELIVERED
-            elif status_str == 'disapproved':
+            elif status_str == 'DISAPPROVED':
                 status_enum = OrderStatus.DISAPPROVED
+            elif status_str == 'PARTIAL_DELIVERED':
+                status_enum = OrderStatus.PARTIAL_DELIVERED
             else:
                 status_enum = OrderStatus.PENDING
             print(f"[DEBUG OrderRepository.create] Converted string {status} to enum: {status_enum}, value: {status_enum.value}")

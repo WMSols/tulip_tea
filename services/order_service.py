@@ -46,7 +46,7 @@ class OrderService:
             from models.order import Order, OrderStatus
             orders = db.query(Order).filter(Order.shop_id == shop_id).all()
             # Note: Status is now an enum, so we need to compare with enum values
-            unpaid_orders = [o for o in orders if o.status not in [OrderStatus.DELIVERED, OrderStatus.DISAPPROVED]]
+            unpaid_orders = [o for o in orders if o.status not in [OrderStatus.DELIVERED, OrderStatus.PARTIAL_DELIVERED, OrderStatus.DISAPPROVED]]
             total_orders = sum(Decimal(str(o.total_amount or 0)) for o in unpaid_orders)
         except Exception as e:
             print(f"ERROR calculating orders total for shop {shop_id}: {e}")
@@ -125,66 +125,72 @@ class OrderService:
             raise ValueError(f"Shop is not approved. Current status: {shop.registration_status}")
         
         # Validate credit limit approval
-        # If shop has ANY credit_limit_request (pending or approved), at least one must be approved
-        # This covers both cases:
-        # 1. Shop with credit_limit = 0 but has pending credit_limit_request
-        # 2. Shop with credit_limit > 0 (should have approved request)
-        from repositories.credit_limit_request_repository import CreditLimitRequestRepository
-        from sqlalchemy import String, cast
-        # Query credit requests and handle enum conversion safely
-        credit_requests = CreditLimitRequestRepository.get_by_shop(db, shop_id)
+        # If shop has a credit_limit > 0, it means there was an approved request
+        # Only check active_requests if credit_limit == 0 (new shop with no approved limit)
+        credit_limit = Decimal(str(shop.credit_limit or 0))
         
-        # Filter out soft-deleted requests and safely convert status
-        active_requests = []
-        for req in credit_requests:
-            if req.deleted_at is None:
-                # Safely get status value to avoid enum conversion issues
-                try:
-                    if hasattr(req.status, 'value'):
-                        status_value = req.status.value
-                    else:
-                        status_value = str(req.status).lower()
-                    # Create a simple object with status as string to avoid enum issues
-                    class SimpleRequest:
-                        def __init__(self, req, status_str):
-                            self.id = req.id
-                            self.shop_id = req.shop_id
-                            self.status = status_str
-                            self.deleted_at = req.deleted_at
-                    active_requests.append(SimpleRequest(req, status_value))
-                except Exception as e:
-                    # If enum conversion fails, use string representation
-                    status_value = str(req.status).lower()
-                    class SimpleRequest:
-                        def __init__(self, req, status_str):
-                            self.id = req.id
-                            self.shop_id = req.shop_id
-                            self.status = status_str
-                            self.deleted_at = req.deleted_at
-                    active_requests.append(SimpleRequest(req, status_value))
-        
-        # If there are any active credit limit requests, check approval status
-        if active_requests:
-            # Check if there's at least one approved request
-            # Status is now a string (from SimpleRequest wrapper)
-            has_approved_request = any(
-                str(req.status).lower() == 'approved'
-                for req in active_requests
-            )
+        if credit_limit == 0:
+            # Shop has no approved credit limit - check if there's an approved request
+            from repositories.credit_limit_request_repository import CreditLimitRequestRepository
+            from sqlalchemy import String, cast
+            # Query credit requests and handle enum conversion safely
+            credit_requests = CreditLimitRequestRepository.get_by_shop(db, shop_id)
             
-            if not has_approved_request:
-                # Check if there are any pending requests
+            # Filter out soft-deleted requests and safely convert status
+            active_requests = []
+            for req in credit_requests:
+                if req.deleted_at is None:
+                    # Safely get status value to avoid enum conversion issues
+                    try:
+                        if hasattr(req.status, 'value'):
+                            status_value = req.status.value
+                        else:
+                            status_value = str(req.status).lower()
+                        # Create a simple object with status as string to avoid enum issues
+                        class SimpleRequest:
+                            def __init__(self, req, status_str):
+                                self.id = req.id
+                                self.shop_id = req.shop_id
+                                self.status = status_str
+                                self.deleted_at = req.deleted_at
+                        active_requests.append(SimpleRequest(req, status_value))
+                    except Exception as e:
+                        # If enum conversion fails, use string representation
+                        status_value = str(req.status).lower()
+                        class SimpleRequest:
+                            def __init__(self, req, status_str):
+                                self.id = req.id
+                                self.shop_id = req.shop_id
+                                self.status = status_str
+                                self.deleted_at = req.deleted_at
+                        active_requests.append(SimpleRequest(req, status_value))
+            
+            # If there are any active credit limit requests, check approval status
+            if active_requests:
+                # Check if there's at least one approved request
                 # Status is now a string (from SimpleRequest wrapper)
-                has_pending_request = any(
-                    str(req.status).lower() == 'pending'
+                has_approved_request = any(
+                    str(req.status).lower() == 'approved'
                     for req in active_requests
                 )
                 
-                if has_pending_request:
-                    raise ValueError("Credit limit request is pending approval. Wait for distributor approval")
-                else:
-                    # No approved request found - could be rejected or never created
-                    raise ValueError("Credit limit request not approved. Contact distributor")
+                if not has_approved_request:
+                    # Check if there are any pending requests
+                    # Status is now a string (from SimpleRequest wrapper)
+                    has_pending_request = any(
+                        str(req.status).lower() == 'pending'
+                        for req in active_requests
+                    )
+                    
+                    if has_pending_request:
+                        raise ValueError("Credit limit request is pending approval. Wait for distributor approval")
+                    else:
+                        # No approved request found - could be rejected or never created
+                        raise ValueError("Credit limit request not approved. Contact distributor")
+            else:
+                # No credit limit requests at all - shop cannot place orders
+                raise ValueError("Shop has no credit limit. Please request credit limit approval first.")
+        # If credit_limit > 0, shop has an approved limit - allow orders (validation will happen later based on amount)
         
         # Validate order booker exists
         order_booker = OrderBookerRepository.get_by_id(db, order_booker_id)
@@ -274,7 +280,7 @@ class OrderService:
             print(f"[DEBUG OrderService.create_order] Using legacy subsidy system: order_resolution_type={order_resolution_type}, subsidy_id={subsidy_id}")
         
         # Validate credit limit using shop's outstanding_balance field
-        credit_limit = Decimal(str(shop.credit_limit or 0))
+        # credit_limit is already defined above (line ~130) - reuse it
         if credit_limit > 0:  # Only check if shop has a credit limit
             # Use shop's outstanding_balance field (maintained automatically)
             current_outstanding = Decimal(str(shop.outstanding_balance or 0))
@@ -485,7 +491,7 @@ class OrderService:
         2. Orders from all active shops in the delivery man's assigned zone
         3. Orders from order bookers in the same zone
         4. Orders that have deliveries for this delivery man (to allow completion of existing work)
-        5. Includes orders with status: pending, delivered, disapproved
+        5. Includes orders with status: pending, delivered, partial_delivered, disapproved
         6. Excludes orders with subsidy_status: pending_approval, rejected (cannot be assigned)
         """
         from models.order import Order
@@ -504,7 +510,7 @@ class OrderService:
         
         # Status filter - used in all queries
         from models.order import OrderStatus
-        status_filter = Order.status.in_([OrderStatus.PENDING, OrderStatus.DELIVERED, OrderStatus.DISAPPROVED])
+        status_filter = Order.status.in_([OrderStatus.PENDING, OrderStatus.DELIVERED, OrderStatus.PARTIAL_DELIVERED, OrderStatus.DISAPPROVED])
         
         # Distributor filter - CRITICAL: Only show orders from this delivery man's distributor
         distributor_filter = Order.distributor_id == distributor_id

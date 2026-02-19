@@ -320,6 +320,7 @@ class DeliveryService:
         # Update quantities
         total_delivered = 0
         total_picked = 0
+        total_returned = 0
         for delivery_item in delivery_items:
             order_item_id = delivery_item.order_item_id
             quantity_delivered = delivery_quantities.get(order_item_id, 0)
@@ -327,6 +328,7 @@ class DeliveryService:
             
             # Get current delivered quantity (for partial deliveries)
             current_quantity_delivered = delivery_item.quantity_delivered or 0
+            current_quantity_returned = delivery_item.quantity_returned or 0
             
             # Validate total delivered doesn't exceed picked
             total_delivered_after = current_quantity_delivered + quantity_delivered
@@ -353,6 +355,10 @@ class DeliveryService:
             
             total_delivered += new_total_delivered  # Use total delivered, not just new delivery
             total_picked += quantity_picked
+            total_returned += current_quantity_returned  # Track already returned items
+        
+        # Calculate remaining items (picked - delivered - returned)
+        total_remaining = total_picked - total_delivered - total_returned
         
         # Determine status
         if total_delivered == total_picked:
@@ -378,6 +384,24 @@ class DeliveryService:
             delivery_images=delivery_images_json,
             status=status
         )
+        
+        # Update order status ONLY if all items are accounted for (delivered + returned = picked)
+        # If there are remaining items, order status stays PENDING until return is completed
+        if delivery.order_id:
+            from models.order import OrderStatus
+            if total_remaining == 0:
+                # All items are accounted for (delivered + returned = picked)
+                if status == 'delivered':
+                    # Fully delivered - update order status to DELIVERED
+                    OrderRepository.update_status(db, delivery.order_id, OrderStatus.DELIVERED.value)
+                elif status == 'partially_delivered':
+                    # Partially delivered - update order status to PARTIAL_DELIVERED
+                    OrderRepository.update_status(db, delivery.order_id, OrderStatus.PARTIAL_DELIVERED.value)
+                # If status is 'returned', order status remains PENDING (nothing delivered yet)
+            else:
+                # There are remaining items that need to be returned
+                # Order status remains PENDING until return is completed
+                print(f"[deliver_to_shop] Remaining items ({total_remaining}) need to be returned. Order status remains PENDING.")
         
         return DeliveryService._format_delivery_data(db, updated_delivery)
     
@@ -405,7 +429,10 @@ class DeliveryService:
         if not delivery:
             raise ValueError("Delivery not found")
         
-        if delivery.status not in ['partially_delivered', 'delivered']:
+        # Allow returns when:
+        # 1. Items have been delivered (partially_delivered or delivered) - return remaining items
+        # 2. Items are in transit or picked up but not yet delivered - return all items
+        if delivery.status not in ['in_transit', 'picked_up', 'partially_delivered', 'delivered']:
             raise ValueError(f"Cannot return. Current status: {delivery.status}")
         
         # Get delivery items
@@ -493,6 +520,37 @@ class DeliveryService:
                 else:
                     print(f"[return_to_warehouse] No net return amount (already returned). Skipping inventory update.")
         
+        # Recalculate totals after return to check if all items are accounted for
+        # Refresh delivery items to get updated quantities
+        delivery_items = DeliveryItemRepository.get_by_delivery(db, delivery_id)
+        total_delivered = 0
+        total_picked = 0
+        total_returned = 0
+        for delivery_item in delivery_items:
+            total_delivered += delivery_item.quantity_delivered or 0
+            total_picked += delivery_item.quantity_picked_up
+            total_returned += delivery_item.quantity_returned or 0
+        
+        # Calculate remaining items
+        total_remaining = total_picked - total_delivered - total_returned
+        
+        # Determine delivery status based on final state
+        if total_delivered == total_picked:
+            # All items delivered, none returned
+            delivery_status = 'delivered'
+        elif total_delivered > 0 and total_remaining == 0:
+            # Some items delivered, all remaining items returned
+            delivery_status = 'partially_delivered'
+        elif total_delivered == 0 and total_returned == total_picked:
+            # All items returned, nothing delivered
+            delivery_status = 'returned'
+        elif total_delivered > 0 and total_remaining > 0:
+            # Some items delivered, but still has remaining items (partial return)
+            delivery_status = 'partially_delivered'
+        else:
+            # Still has remaining items (shouldn't happen after return, but handle it)
+            delivery_status = 'partially_delivered'
+        
         # Update delivery status
         updated_delivery = DeliveryRepository.update_return(
             db=db,
@@ -501,8 +559,23 @@ class DeliveryService:
             return_gps_lat=return_gps_lat,
             return_gps_lng=return_gps_lng,
             return_reason=return_reason,
-            status='returned'
+            status=delivery_status
         )
+        
+        # Update order status if all items are now accounted for (delivered + returned = picked)
+        if delivery.order_id and total_remaining == 0:
+            from models.order import OrderStatus
+            if total_delivered == total_picked:
+                # Fully delivered - update order status to DELIVERED
+                OrderRepository.update_status(db, delivery.order_id, OrderStatus.DELIVERED.value)
+                print(f"[return_to_warehouse] All items delivered. Order status updated to DELIVERED.")
+            elif total_delivered > 0:
+                # Partially delivered - update order status to PARTIAL_DELIVERED
+                OrderRepository.update_status(db, delivery.order_id, OrderStatus.PARTIAL_DELIVERED.value)
+                print(f"[return_to_warehouse] Some items delivered ({total_delivered}/{total_picked}). Order status updated to PARTIAL_DELIVERED.")
+            # If total_delivered == 0, order status remains PENDING (nothing delivered)
+        elif delivery.order_id and total_remaining > 0:
+            print(f"[return_to_warehouse] WARNING: Still have remaining items ({total_remaining}). Order status remains PENDING.")
         
         return DeliveryService._format_delivery_data(db, updated_delivery)
     

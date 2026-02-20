@@ -407,8 +407,9 @@ class CreditLimitRequestRepository:
             return None
         
         # Update only provided fields
+        # Allow None values to be set explicitly (needed for clearing fields like approved_by_distributor)
         for key, value in kwargs.items():
-            if hasattr(request, key) and value is not None:
+            if hasattr(request, key):
                 setattr(request, key, value)
         
         db.commit()

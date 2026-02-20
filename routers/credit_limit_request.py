@@ -11,6 +11,7 @@ API ENDPOINTS:
 - POST /credit-limit-requests/{request_id}/reject - Reject request (Distributor)
 - DELETE /credit-limit-requests/{request_id} - Soft delete DISAPPROVED request (Distributor)
 - GET /credit-limit-requests/order-booker/{order_booker_id}/my-requests - Get all requests by order booker
+- PUT /credit-limit-requests/{request_id}/resubmit - Resubmit disapproved request (Order Booker)
 
 COMMENTED OUT (Distributor endpoints - disabled):
 - GET /credit-limit-requests/pending - List pending requests (Distributor) - Use /all instead
@@ -23,6 +24,7 @@ FLOW:
 5. On approval, shop's credit_limit is updated
 6. Distributor can soft delete DISAPPROVED requests
 7. Order booker can view all their requests (including soft-deleted, excluding APPROVED)
+8. Order booker can resubmit DISAPPROVED requests → Status: "pending" (with updated credit limit and remarks)
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from sqlalchemy.orm import Session
@@ -597,4 +599,145 @@ async def get_my_credit_limit_requests(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error fetching requests: {str(e)}"
+        )
+
+
+@router.put("/{request_id}/resubmit", response_model=CreditLimitRequestResponse, tags=["Credit Limit Requests", "Order Booker APIs"])
+async def resubmit_credit_limit_request(
+    request_id: int,
+    resubmit_data: CreditLimitRequestUpdate,
+    request: Request,
+    order_booker: Dict = Depends(get_current_order_booker),
+    db: Session = Depends(get_db)
+):
+    """
+    Resubmit a disapproved credit limit request (by order booker).
+    
+    API: PUT /credit-limit-requests/{request_id}/resubmit
+    
+    PURPOSE:
+    Allows order bookers to resubmit their disapproved credit limit requests with updated
+    credit limit and remarks. The request status changes back to "pending" so the distributor
+    can review it again.
+    
+    FLOW:
+    1. Order booker views their disapproved request
+    2. Updates requested_credit_limit and/or remarks
+    3. Resubmits the request (status changes back to "pending")
+    4. All approval fields are cleared (approved_by_distributor, approved_at)
+    5. old_credit_limit is updated to current shop credit limit
+    6. updated_at timestamp is set
+    7. is_active is set to True
+    8. Distributor will see it again in pending requests
+    
+    VALIDATION:
+    - Request must exist
+    - Request must belong to the authenticated order booker
+    - Request must be in "disapproved" status
+    - Request must not be soft-deleted
+    - requested_credit_limit must be provided and greater than 0
+    
+    Request Body:
+        {
+            "requested_credit_limit": 80000.00,  // Required: New credit limit value
+            "remarks": "Updated request with better justification"  // Optional: Updated remarks
+        }
+    
+    Response (200):
+        {
+            "id": 1,
+            "shop_id": 1,
+            "shop_name": "Ali General Store",
+            "requested_by_role": "order_booker",
+            "requested_by_id": 1,
+            "requested_by_name": "John Doe",
+            "old_credit_limit": 50000.00,  // Updated to current shop limit
+            "requested_credit_limit": 80000.00,  // Updated value
+            "status": "pending",  // Status changed back to pending
+            "remarks": "Updated request with better justification",
+            "approved_by_distributor": null,  // Cleared
+            "approved_at": null,  // Cleared
+            "created_at": "2026-01-15T10:00:00Z",
+            "updated_at": "2026-01-20T14:30:00Z",  // Updated timestamp
+            "deleted_at": null,
+            "is_active": true
+        }
+    
+    Error Responses:
+    - 400: Invalid input (requested_credit_limit missing or <= 0)
+    - 400: Request not found or not disapproved
+    - 403: Request does not belong to authenticated order booker
+    - 400: Request is soft-deleted
+    """
+    # Validate requested_credit_limit is provided (BEFORE any database operations)
+    if resubmit_data.requested_credit_limit is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="requested_credit_limit is required for resubmission"
+        )
+    
+    # Validate requested_credit_limit is positive (BEFORE any database operations)
+    if resubmit_data.requested_credit_limit <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Requested credit limit must be greater than 0"
+        )
+    
+    try:
+        # All validations happen inside resubmit_request BEFORE any database writes
+        # Transaction is handled inside the service method with proper rollback on error
+        result = CreditLimitRequestService.resubmit_request(
+            db=db,
+            request_id=request_id,
+            order_booker_id=order_booker['user_id'],
+            requested_credit_limit=resubmit_data.requested_credit_limit,
+            remarks=resubmit_data.remarks
+        )
+        
+        # Log credit limit request resubmission (with error handling to prevent transaction rollback)
+        # This happens AFTER successful resubmission, so if logging fails, the resubmission is already complete
+        try:
+            ActivityLogService.log_activity(
+                db=db,
+                user_id=order_booker['user_id'],
+                user_role='order_booker',
+                action_type='UPDATE',
+                entity_type='credit_limit_request',
+                entity_id=request_id,
+                old_values={
+                    'status': 'disapproved',
+                    'requested_credit_limit': str(result.get('old_credit_limit', 0))
+                },
+                new_values={
+                    'shop_id': result.get('shop_id'),
+                    'shop_name': result.get('shop_name'),
+                    'old_credit_limit': str(result.get('old_credit_limit', 0)),
+                    'requested_credit_limit': str(result.get('requested_credit_limit', 0)),
+                    'status': result.get('status')
+                },
+                changes_summary=f"Credit limit request resubmitted: {result.get('shop_name')} - {result.get('old_credit_limit', 0)} → {result.get('requested_credit_limit', 0)}",
+                reason=resubmit_data.remarks,
+                request=request
+            )
+        except Exception as log_error:
+            # Logging failures should not break the operation
+            # Resubmission already succeeded, so we just log the error
+            print(f"⚠️ Failed to log credit limit request resubmission (non-critical): {log_error}")
+            import traceback
+            traceback.print_exc()
+        
+        return result
+    except ValueError as e:
+        # Service method raises ValueError for validation errors
+        # Transaction is already rolled back in service method if needed
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        # Catch any other unexpected errors and ensure rollback
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error resubmitting credit limit request: {str(e)}"
         )

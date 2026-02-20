@@ -211,6 +211,15 @@ class CreditLimitRequest(Base):
     - Used for sorting and filtering requests
     """
 
+    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=func.now())
+    """
+    Timestamp when request was last updated.
+    - Nullable: Set when request is updated
+    - Timezone-aware (stores UTC)
+    - Automatically updated on UPDATE operations
+    - Used for tracking when request was last modified
+    """
+
     # Active Status
     is_active = Column(Boolean, nullable=False, default=True, server_default='true')
     """

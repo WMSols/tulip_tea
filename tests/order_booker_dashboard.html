@@ -1408,7 +1408,9 @@
                 listDiv.innerHTML = data.map(req => {
                     const statusColor = req.status === 'approved' ? 'green' : req.status === 'disapproved' ? 'red' : 'orange';
                     const isDeleted = req.deleted_at !== null && req.deleted_at !== undefined;
+                    const isDisapproved = req.status === 'disapproved' && !isDeleted;
                     const deletedBadge = isDeleted ? '<span style="background: #6c757d; color: white; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-left: 10px;">DELETED</span>' : '';
+                    const resubmitButton = isDisapproved ? `<button class="btn btn-primary" onclick="openResubmitCreditLimitModal(${req.id}, '${(req.shop_name || '').replace(/'/g, "\\'")}', ${req.requested_credit_limit || 0}, '${(req.remarks || '').replace(/'/g, "\\'")}')" style="margin-top: 10px; padding: 8px 15px; font-size: 14px;">🔄 Resubmit Request</button>` : '';
                     return `
                         <div class="list-item" style="${isDeleted ? 'opacity: 0.7; background: #f8f9fa;' : ''}">
                             <div class="list-item-info">
@@ -1420,6 +1422,7 @@
                                 ${req.approved_at ? `Reviewed: ${new Date(req.approved_at).toLocaleString()}<br>` : ''}
                                 ${isDeleted ? `<span style="color: #6c757d; font-size: 12px;">Deleted: ${new Date(req.deleted_at).toLocaleString()}</span><br>` : ''}
                                 <small>Request ID: ${req.id} | Created: ${new Date(req.created_at).toLocaleString()}</small>
+                                ${resubmitButton}
                             </div>
                         </div>
                     `;
@@ -3071,11 +3074,99 @@
             }
         }
 
+        // Open Resubmit Credit Limit Request Modal
+        function openResubmitCreditLimitModal(requestId, shopName, previousRequestedLimit, previousRemarks) {
+            const modal = document.getElementById('resubmitCreditLimitModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('active');
+            
+            document.getElementById('resubmitRequestId').value = requestId;
+            document.getElementById('resubmitShopName').textContent = shopName || 'N/A';
+            document.getElementById('resubmitRequestedCreditLimit').value = previousRequestedLimit || '';
+            document.getElementById('resubmitRemarks').value = previousRemarks || '';
+        }
+
+        // Close Resubmit Credit Limit Request Modal
+        function closeResubmitCreditLimitModal() {
+            const modal = document.getElementById('resubmitCreditLimitModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('active');
+        }
+
+        // Resubmit Credit Limit Request
+        async function resubmitCreditLimitRequest(event) {
+            event.preventDefault();
+            const resultDiv = document.getElementById('resubmitCreditLimitResult');
+            const requestId = document.getElementById('resubmitRequestId').value;
+            
+            if (!currentUser || !currentUser.id) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Please login first';
+                return;
+            }
+
+            const requestedCreditLimit = parseFloat(document.getElementById('resubmitRequestedCreditLimit').value);
+            const remarks = document.getElementById('resubmitRemarks').value;
+
+            if (!requestedCreditLimit || requestedCreditLimit <= 0) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Please enter a valid credit limit (greater than 0)';
+                return;
+            }
+
+            const endpoint = `${API_BASE}/credit-limit-requests/${requestId}/resubmit`;
+            showApiCall('PUT', endpoint, 'Resubmit Credit Limit Request', 'loading');
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify({
+                        requested_credit_limit: requestedCreditLimit,
+                        remarks: remarks || null
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    showApiCall('PUT', endpoint, 'Resubmit Credit Limit Request', 'error');
+                    throw new Error(data.detail || 'Failed to resubmit credit limit request');
+                }
+
+                resultDiv.className = 'result success';
+                resultDiv.innerHTML = `
+                    <strong>Credit Limit Request Resubmitted Successfully!</strong><br>
+                    Request ID: ${data.id}<br>
+                    Shop: ${data.shop_name || 'N/A'}<br>
+                    Requested Credit Limit: Rs. ${requestedCreditLimit.toLocaleString()}<br>
+                    Status: <span style="color: orange; font-weight: bold;">${data.status || 'pending'}</span><br>
+                    <small>The request has been resubmitted and is now pending distributor approval.</small>
+                `;
+                showApiCall('PUT', endpoint, 'Resubmit Credit Limit Request', 'success');
+
+                setTimeout(() => {
+                    closeResubmitCreditLimitModal();
+                    loadMyCreditLimitRequests();
+                }, 2000);
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
         // Close modal when clicking outside
         window.onclick = function(event) {
-            const modal = document.getElementById('editRejectedShopModal');
-            if (event.target === modal) {
+            const editModal = document.getElementById('editRejectedShopModal');
+            const resubmitModal = document.getElementById('resubmitCreditLimitModal');
+            if (event.target === editModal) {
                 closeEditRejectedShopModal();
+            }
+            if (event.target === resubmitModal) {
+                closeResubmitCreditLimitModal();
             }
         }
 
@@ -3403,6 +3494,51 @@
                 <button type="button" class="btn" onclick="closeEditRejectedShopModal()" style="background: #6c757d; color: white; margin-left: 10px;">Cancel</button>
             </form>
             <div id="editRejectedShopResult" class="result"></div>
+        </div>
+    </div>
+
+    <!-- Resubmit Credit Limit Request Modal -->
+    <div id="resubmitCreditLimitModal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-button" onclick="closeResubmitCreditLimitModal()">&times;</span>
+            <h2>🔄 Resubmit Credit Limit Request</h2>
+            <p style="color: #666; margin-bottom: 20px;">This credit limit request was disapproved. Please update the credit limit and/or remarks, then resubmit for distributor approval.</p>
+            <form id="resubmitCreditLimitForm" onsubmit="resubmitCreditLimitRequest(event)">
+                <input type="hidden" id="resubmitRequestId">
+                
+                <div class="info-card" style="margin-bottom: 20px; background: #e8f4f8; border-left: 4px solid #3498db;">
+                    <div class="info-row">
+                        <span class="info-label">Shop:</span>
+                        <span class="info-value" id="resubmitShopName" style="font-weight: bold; color: #2c3e50;"></span>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label>Requested Credit Limit (Rs.) *</label>
+                    <input type="number" id="resubmitRequestedCreditLimit" step="0.01" min="0.01" required placeholder="Enter new credit limit">
+                    <small style="color: #666; display: block; margin-top: 5px;">Enter the credit limit amount you want to request</small>
+                </div>
+                
+                <div class="form-group">
+                    <label>Remarks (Optional)</label>
+                    <textarea id="resubmitRemarks" rows="4" placeholder="Reason for credit limit change or additional notes"></textarea>
+                    <small style="color: #666; display: block; margin-top: 5px;">You can update the remarks to provide better justification for the request</small>
+                </div>
+                
+                <div style="background: #fff3cd; padding: 15px; border-radius: 5px; border-left: 4px solid #ffc107; margin-bottom: 20px;">
+                    <strong style="color: #856404;">ℹ️ What happens when you resubmit:</strong>
+                    <ul style="margin: 10px 0; padding-left: 20px; color: #856404;">
+                        <li>The request status will change back to "pending"</li>
+                        <li>The distributor will see it again in their pending requests</li>
+                        <li>You can update both the credit limit amount and remarks</li>
+                        <li>The current shop credit limit will be used as the "old credit limit"</li>
+                    </ul>
+                </div>
+                
+                <button type="submit" class="btn btn-primary">🔄 Resubmit Request</button>
+                <button type="button" class="btn" onclick="closeResubmitCreditLimitModal()" style="background: #6c757d; color: white; margin-left: 10px;">Cancel</button>
+            </form>
+            <div id="resubmitCreditLimitResult" class="result"></div>
         </div>
     </div>
 </body>

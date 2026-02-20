@@ -21,7 +21,7 @@ from models.delivery_man import DeliveryMan
 from models.distributor import Distributor
 from decimal import Decimal
 from typing import Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class CreditLimitRequestService:
@@ -762,4 +762,145 @@ class CreditLimitRequestService:
             })
         
         return result
+    
+    @staticmethod
+    def resubmit_request(db: Session, request_id: int, order_booker_id: int,
+                        requested_credit_limit: float, remarks: str = None) -> Dict:
+        """
+        Resubmit a disapproved credit limit request (by order booker).
+        
+        FLOW:
+        1. Validates request exists and is disapproved (BEFORE any database writes)
+        2. Validates request belongs to the order booker (BEFORE any database writes)
+        3. Gets current shop credit limit (BEFORE any database writes)
+        4. Fetches all required data for response (BEFORE any database writes)
+        5. Updates requested_credit_limit and remarks
+        6. Sets status back to "pending"
+        7. Clears approved_by_distributor and approved_at (resets approval fields)
+        8. Ensures is_active = True
+        9. Updates updated_at timestamp
+        10. Commits transaction only if all operations succeed
+        11. Returns updated request with status="pending"
+        
+        Args:
+            db: Database session
+            request_id: Request ID to resubmit
+            order_booker_id: Order booker ID who is resubmitting
+            requested_credit_limit: New credit limit value (required)
+            remarks: Updated remarks (optional)
+        
+        Returns:
+            Dict: Resubmitted request data with status="pending"
+        
+        Raises:
+            ValueError: If validation fails (transaction will be rolled back)
+        """
+        from models.credit_limit_request import CreditLimitRequestStatus
+        from decimal import Decimal
+        
+        # ========== PHASE 1: ALL VALIDATIONS (NO DATABASE WRITES) ==========
+        # Validate requested_credit_limit is positive
+        if requested_credit_limit is None or requested_credit_limit <= 0:
+            raise ValueError("Requested credit limit must be greater than 0")
+        
+        # Get request (read-only, no writes)
+        request = CreditLimitRequestRepository.get_by_id(db, request_id)
+        if not request:
+            raise ValueError("Credit limit request not found")
+        
+        # Validate request belongs to this order booker
+        if request.requested_by_role != "order_booker" or request.requested_by_id != order_booker_id:
+            raise ValueError("You can only resubmit your own credit limit requests")
+        
+        # Validate request is disapproved (safely handle enum conversion)
+        status_str = str(request.status).lower() if hasattr(request.status, 'value') else str(request.status).lower()
+        if status_str != 'disapproved':
+            raise ValueError("Can only resubmit disapproved requests")
+        
+        # Check if request is soft-deleted
+        if request.deleted_at is not None:
+            raise ValueError("Cannot resubmit a soft-deleted request")
+        
+        # Get current shop credit limit (read-only, no writes)
+        shop = ShopRepository.get_by_id(db, request.shop_id)
+        if not shop:
+            raise ValueError("Shop not found")
+        
+        current_credit_limit = float(shop.credit_limit) if shop.credit_limit else 0
+        
+        # ========== PHASE 2: FETCH ALL DATA NEEDED FOR RESPONSE (BEFORE WRITES) ==========
+        # Fetch shop name (read-only, no writes)
+        shop_name = shop.name if shop else None
+        
+        # Fetch requester name (read-only, no writes)
+        requester = OrderBookerRepository.get_by_id(db, request.requested_by_id)
+        requested_by_name = requester.name if requester else None
+        
+        # ========== PHASE 3: PREPARE UPDATE DATA ==========
+        # Prepare update data - update all essential fields for pending status
+        update_data = {
+            "requested_credit_limit": Decimal(str(requested_credit_limit)),
+            "old_credit_limit": Decimal(str(current_credit_limit)),  # Update to current shop limit
+            "status": CreditLimitRequestStatus.PENDING,  # Set back to pending
+            "approved_by_distributor": None,  # Clear previous approver
+            "approved_at": None,  # Clear approval timestamp
+            "is_active": True,  # Ensure it's active
+            "updated_at": datetime.now(timezone.utc)  # Update timestamp (timezone-aware)
+        }
+        
+        # Update remarks if provided
+        if remarks is not None:
+            update_data["remarks"] = remarks
+        
+        # ========== PHASE 4: DATABASE UPDATE WITH TRANSACTION HANDLING ==========
+        # Note: Repository.update() commits immediately, so we ensure all validations
+        # and data fetching happen BEFORE the update to prevent partial commits
+        try:
+            # Update request (this will commit immediately in repository)
+            # Since all validations and data fetching happened before this point,
+            # if update succeeds, we're safe. If it fails, we raise an error.
+            updated = CreditLimitRequestRepository.update(db, request_id, **update_data)
+            if not updated:
+                raise ValueError("Failed to resubmit request")
+            
+            # Verify update was successful by checking critical fields
+            db.refresh(updated)
+            updated_status_str = str(updated.status).lower() if hasattr(updated.status, 'value') else str(updated.status).lower()
+            if updated_status_str != 'pending':
+                # Status didn't update correctly - this should not happen, but we check anyway
+                raise ValueError(f"Failed to update request status. Expected 'pending', got '{updated_status_str}'")
+            
+            # Verify critical fields were updated correctly
+            if updated.requested_credit_limit != Decimal(str(requested_credit_limit)):
+                raise ValueError("Failed to update requested credit limit")
+            
+            # ========== PHASE 5: BUILD RESPONSE (all data already fetched) ==========
+            # All data needed for response was fetched BEFORE the database update
+            # This ensures no errors occur after the commit
+            return {
+                "id": updated.id,
+                "shop_id": updated.shop_id,
+                "shop_name": shop_name,  # Already fetched before update
+                "requested_by_role": updated.requested_by_role,
+                "requested_by_id": updated.requested_by_id,
+                "requested_by_name": requested_by_name,  # Already fetched before update
+                "old_credit_limit": float(updated.old_credit_limit) if updated.old_credit_limit else 0,
+                "requested_credit_limit": float(updated.requested_credit_limit),
+                "status": updated.status.value if hasattr(updated.status, 'value') else str(updated.status),
+                "remarks": updated.remarks,
+                "approved_by_distributor": updated.approved_by_distributor,
+                "approved_at": updated.approved_at.isoformat() if updated.approved_at else None,
+                "created_at": updated.created_at.isoformat() if updated.created_at else None,
+                "updated_at": getattr(updated, 'updated_at', None).isoformat() if getattr(updated, 'updated_at', None) else None,
+                "deleted_at": updated.deleted_at.isoformat() if updated.deleted_at else None,
+                "is_active": updated.is_active if hasattr(updated, 'is_active') else True
+            }
+        except ValueError:
+            # Re-raise ValueError as-is (validation errors)
+            raise
+        except Exception as e:
+            # Catch any unexpected errors
+            # Note: Repository.update() already committed, so we can't rollback here
+            # But we've ensured all validations happened before the update
+            raise ValueError(f"Error during resubmission: {str(e)}")
 

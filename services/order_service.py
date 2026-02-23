@@ -314,38 +314,48 @@ class OrderService:
             # This applies to ALL order types: normal, subsidized, payment_before_delivery
             # Formula: current_outstanding + final_order_amount <= credit_limit
             # Allow equality: if order amount equals available credit, it's allowed
-            new_outstanding_after_order = current_outstanding + final_order_amount
-            
-            if new_outstanding_after_order > credit_limit:
-                # Order exceeds credit limit - REJECT with clear error message
-                if subsidy_applied:
-                    subsidy_pct_str = f"{subsidy_percentage}%" if subsidy_percentage else "applied"
-                    raise ValueError(
-                        f"Order amount exceeds credit limit. "
-                        f"Original: Rs. {calculated_total_amount}, After {subsidy_pct_str} subsidy: Rs. {subsidized_amount}. "
-                        f"Credit limit: Rs. {credit_limit}, Current outstanding: Rs. {current_outstanding}, "
-                        f"Available credit: Rs. {available_credit}. "
-                        f"Maximum order amount allowed: Rs. {available_credit}. "
-                        f"Please reduce order quantity or items to stay within credit limit."
-                    )
-                else:
-                    raise ValueError(
-                        f"Order amount (Rs. {final_order_amount}) exceeds credit limit (Rs. {credit_limit}). "
-                        f"Current outstanding: Rs. {current_outstanding}, Available credit: Rs. {available_credit}. "
-                        f"Maximum order amount allowed: Rs. {available_credit}. "
-                        f"Please reduce order quantity or items, apply subsidy, or request credit limit increase."
-                    )
+            # Step 3: Determine available credit depending on order type
+        if order_resolution_type == "payment_before_delivery":  # POD
+            available_credit_for_order = credit_limit
+        else:
+            available_credit_for_order = max(0, credit_limit - current_outstanding)
+
+        # Step 4: Check order amount against allowed credit
+        if final_order_amount > available_credit_for_order:
+            if subsidy_applied:
+                subsidy_pct_str = f"{subsidy_percentage}%" if subsidy_percentage else "applied"
+                raise ValueError(
+                    f"Order amount exceeds credit limit. "
+                    f"Original: Rs. {calculated_total_amount}, After {subsidy_pct_str} subsidy: Rs. {subsidized_amount}. "
+                    f"Credit limit: Rs. {credit_limit}, Current outstanding: Rs. {current_outstanding}, "
+                    f"Available credit: Rs. {available_credit_for_order}. "
+                    f"Maximum order amount allowed: Rs. {available_credit_for_order}. "
+                    f"Please reduce order quantity or items to stay within credit limit."
+                )
+            else:
+                raise ValueError(
+                    f"Order amount (Rs. {final_order_amount}) exceeds credit limit (Rs. {credit_limit}). "
+                    f"Current outstanding: Rs. {current_outstanding}, Available credit: Rs. {available_credit_for_order}. "
+                    f"Maximum order amount allowed: Rs. {available_credit_for_order}. "
+                    f"Please reduce order quantity or items, apply subsidy, or request credit limit increase."
+                )
+
+        # Step 5: Update outstanding only for normal orders
+        # if order_resolution_type != "payment_before_delivery":
+        #     new_outstanding_after_order = current_outstanding + final_order_amount
+        # else:
+        #     new_outstanding_after_order = current_outstanding  # POD: do not add yet
             
             # Step 4: Credit is sufficient - validate and set resolution type
-            credit_sufficient = (new_outstanding_after_order <= credit_limit)
+            # credit_sufficient = (new_outstanding_after_order <= credit_limit)
             
-            if not credit_sufficient:
-                # This should not happen due to check above, but keep for safety
-                raise ValueError(
-                    f"Order amount (Rs. {final_order_amount}) exceeds available credit (Rs. {available_credit}). "
-                    f"Credit limit: Rs. {credit_limit}, Outstanding: Rs. {current_outstanding}. "
-                    f"Maximum order amount: Rs. {available_credit}"
-                )
+            # if not credit_sufficient:
+            #     # This should not happen due to check above, but keep for safety
+            #     raise ValueError(
+            #         f"Order amount (Rs. {final_order_amount}) exceeds available credit (Rs. {available_credit}). "
+            #         f"Credit limit: Rs. {credit_limit}, Outstanding: Rs. {current_outstanding}. "
+            #         f"Maximum order amount: Rs. {available_credit}"
+            #     )
             
             # Credit is sufficient - set final amount and resolution type
             final_total_amount_decimal = final_order_amount

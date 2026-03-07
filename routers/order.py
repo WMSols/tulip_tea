@@ -12,7 +12,7 @@ API ENDPOINTS:
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
-from typing import List, Dict
+from typing import List, Dict, Optional
 from config.database import get_db
 from models.schemas import OrderCreate, OrderResponse, OrderDeliveryUpdate, OrderPaymentCollection
 from services.order_service import OrderService
@@ -193,19 +193,31 @@ async def list_orders_by_order_booker(
 @router.get("/delivery-man/{delivery_man_id}", response_model=List[OrderResponse], tags=["Orders", "Delivery Man APIs"])
 async def list_orders_by_delivery_man(
     delivery_man_id: int,
+    include_delivery: bool = False,
+    pending: Optional[str] = Query(None, description="Return only pending/active orders for Orders tab (e.g. ?pending or ?pending=true)"),
+    deliveries: Optional[str] = Query(None, description="Return only completed deliveries for Deliveries tab (e.g. ?deliveries or ?deliveries=true)"),
     delivery_man: Dict = Depends(get_current_delivery_man),
     db: Session = Depends(get_db)
 ):
-    """List all orders assigned to a delivery man."""
+    """List orders for a delivery man. Use ?pending for Orders tab (active only, with delivery). Use ?deliveries for Deliveries tab (completed only, with full delivery). Otherwise use include_delivery=true to embed delivery summary."""
     # Verify delivery man can only view their own orders
     if delivery_man['user_id'] != delivery_man_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only view orders for your own account"
         )
-    
+    pending_only = pending is not None
+    deliveries_only = deliveries is not None
+    if pending_only and deliveries_only:
+        pending_only = True
+        deliveries_only = False
     try:
-        orders = OrderService.get_orders_by_delivery_man(db, delivery_man_id)
+        orders = OrderService.get_orders_by_delivery_man(
+            db, delivery_man_id,
+            include_delivery=include_delivery or pending_only or deliveries_only,
+            pending_only=pending_only,
+            deliveries_only=deliveries_only
+        )
         return orders
     except Exception as e:
         raise HTTPException(

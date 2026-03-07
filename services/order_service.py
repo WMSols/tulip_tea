@@ -487,9 +487,20 @@ class OrderService:
         return OrderService._format_orders(db, orders)
     
     @staticmethod
-    def get_orders_by_delivery_man(db: Session, delivery_man_id: int) -> List[Dict]:
+    def get_orders_by_delivery_man(db: Session, delivery_man_id: int, include_delivery: bool = False,
+                                   pending_only: bool = False, deliveries_only: bool = False) -> List[Dict]:
         """
         Get all orders for a delivery man.
+
+        When include_delivery=True, each order includes a "delivery" key with minimal delivery
+        summary (id, status, timestamps, GPS) so the frontend can avoid N+1 calls to GET /deliveries/order/{id}.
+
+        When pending_only=True: returns only orders for the "Orders" tab (active: PENDING/PARTIAL_DELIVERED
+        and delivery not completed). Each order includes delivery summary. No other flows affected.
+
+        When deliveries_only=True: returns only orders for the "Deliveries" tab (completed: DELIVERED,
+        DISAPPROVED, PARTIAL_DELIVERED, or delivery status delivered/returned/failed). Each order includes
+        full delivery (timeline, delivery_items). No other flows affected.
         
         OPTIMIZED: Uses UNION approach to allow efficient index usage.
         Each subquery can use its specific index, avoiding sequential scans.
@@ -725,7 +736,51 @@ class OrderService:
             except Exception as e:
                 print(f"[get_orders_by_delivery_man] Error in debug logging: {e}")
         
-        return OrderService._format_orders(db, orders)
+        delivery_by_order_id = None
+        delivery_full_dict_by_order_id = None
+        if orders:
+            from repositories.delivery_repository import DeliveryRepository
+            from services.delivery_service import DeliveryService
+            order_ids_list = [o.id for o in orders]
+            delivery_map = DeliveryRepository.get_by_order_ids(db, order_ids_list)
+            if pending_only:
+                # Orders tab: PENDING or PARTIAL_DELIVERED, and delivery not completed
+                def _order_status_val(o):
+                    return (o.status.value if hasattr(o.status, 'value') else str(o.status) or 'PENDING').upper()
+                filtered = []
+                for o in orders:
+                    ost = _order_status_val(o)
+                    if ost not in ('PENDING', 'PARTIAL_DELIVERED'):
+                        continue
+                    d = delivery_map.get(o.id)
+                    if d and getattr(d, 'status', None) in ('delivered', 'returned', 'failed'):
+                        continue
+                    filtered.append(o)
+                orders = filtered
+                delivery_by_order_id = {oid: delivery_map[oid] for oid in [o.id for o in orders] if oid in delivery_map}
+                return OrderService._format_orders(db, orders, delivery_by_order_id=delivery_by_order_id)
+            if deliveries_only:
+                # Deliveries tab: order completed or delivery completed
+                def _order_status_val(o):
+                    return (o.status.value if hasattr(o.status, 'value') else str(o.status) or 'PENDING').upper()
+                filtered = []
+                for o in orders:
+                    ost = _order_status_val(o)
+                    d = delivery_map.get(o.id)
+                    if ost in ('DELIVERED', 'DISAPPROVED', 'PARTIAL_DELIVERED'):
+                        filtered.append(o)
+                    elif d and getattr(d, 'status', None) in ('delivered', 'returned', 'failed'):
+                        filtered.append(o)
+                orders = filtered
+                if not orders:
+                    return []
+                delivery_orms = [delivery_map[o.id] for o in orders if o.id in delivery_map]
+                full_deliveries = DeliveryService._format_deliveries_batch(db, delivery_orms) if delivery_orms else []
+                delivery_full_dict_by_order_id = {d['order_id']: d for d in full_deliveries if d.get('order_id')}
+                return OrderService._format_orders(db, orders, delivery_full_dict_by_order_id=delivery_full_dict_by_order_id)
+            if include_delivery:
+                delivery_by_order_id = delivery_map
+        return OrderService._format_orders(db, orders, delivery_by_order_id=delivery_by_order_id)
     
     @staticmethod
     def get_orders_by_visit(db: Session, visit_id: int) -> List[Dict]:
@@ -734,8 +789,11 @@ class OrderService:
         return OrderService._format_orders(db, orders)
     
     @staticmethod
-    def _format_orders(db: Session, orders: List) -> List[Dict]:
-        """Format orders with related data. Optimized with batch loading to avoid N+1 queries."""
+    def _format_orders(db: Session, orders: List, delivery_by_order_id: Optional[Dict] = None,
+                       delivery_full_dict_by_order_id: Optional[Dict] = None) -> List[Dict]:
+        """Format orders with related data. Optimized with batch loading to avoid N+1 queries.
+        If delivery_by_order_id is provided (order_id -> Delivery ORM), each order gets a "delivery" key (summary or None).
+        If delivery_full_dict_by_order_id is provided (order_id -> full delivery dict), that is used instead for "delivery"."""
         if not orders:
             return []
         
@@ -884,6 +942,12 @@ class OrderService:
                 "payment_collected_amount": float(order.payment_collected_amount) if hasattr(order, 'payment_collected_amount') and order.payment_collected_amount else None,
                 "payment_collected_at": safe_isoformat(getattr(order, 'payment_collected_at', None))
             })
+            if delivery_full_dict_by_order_id is not None:
+                result[-1]["delivery"] = delivery_full_dict_by_order_id.get(order.id)
+            elif delivery_by_order_id is not None:
+                from services.delivery_service import DeliveryService
+                delivery = delivery_by_order_id.get(order.id)
+                result[-1]["delivery"] = DeliveryService.format_delivery_summary(delivery) if delivery else None
             
             # Debug: Log what we're returning
             print(f"[DEBUG _format_orders] Order {order.id}: Returning order_resolution_type = {result[-1]['order_resolution_type']}")

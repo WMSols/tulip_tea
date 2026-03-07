@@ -130,56 +130,77 @@ async def get_delivery_man_warehouses(
     current_user: Dict = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get all warehouses assigned to a delivery man with inventory details. Requires authentication."""
+    """Get all warehouses assigned to a delivery man with inventory details. Uses batch loading to avoid N+1."""
     try:
         from repositories.delivery_man_warehouse_repository import DeliveryManWarehouseRepository
-        from repositories.warehouse_repository import WarehouseRepository
-        from repositories.zone_repository import ZoneRepository
-        from repositories.inventory_repository import InventoryRepository
-        from repositories.product_repository import ProductRepository
-        
+        from models.warehouse import Warehouse
+        from models.zone import Zone
+        from models.inventory import Inventory
+        from models.product import Product
+
         assignments = DeliveryManWarehouseRepository.get_by_delivery_man(db, delivery_man_id)
+        if not assignments:
+            return []
+
+        warehouse_ids = list({a.warehouse_id for a in assignments})
+        warehouses = db.query(Warehouse).filter(Warehouse.id.in_(warehouse_ids)).all()
+        warehouses_map = {w.id: w for w in warehouses}
+
+        zone_ids = list({w.zone_id for w in warehouses_map.values() if w.zone_id})
+        zones_map = {}
+        if zone_ids:
+            zones = db.query(Zone).filter(Zone.id.in_(zone_ids)).all()
+            zones_map = {z.id: z for z in zones}
+
+        all_inventory = db.query(Inventory).filter(
+            Inventory.warehouse_id.in_(warehouse_ids),
+            Inventory.deleted_at.is_(None)
+        ).all()
+        inventory_by_warehouse = {}
+        for inv in all_inventory:
+            if inv.warehouse_id not in inventory_by_warehouse:
+                inventory_by_warehouse[inv.warehouse_id] = []
+            inventory_by_warehouse[inv.warehouse_id].append(inv)
+
+        product_ids = list({inv.product_id for inv in all_inventory if inv.product_id})
+        products_map = {}
+        if product_ids:
+            products = db.query(Product).filter(Product.id.in_(product_ids)).all()
+            products_map = {p.id: p for p in products}
+
         result = []
-        
         for assignment in assignments:
-            warehouse = WarehouseRepository.get_by_id(db, assignment.warehouse_id)
-            if warehouse:
-                zone = ZoneRepository.get_by_id(db, warehouse.zone_id) if warehouse.zone_id else None
-                
-                # Get inventory for this warehouse
-                inventory_items = InventoryRepository.get_by_warehouse(db, warehouse.id)
-                inventory_list = []
-                
-                for inv in inventory_items:
-                    product = None
-                    if inv.product_id:
-                        product = ProductRepository.get_by_id(db, inv.product_id)
-                    
-                    inventory_list.append({
-                        "id": inv.id,
-                        "product_id": inv.product_id,
-                        "product_name": product.name if product else inv.item_name,
-                        "product_code": product.code if product else inv.item_code,
-                        "item_name": inv.item_name,
-                        "item_code": inv.item_code,
-                        "unit": inv.unit,
-                        "quantity": inv.quantity,
-                        "available": inv.quantity > 0
-                    })
-                
-                result.append({
-                    "id": warehouse.id,
-                    "name": warehouse.name,
-                    "zone_id": warehouse.zone_id,
-                    "zone_name": zone.name if zone else None,
-                    "address": warehouse.address,
-                    "is_active": warehouse.is_active,
-                    "created_at": warehouse.created_at.isoformat() if warehouse.created_at else None,
-                    "inventory": inventory_list,
-                    "inventory_count": len(inventory_list),
-                    "total_items": sum(inv.quantity for inv in inventory_items)
+            warehouse = warehouses_map.get(assignment.warehouse_id)
+            if not warehouse:
+                continue
+            zone = zones_map.get(warehouse.zone_id) if warehouse.zone_id else None
+            inventory_items = inventory_by_warehouse.get(warehouse.id, [])
+            inventory_list = []
+            for inv in inventory_items:
+                product = products_map.get(inv.product_id) if inv.product_id else None
+                inventory_list.append({
+                    "id": inv.id,
+                    "product_id": inv.product_id,
+                    "product_name": product.name if product else inv.item_name,
+                    "product_code": product.code if product else inv.item_code,
+                    "item_name": inv.item_name,
+                    "item_code": inv.item_code,
+                    "unit": inv.unit,
+                    "quantity": inv.quantity,
+                    "available": inv.quantity > 0
                 })
-        
+            result.append({
+                "id": warehouse.id,
+                "name": warehouse.name,
+                "zone_id": warehouse.zone_id,
+                "zone_name": zone.name if zone else None,
+                "address": warehouse.address,
+                "is_active": warehouse.is_active,
+                "created_at": warehouse.created_at.isoformat() if warehouse.created_at else None,
+                "inventory": inventory_list,
+                "inventory_count": len(inventory_list),
+                "total_items": sum(inv.quantity for inv in inventory_items)
+            })
         return result
     except Exception as e:
         raise HTTPException(

@@ -505,6 +505,8 @@ class OrderResponse(BaseModel):
     payment_collected_before_delivery: Optional[bool] = False
     payment_collected_amount: Optional[float] = None
     payment_collected_at: Optional[str] = None
+    # Optional delivery summary when include_delivery=true (avoids N+1 on delivery man dashboard)
+    delivery: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True

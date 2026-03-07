@@ -5,7 +5,7 @@ Data access layer for Delivery database operations.
 """
 from sqlalchemy.orm import Session
 from models.delivery import Delivery
-from typing import Optional, List
+from typing import Optional, List, Dict
 from decimal import Decimal
 from datetime import datetime
 
@@ -43,6 +43,21 @@ class DeliveryRepository:
         if not include_deleted:
             query = query.filter(Delivery.deleted_at.is_(None))
         return query.order_by(Delivery.created_at.desc()).first()
+
+    @staticmethod
+    def get_by_order_ids(db: Session, order_ids: List[int], include_deleted: bool = False) -> Dict[int, Delivery]:
+        """Get deliveries for multiple order IDs in one query. Returns map order_id -> Delivery (latest per order)."""
+        if not order_ids:
+            return {}
+        query = db.query(Delivery).filter(Delivery.order_id.in_(order_ids))
+        if not include_deleted:
+            query = query.filter(Delivery.deleted_at.is_(None))
+        deliveries = query.order_by(Delivery.created_at.desc()).all()
+        by_order = {}
+        for d in deliveries:
+            if d.order_id and d.order_id not in by_order:
+                by_order[d.order_id] = d
+        return by_order
     
     @staticmethod
     def get_by_delivery_man(db: Session, delivery_man_id: int,

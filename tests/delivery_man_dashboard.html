@@ -612,6 +612,7 @@
 
     <script>
         const API_BASE = 'http://localhost:8000';
+        // const API_BASE = 'https://tulip-tea.onrender.com';
         let currentToken = null;
         let currentUser = null;
         let currentDeliveryManId = null;
@@ -777,7 +778,7 @@
             }
 
             try {
-                const response = await fetch(`${API_BASE}/orders/delivery-man/${currentDeliveryManId}`, {
+                const response = await fetch(`${API_BASE}/orders/delivery-man/${currentDeliveryManId}?pending=true`, {
                     headers: {
                         'Authorization': `Bearer ${currentToken}`
                     }
@@ -789,63 +790,13 @@
                     throw new Error(data.detail || 'Failed to load orders');
                 }
 
-                // Debug: Log all orders received
-                console.log(`[loadMyOrders] Total orders received: ${data.length}`);
-                console.log(`[loadMyOrders] Orders by status:`, {
-                    pending: data.filter(o => (o.status || '').toUpperCase() === 'PENDING').length,
-                    confirmed: data.filter(o => (o.status || '').toUpperCase() === 'CONFIRMED').length,
-                    delivered: data.filter(o => (o.status || '').toUpperCase() === 'DELIVERED').length,
-                    cancelled: data.filter(o => (o.status || '').toUpperCase() === 'CANCELLED').length
-                });
-
-                // Filter to only show orders that are NOT completed (pending, confirmed, or in delivery process)
-                // Completed orders (delivered, returned, cancelled) will appear in Deliveries tab
-                // Note: Backend returns status as uppercase (PENDING, DELIVERED, DISAPPROVED), so we normalize to uppercase for comparison
-                const activeOrders = data.filter(o => {
-                    const status = (o.status || 'PENDING').toUpperCase();
-                    // Only show pending or confirmed orders
-                    // Exclude delivered, returned, and cancelled orders
-                    return status === 'PENDING' || status === 'CONFIRMED';
-                });
-                
-                console.log(`[loadMyOrders] Active orders (pending/confirmed): ${activeOrders.length}`);
-
-                // Load delivery data for each order and filter out completed deliveries
-                const filteredOrders = [];
-                for (const order of activeOrders) {
-                    let delivery = null;
-                    try {
-                        const deliveryResponse = await fetch(`${API_BASE}/deliveries/order/${order.id}`, {
-                            headers: {
-                                'Authorization': `Bearer ${currentToken}`
-                            }
-                        });
-                        if (deliveryResponse.ok) {
-                            delivery = await deliveryResponse.json();
-                        } else if (deliveryResponse.status === 404) {
-                            // Delivery not found - this is normal for new orders
-                            // Silently handle 404 - it's expected for orders without deliveries yet
-                            delivery = null;
-                        } else {
-                            // Other error - log but don't break
-                            console.warn(`[loadMyOrders] Error fetching delivery for order ${order.id}: ${deliveryResponse.status}`);
-                        }
-                    } catch (e) {
-                        // Network error or other exception - delivery not found (expected for new orders)
-                        // Don't log as error - 404 is normal for orders without deliveries
-                        delivery = null;
-                    }
-
+                // Backend returns only pending/active orders with delivery embedded (no N+1)
+                const filteredOrders = data.map(order => {
+                    const delivery = order.delivery || null;
                     const deliveryStatus = delivery ? delivery.status : 'not_started';
-                    
-                    // Skip orders with completed delivery status (delivered, returned, failed)
-                    // These should appear in Deliveries tab, not Orders tab
-                    if (deliveryStatus === 'delivered' || deliveryStatus === 'returned' || deliveryStatus === 'failed') {
-                        continue; // Skip this order - it's completed
-                    }
-                    
-                    filteredOrders.push({ order, delivery, deliveryStatus });
-                }
+                    return { order, delivery, deliveryStatus };
+                });
+                console.log(`[loadMyOrders] Pending orders received: ${filteredOrders.length}`);
 
                 // Update badge with filtered orders count (excluding completed deliveries)
                 document.getElementById('ordersBadge').textContent = filteredOrders.length;
@@ -1698,7 +1649,7 @@
             }
 
             try {
-                const response = await fetch(`${API_BASE}/orders/delivery-man/${currentDeliveryManId}`, {
+                const response = await fetch(`${API_BASE}/orders/delivery-man/${currentDeliveryManId}?deliveries=true`, {
                     headers: {
                         'Authorization': `Bearer ${currentToken}`
                     }
@@ -1710,61 +1661,12 @@
                     throw new Error(data.detail || 'Failed to load deliveries');
                 }
 
-                // Debug: Log all orders received
-                console.log(`[loadMyDeliveries] Total orders received: ${data.length}`);
-                console.log(`[loadMyDeliveries] Orders by status:`, {
-                    pending: data.filter(o => (o.status || '').toUpperCase() === 'PENDING').length,
-                    confirmed: data.filter(o => (o.status || '').toUpperCase() === 'CONFIRMED').length,
-                    delivered: data.filter(o => (o.status || '').toUpperCase() === 'DELIVERED').length,
-                    cancelled: data.filter(o => (o.status || '').toUpperCase() === 'CANCELLED').length
-                });
-
-                // Fetch delivery details for all orders first
-                // Then filter based on both order status AND delivery status
-                const ordersWithDeliveries = [];
-                for (const order of data) {
-                    let delivery = null;
-                    try {
-                        const deliveryResponse = await fetch(`${API_BASE}/deliveries/order/${order.id}`, {
-                            headers: {
-                                'Authorization': `Bearer ${currentToken}`
-                            }
-                        });
-                        if (deliveryResponse.ok) {
-                            delivery = await deliveryResponse.json();
-                        } else if (deliveryResponse.status === 404) {
-                            // No delivery record - this can happen for confirmed orders that haven't been picked up yet
-                            delivery = null;
-                        }
-                    } catch (e) {
-                        // Network error - delivery not found
-                        delivery = null;
-                    }
-                    ordersWithDeliveries.push({ order, delivery });
-                }
-                
-                // Filter to show orders that should appear in Deliveries tab:
-                // 1. Orders with status: confirmed, delivered, cancelled
-                // 2. OR orders with delivery status: delivered, returned, failed
-                // Note: Backend returns status as uppercase (PENDING, DELIVERED, DISAPPROVED)
-                const deliveriesToShow = ordersWithDeliveries.filter(({order, delivery}) => {
-                    const orderStatus = (order.status || 'PENDING').toUpperCase();
-                    const deliveryStatus = delivery ? delivery.status : null;
-                    
-                    // Show if order status is completed
-                    if (orderStatus === 'CONFIRMED' || orderStatus === 'DELIVERED' || orderStatus === 'CANCELLED' || orderStatus === 'DISAPPROVED') {
-                        return true;
-                    }
-                    
-                    // Show if delivery status is completed (even if order status is still pending)
-                    if (deliveryStatus === 'delivered' || deliveryStatus === 'returned' || deliveryStatus === 'failed') {
-                        return true;
-                    }
-                    
-                    return false;
-                });
-                
-                console.log(`[loadMyDeliveries] Orders to show in Deliveries tab: ${deliveriesToShow.length}`);
+                // Backend returns only completed/deliveries-screen orders with full delivery embedded (no N+1)
+                const deliveriesToShow = data.map(order => ({
+                    order,
+                    delivery: order.delivery || null
+                }));
+                console.log(`[loadMyDeliveries] Deliveries received: ${deliveriesToShow.length}`);
 
                 // Store data for filtering
                 allDeliveriesData = deliveriesToShow;
@@ -3358,15 +3260,17 @@
                     body: JSON.stringify({
                         shop_id: parseInt(shopId),
                         amount: amount,
+                        collected_at: new Date().toISOString(),
                         remarks: remarks || null,
-                        order_id: parseInt(orderId)
+                        order_id: orderId ? parseInt(orderId) : null
                     })
                 });
                 
                 const data = await response.json();
                 
                 if (!response.ok) {
-                    throw new Error(data.detail || 'Failed to submit collection');
+                    const msg = Array.isArray(data.detail) ? data.detail.map(d => d.msg || JSON.stringify(d)).join('; ') : (data.detail || 'Failed to submit collection');
+                    throw new Error(msg);
                 }
                 
                 resultDiv.className = 'result success';
@@ -3425,11 +3329,15 @@
 
         // Wallet Functions
         async function loadWalletBalance() {
-            if (!currentDeliveryManId) return;
+            if (!currentDeliveryManId || !currentToken) return;
             
             try {
                 const endpoint = `${API_BASE}/wallets/delivery_man/${currentDeliveryManId}/balance`;
-                const response = await fetch(endpoint);
+                const response = await fetch(endpoint, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
                 
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
@@ -3453,11 +3361,15 @@
         }
 
         async function loadWalletTransactions() {
-            if (!currentDeliveryManId) return;
+            if (!currentDeliveryManId || !currentToken) return;
             
             try {
                 const endpoint = `${API_BASE}/wallets/delivery_man/${currentDeliveryManId}/transactions?limit=50`;
-                const response = await fetch(endpoint);
+                const response = await fetch(endpoint, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
                 
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);

@@ -78,7 +78,8 @@ class WalletService:
         reference_id: int = None,
         initiated_by_type: str = None,
         initiated_by_id: int = None,
-        transaction_metadata: dict = None
+        transaction_metadata: dict = None,
+        auto_commit: bool = True
     ) -> Dict:
         """
         Credit money to a wallet (add money).
@@ -104,14 +105,14 @@ class WalletService:
         # Get or create wallet
         wallet = WalletRepository.get_by_user(db, user_type, user_id)
         if not wallet:
-            wallet = WalletRepository.create(db, user_type, user_id)
+            wallet = WalletRepository.create(db, user_type, user_id, auto_commit=auto_commit)
         
         # Calculate new balance
         balance_before = wallet.current_balance
         balance_after = balance_before + amount
         
         # Update wallet balance
-        updated_wallet = WalletRepository.update_balance(db, wallet.id, balance_after)
+        updated_wallet = WalletRepository.update_balance(db, wallet.id, balance_after, auto_commit=auto_commit)
         if not updated_wallet:
             raise ValueError("Failed to update wallet balance")
         
@@ -128,7 +129,8 @@ class WalletService:
             reference_id=reference_id,
             initiated_by_type=initiated_by_type,
             initiated_by_id=initiated_by_id,
-            transaction_metadata=transaction_metadata
+            transaction_metadata=transaction_metadata,
+            auto_commit=auto_commit
         )
         
         return {

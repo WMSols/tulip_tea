@@ -68,8 +68,9 @@ class DeliveryItemRepository:
     @staticmethod
     def update_quantities(db: Session, delivery_item_id: int,
                           quantity_delivered: int = None,
-                          quantity_returned: int = None) -> Optional[DeliveryItem]:
-        """Update delivery item quantities."""
+                          quantity_returned: int = None,
+                          auto_commit: bool = True) -> Optional[DeliveryItem]:
+        """Update delivery item quantities. When auto_commit=False, caller must commit (e.g. for transactional flows)."""
         delivery_item = DeliveryItemRepository.get_by_id(db, delivery_item_id)
         if not delivery_item:
             return None
@@ -79,8 +80,9 @@ class DeliveryItemRepository:
         if quantity_returned is not None:
             delivery_item.quantity_returned = quantity_returned
         
-        db.commit()
-        db.refresh(delivery_item)
+        if auto_commit:
+            db.commit()
+            db.refresh(delivery_item)
         return delivery_item
     
     @staticmethod

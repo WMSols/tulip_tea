@@ -753,8 +753,13 @@ class OrderService:
                     if ost not in ('PENDING', 'PARTIAL_DELIVERED'):
                         continue
                     d = delivery_map.get(o.id)
-                    if d and getattr(d, 'status', None) in ('delivered', 'returned', 'failed'):
-                        continue
+                    if d:
+                        st = getattr(d, 'status', None)
+                        if st in ('delivered', 'returned', 'failed'):
+                            continue
+                        # Partially delivered + return done (flow ended) → treat as completed, remove from pending
+                        if st == 'partially_delivered' and getattr(d, 'returned_at', None) is not None:
+                            continue
                     filtered.append(o)
                 orders = filtered
                 delivery_by_order_id = {oid: delivery_map[oid] for oid in [o.id for o in orders] if oid in delivery_map}

@@ -796,3 +796,13 @@ class VisitTaskStatusUpdate(BaseModel):
 class TaskGenerationRequest(BaseModel):
     weeks_ahead: Optional[int] = 4
     assignee_type: Optional[str] = None  # 'order_booker' or 'delivery_man'
+
+
+# Location Validation Schemas
+class LocationValidateResponse(BaseModel):
+    """Response for location validation (user position vs shop)."""
+    valid: bool
+    distance_km: float
+    distance_meters: float
+    message: str
+    shop_id: int

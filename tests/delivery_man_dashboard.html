@@ -520,6 +520,29 @@
         </div>
     </div>
 
+    <!-- Collect Payment (payment_before_delivery) Modal -->
+    <div id="collectPaymentModal" class="modal hidden">
+        <div class="modal-content" style="max-width: 500px;">
+            <span class="close-button" onclick="closeCollectPaymentModal()">&times;</span>
+            <h2 id="collectPaymentModalTitle">💳 Collect Payment (Payment Before Delivery)</h2>
+            <p id="collectPaymentOrderInfo" style="color: #666; margin-bottom: 15px;"></p>
+            <form id="collectPaymentForm" onsubmit="submitCollectPayment(event)">
+                <input type="hidden" id="collectPaymentOrderId">
+                <div class="form-group">
+                    <label>Payment Amount (Rs.) *</label>
+                    <input type="number" id="collectPaymentAmount" step="0.01" min="0.01" placeholder="0.00" required>
+                </div>
+                <div class="form-group">
+                    <label>Remarks (Optional)</label>
+                    <textarea id="collectPaymentRemarks" rows="2" placeholder="e.g. Cash collected at shop"></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary">✓ Record Payment Collected</button>
+                <button type="button" class="btn" style="background: #95a5a6; color: white;" onclick="closeCollectPaymentModal()">Cancel</button>
+            </form>
+            <div id="collectPaymentResult" class="result"></div>
+        </div>
+    </div>
+
     <!-- Return Modal -->
     <div id="returnModal" class="modal hidden">
         <div class="modal-content" style="max-width: 800px;">
@@ -822,6 +845,10 @@
                         'failed': { text: 'Failed', color: '#e74c3c', bg: '#fde8e8' }
                     };
                     const statusInfo = statusLabels[deliveryStatus] || statusLabels['not_started'];
+                    // Payment-before-delivery: "Deliver to Shop" allowed only when (1) order is NOT payment_before_delivery, OR (2) order.payment_collected_before_delivery is true. For payment_before_delivery orders the frontend shows "Collect Payment" which calls POST /orders/{id}/collect-payment (same as daily collection: credits wallet + records transaction). Normal orders use "Daily Collection" → POST /daily-collections/delivery-man/...
+                    const requiresPaymentBeforeDelivery = (order.order_resolution_type || '').toLowerCase() === 'payment_before_delivery';
+                    const paymentBeforeDeliverySatisfied = !!order.payment_collected_before_delivery;
+                    const canDeliver = !requiresPaymentBeforeDelivery || paymentBeforeDeliverySatisfied;
 
                     html += `
                         <div class="list-item" style="border-left: 4px solid ${statusInfo.color};">
@@ -950,13 +977,28 @@
                                 <button class="btn" style="background: #27ae60; color: white;" onclick="event.stopPropagation(); openDailyCollectionModal(${order.id}, ${order.shop_id})">💰 Daily Collection</button>
                                 ` : ''}
                                 ${deliveryStatus === 'picked_up' || deliveryStatus === 'in_transit' ? `
+                                ${!canDeliver ? `
+                                <div style="flex: 1 1 100%; padding: 10px 14px; background: #fef5e7; border: 1px solid #f39c12; border-radius: 6px; color: #856404; font-size: 13px; margin-bottom: 4px;">
+                                    💳 <strong>Payment before delivery:</strong> Collect payment at shop for this order first, then you can deliver.
+                                </div>
+                                <button class="btn" style="background: #f39c12; color: white;" onclick="event.stopPropagation(); openCollectPaymentModal(${order.id})">💳 Collect Payment</button>
+                                ` : `
                                 <button class="btn btn-primary" onclick="event.stopPropagation(); openDeliverModal(${order.id}, ${delivery ? delivery.id : 'null'})">🚚 Deliver to Shop</button>
                                 <button class="btn" style="background: #27ae60; color: white;" onclick="event.stopPropagation(); openDailyCollectionModal(${order.id}, ${order.shop_id})">💰 Daily Collection</button>
+                                `}
                                 ` : ''}
                                 ${deliveryStatus === 'partially_delivered' ? `
+                                ${!canDeliver ? `
+                                <div style="flex: 1 1 100%; padding: 10px 14px; background: #fef5e7; border: 1px solid #f39c12; border-radius: 6px; color: #856404; font-size: 13px; margin-bottom: 4px;">
+                                    💳 <strong>Payment before delivery:</strong> Collect payment for this order first, then you can update delivery.
+                                </div>
+                                <button class="btn" style="background: #f39c12; color: white;" onclick="event.stopPropagation(); openCollectPaymentModal(${order.id})">💳 Collect Payment</button>
+                                <button class="btn btn-danger" onclick="event.stopPropagation(); openReturnModal(${order.id}, ${delivery ? delivery.id : 'null'})">↩️ Return Remaining Stock</button>
+                                ` : `
                                 <button class="btn btn-primary" onclick="event.stopPropagation(); openDeliverModal(${order.id}, ${delivery ? delivery.id : 'null'})">🚚 Update Delivery</button>
                                 <button class="btn btn-danger" onclick="event.stopPropagation(); openReturnModal(${order.id}, ${delivery ? delivery.id : 'null'})">↩️ Return Remaining Stock</button>
                                 <button class="btn" style="background: #27ae60; color: white;" onclick="event.stopPropagation(); openDailyCollectionModal(${order.id}, ${order.shop_id})">💰 Daily Collection</button>
+                                `}
                                 ` : ''}
                                 ${deliveryStatus === 'delivered' ? `
                                 <span style="color: #27ae60; font-weight: bold;">✓ Fully Delivered - No Returns Needed</span>
@@ -2883,7 +2925,12 @@
                 
                 if (!deliverResponse.ok) {
                     const errorData = await deliverResponse.json().catch(() => ({ detail: 'Unknown error' }));
-                    throw new Error(errorData.detail || `HTTP error! status: ${deliverResponse.status}`);
+                    const rawDetail = Array.isArray(errorData.detail) ? (errorData.detail[0] && errorData.detail[0].msg) || JSON.stringify(errorData.detail) : (errorData.detail && (typeof errorData.detail === 'string' ? errorData.detail : errorData.detail.message)) || 'Unknown error';
+                    const detailStr = (typeof rawDetail === 'string' ? rawDetail : String(rawDetail)).toLowerCase();
+                    if (deliverResponse.status === 400 && (detailStr.includes('payment') || detailStr.includes('collection') || detailStr.includes('collect first'))) {
+                        throw new Error('Payment must be collected before delivery. Complete daily collection for this order first, then try again.');
+                    }
+                    throw new Error(typeof rawDetail === 'string' ? rawDetail : String(rawDetail));
                 }
                 
                 const data = await deliverResponse.json();
@@ -3085,6 +3132,78 @@
                     closeReturnModal();
                     loadMyOrders();
                     loadMyDeliveries();
+                }, 2000);
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+        
+        // Collect Payment (payment_before_delivery) Modal Functions
+        async function openCollectPaymentModal(orderId) {
+            const modal = document.getElementById('collectPaymentModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('active');
+            document.getElementById('collectPaymentOrderId').value = orderId;
+            document.getElementById('collectPaymentAmount').value = '';
+            document.getElementById('collectPaymentRemarks').value = '';
+            document.getElementById('collectPaymentResult').className = 'result';
+            document.getElementById('collectPaymentResult').textContent = '';
+            try {
+                const orderResponse = await fetch(`${API_BASE}/orders/${orderId}`, {
+                    headers: { 'Authorization': `Bearer ${currentToken}` }
+                });
+                const order = await orderResponse.json();
+                document.getElementById('collectPaymentModalTitle').textContent = `💳 Collect Payment - Order #${order.id} - ${order.shop_name || 'Shop'}`;
+                const total = parseFloat(order.final_total_amount || order.total_amount || 0);
+                document.getElementById('collectPaymentOrderInfo').textContent = `Order total: Rs. ${total.toFixed(2)}. Record the amount collected from the shop (same as daily collection: wallet will be credited and transaction recorded).`;
+                document.getElementById('collectPaymentAmount').placeholder = total.toFixed(2);
+            } catch (e) {
+                document.getElementById('collectPaymentOrderInfo').textContent = 'Could not load order details.';
+            }
+        }
+        
+        function closeCollectPaymentModal() {
+            document.getElementById('collectPaymentModal').classList.add('hidden');
+            document.getElementById('collectPaymentModal').classList.remove('active');
+            document.getElementById('collectPaymentForm').reset();
+            document.getElementById('collectPaymentResult').className = 'result';
+            document.getElementById('collectPaymentResult').textContent = '';
+        }
+        
+        async function submitCollectPayment(event) {
+            event.preventDefault();
+            const orderId = document.getElementById('collectPaymentOrderId').value;
+            const amount = parseFloat(document.getElementById('collectPaymentAmount').value);
+            const remarks = document.getElementById('collectPaymentRemarks').value.trim() || null;
+            const resultDiv = document.getElementById('collectPaymentResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = 'Submitting...';
+            if (!amount || amount <= 0) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = 'Please enter a valid amount.';
+                return;
+            }
+            try {
+                const response = await fetch(`${API_BASE}/orders/${orderId}/collect-payment`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentToken}`
+                    },
+                    body: JSON.stringify({ payment_amount: amount, remarks: remarks })
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Failed to record payment');
+                }
+                resultDiv.className = 'result success';
+                resultDiv.textContent = 'Payment recorded. Order can now be delivered. Your wallet has been credited.';
+                setTimeout(() => {
+                    closeCollectPaymentModal();
+                    loadMyOrders();
+                    if (typeof loadWalletBalance === 'function') loadWalletBalance();
                 }, 2000);
             } catch (error) {
                 resultDiv.className = 'result error';
@@ -3324,6 +3443,14 @@
             const returnModal = document.getElementById('returnModal');
             if (event.target === returnModal) {
                 closeReturnModal();
+            }
+            const dailyCollectionModal = document.getElementById('dailyCollectionModal');
+            if (event.target === dailyCollectionModal) {
+                closeDailyCollectionModal();
+            }
+            const collectPaymentModal = document.getElementById('collectPaymentModal');
+            if (event.target === collectPaymentModal) {
+                closeCollectPaymentModal();
             }
         }
 

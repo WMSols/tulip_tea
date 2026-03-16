@@ -325,7 +325,11 @@ async def collect_payment_before_delivery(
         }
     
     Response (200):
-        Updated order data with payment collection info
+        Updated order (OrderResponse) including for payment_before_delivery orders:
+        - payment_collected_before_delivery: true
+        - payment_collected_amount: amount recorded
+        - payment_collected_at: ISO timestamp
+        So frontend can see payment is collected and allow deliver.
     """
     try:
         from repositories.order_repository import OrderRepository
@@ -361,28 +365,54 @@ async def collect_payment_before_delivery(
                 detail="Payment amount must be greater than 0"
             )
         
-        # Update order with payment collection
+        # Single transaction: order + shop + wallet; commit only at the end so no DB write on error
+        # 1. Update order (in memory, no commit)
         order.payment_collected_before_delivery = True
         order.payment_collected_amount = payment_amount
         order.payment_collected_at = datetime.utcnow()
-        db.commit()
-        db.refresh(order)
+        db.flush()
         
-        # Reduce shop's outstanding balance
+        # 2. Reduce shop's outstanding balance (no commit)
         shop = ShopRepository.get_by_id(db, order.shop_id)
         if shop:
             current_outstanding = Decimal(str(shop.outstanding_balance or 0))
             new_outstanding = max(Decimal('0'), current_outstanding - payment_amount)
-            
             ShopRepository.update(
                 db=db,
                 shop_id=order.shop_id,
-                outstanding_balance=new_outstanding
+                outstanding_balance=new_outstanding,
+                auto_commit=False
             )
         
-        # Format response
+        # 3. Credit delivery man's wallet and record transaction (no commit)
+        from services.wallet_service import WalletService
+        WalletService.credit_wallet(
+            db=db,
+            user_type="delivery_man",
+            user_id=delivery_man['user_id'],
+            amount=payment_amount,
+            description=f"Collection from shop {shop.name if shop else order.shop_id} (payment before delivery - Order #{order_id})",
+            reference_type="order_collect_payment",
+            reference_id=order_id,
+            initiated_by_type="delivery_man",
+            initiated_by_id=delivery_man['user_id'],
+            transaction_metadata={
+                "shop_id": order.shop_id,
+                "shop_name": shop.name if shop else None,
+                "order_id": order_id,
+                "amount": float(payment_amount),
+                "payment_collected_at": order.payment_collected_at.isoformat() if getattr(order, 'payment_collected_at', None) else None,
+            },
+            auto_commit=False
+        )
+        
+        # 4. Commit once; on any exception above, session rolls back and DB is not written
+        db.commit()
+        db.refresh(order)
+        
+        # 5. Format response (includes payment_collected_before_delivery, payment_collected_amount, payment_collected_at)
         from services.order_service import OrderService
-        order_data = OrderService._format_order(db, order)
+        order_data = OrderService._format_orders(db, [order])[0]
         
         return order_data
     

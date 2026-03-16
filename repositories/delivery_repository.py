@@ -130,8 +130,9 @@ class DeliveryRepository:
     @staticmethod
     def update_return(db: Session, delivery_id: int, returned_at: datetime,
                      return_gps_lat: Decimal = None, return_gps_lng: Decimal = None,
-                     return_reason: str = None, status: str = 'returned') -> Optional[Delivery]:
-        """Update delivery with return information."""
+                     return_reason: str = None, status: str = 'returned',
+                     auto_commit: bool = True) -> Optional[Delivery]:
+        """Update delivery with return information. When auto_commit=False, caller must commit (e.g. for transactional flows)."""
         delivery = DeliveryRepository.get_by_id(db, delivery_id)
         if not delivery:
             return None
@@ -145,8 +146,9 @@ class DeliveryRepository:
         if return_reason is not None:
             delivery.return_reason = return_reason
         
-        db.commit()
-        db.refresh(delivery)
+        if auto_commit:
+            db.commit()
+            db.refresh(delivery)
         return delivery
     
     @staticmethod

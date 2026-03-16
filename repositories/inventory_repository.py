@@ -57,8 +57,9 @@ class InventoryRepository:
     @staticmethod
     def update(db: Session, inventory_id: int, product_id: int = None,
               item_name: str = None, item_code: str = None,
-              unit: str = None, quantity: int = None) -> Optional[Inventory]:
-        """Update inventory item.
+              unit: str = None, quantity: int = None,
+              auto_commit: bool = True) -> Optional[Inventory]:
+        """Update inventory item. When auto_commit=False, caller must commit (e.g. for transactional flows).
         
         Args:
             inventory_id: Inventory item ID
@@ -83,8 +84,9 @@ class InventoryRepository:
         if quantity is not None:
             inventory.quantity = quantity
         
-        db.commit()
-        db.refresh(inventory)
+        if auto_commit:
+            db.commit()
+            db.refresh(inventory)
         return inventory
     
     @staticmethod

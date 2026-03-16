@@ -14,15 +14,16 @@ class WalletRepository:
     """Repository for Wallet database operations."""
     
     @staticmethod
-    def create(db: Session, user_type: str, user_id: int) -> Wallet:
+    def create(db: Session, user_type: str, user_id: int, auto_commit: bool = True) -> Wallet:
         """
         Create a new wallet for a user.
-        
+
         Args:
             db: Database session
             user_type: Type of user ('distributor', 'order_booker', 'delivery_man')
             user_id: ID of the user in their respective table
-        
+            auto_commit: If True, commit immediately. If False, caller must commit.
+
         Returns:
             Created wallet instance
         """
@@ -33,8 +34,11 @@ class WalletRepository:
             is_active=True
         )
         db.add(wallet)
-        db.commit()
+        db.flush()
         db.refresh(wallet)
+        if auto_commit:
+            db.commit()
+            db.refresh(wallet)
         return wallet
     
     @staticmethod
@@ -67,25 +71,29 @@ class WalletRepository:
         ).first()
     
     @staticmethod
-    def update_balance(db: Session, wallet_id: int, new_balance: Decimal) -> Optional[Wallet]:
+    def update_balance(db: Session, wallet_id: int, new_balance: Decimal, auto_commit: bool = True) -> Optional[Wallet]:
         """
         Update wallet balance.
-        
+
         Args:
             db: Database session
             wallet_id: Wallet ID
             new_balance: New balance amount
-        
+            auto_commit: If True, commit immediately. If False, caller must commit.
+
         Returns:
             Updated wallet instance or None if not found
         """
         wallet = WalletRepository.get_by_id(db, wallet_id)
         if not wallet:
             return None
-        
+
         wallet.current_balance = new_balance
-        db.commit()
+        db.flush()
         db.refresh(wallet)
+        if auto_commit:
+            db.commit()
+            db.refresh(wallet)
         return wallet
     
     @staticmethod
@@ -102,7 +110,8 @@ class WalletRepository:
         initiated_by_type: str = None,
         initiated_by_id: int = None,
         related_wallet_id: int = None,
-        transaction_metadata: dict = None
+        transaction_metadata: dict = None,
+        auto_commit: bool = True
     ) -> WalletTransaction:
         """
         Create a wallet transaction record.
@@ -140,8 +149,11 @@ class WalletRepository:
             transaction_metadata=transaction_metadata
         )
         db.add(transaction)
-        db.commit()
+        db.flush()
         db.refresh(transaction)
+        if auto_commit:
+            db.commit()
+            db.refresh(transaction)
         return transaction
     
     @staticmethod

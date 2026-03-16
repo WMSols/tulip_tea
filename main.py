@@ -16,7 +16,7 @@ from models import distributor, order_booker, delivery_man, zone, route, shop, c
 
 # Import routers
 from routers import auth, distributor as distributor_router, order_booker, delivery_man, zone, route, shop
-from routers import credit_limit_request as credit_limit_request_router, daily_collection as daily_collection_router, shop_visit as shop_visit_router, order as order_router, super_admin as super_admin_router, warehouse as warehouse_router, product as product_router, activity_log as activity_log_router, delivery as delivery_router, subsidy as subsidy_router, wallet as wallet_router, weekly_route_schedule as weekly_route_schedule_router, visit_task as visit_task_router
+from routers import credit_limit_request as credit_limit_request_router, daily_collection as daily_collection_router, shop_visit as shop_visit_router, order as order_router, super_admin as super_admin_router, warehouse as warehouse_router, product as product_router, activity_log as activity_log_router, delivery as delivery_router, subsidy as subsidy_router, wallet as wallet_router, weekly_route_schedule as weekly_route_schedule_router, visit_task as visit_task_router, location as location_router
 
 # Define OpenAPI tags with categories for frontend dashboards
 tags_metadata = [
@@ -116,6 +116,10 @@ tags_metadata = [
         "name": "Super Admin",
         "description": "Super admin operations",
     },
+    {
+        "name": "Location Validation",
+        "description": "Validate user (order booker / delivery man) location against shop for visits and deliveries",
+    },
 ]
 
 app = FastAPI(
@@ -148,7 +152,7 @@ def custom_openapi():
     openapi_schema["x-tagGroups"] = [
         {
             "name": "📋 Order Booker Dashboard",
-            "tags": ["Order Booker APIs", "Shop Visits", "Shops", "Orders", "Credit Limit Requests", "Weekly Route Schedules", "Subsidies", "Products", "Zones", "Routes", "Wallets", "Authentication"]
+            "tags": ["Order Booker APIs", "Location Validation", "Shop Visits", "Shops", "Orders", "Credit Limit Requests", "Weekly Route Schedules", "Subsidies", "Products", "Zones", "Routes", "Wallets", "Authentication"]
         },
         {
             "name": "👔 Distributor Dashboard",
@@ -160,7 +164,7 @@ def custom_openapi():
         },
         {
             "name": "🚚 Delivery Man Dashboard",
-            "tags": ["Delivery Man APIs", "Orders", "Deliveries", "Warehouses", "Daily Collections", "Wallets", "Authentication"]
+            "tags": ["Delivery Man APIs", "Location Validation", "Orders", "Deliveries", "Warehouses", "Daily Collections", "Wallets", "Authentication"]
         },
         {
             "name": "📊 Activity Logs Dashboard",
@@ -272,6 +276,7 @@ app.include_router(subsidy_router.router)
 app.include_router(wallet_router.router)
 app.include_router(weekly_route_schedule_router.router)
 app.include_router(visit_task_router.router)
+app.include_router(location_router.router)
 
 
 @app.get("/")

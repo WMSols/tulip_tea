@@ -156,14 +156,15 @@ class OrderRepository:
         return order
     
     @staticmethod
-    def update_status(db: Session, order_id: int, status: str) -> Optional[Order]:
-        """Update order status."""
+    def update_status(db: Session, order_id: int, status: str, auto_commit: bool = True) -> Optional[Order]:
+        """Update order status. When auto_commit=False, caller must commit (e.g. for transactional flows)."""
         order = db.query(Order).filter(Order.id == order_id).first()
         if not order:
             return None
         order.status = status
-        db.commit()
-        db.refresh(order)
+        if auto_commit:
+            db.commit()
+            db.refresh(order)
         return order
     
     @staticmethod

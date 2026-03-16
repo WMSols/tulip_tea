@@ -435,149 +435,156 @@ class DeliveryService:
         if delivery.status not in ['in_transit', 'picked_up', 'partially_delivered', 'delivered']:
             raise ValueError(f"Cannot return. Current status: {delivery.status}")
         
-        # Get delivery items
+        # Get delivery items and run all updates in one transaction (single commit at end; rollback on error)
         delivery_items = DeliveryItemRepository.get_by_delivery(db, delivery_id)
-        
-        # Update quantities and add inventory back
-        for delivery_item in delivery_items:
-            order_item_id = delivery_item.order_item_id
-            new_quantity_returned = return_quantities.get(order_item_id, 0)
-            
-            if new_quantity_returned > 0:
-                # Get the current quantity_returned (should be 0 or None since we don't set it during delivery)
-                current_quantity_returned = delivery_item.quantity_returned or 0
+        try:
+            # Update quantities and add inventory back
+            for delivery_item in delivery_items:
+                order_item_id = delivery_item.order_item_id
+                new_quantity_returned = return_quantities.get(order_item_id, 0)
                 
-                # Validate return quantity
-                max_returnable = delivery_item.quantity_picked_up - (delivery_item.quantity_delivered or 0)
-                if new_quantity_returned > max_returnable:
-                    raise ValueError(
-                        f"Cannot return more than available. "
-                        f"Available to return: {max_returnable}, Requested: {new_quantity_returned}"
-                    )
-                
-                # Calculate the NET amount to add back (incremental return)
-                # This handles cases where user returns in multiple steps
-                net_return_amount = new_quantity_returned - current_quantity_returned
-                
-                print(f"[return_to_warehouse] order_item_id={order_item_id}, current_returned={current_quantity_returned}, new_returned={new_quantity_returned}, net_return={net_return_amount}")
-                
-                # Update delivery item with new total returned quantity
-                DeliveryItemRepository.update_quantities(
-                    db=db,
-                    delivery_item_id=delivery_item.id,
-                    quantity_returned=new_quantity_returned
-                )
-                
-                # Add back to inventory the net return amount (incremental)
-                if net_return_amount > 0:
-                    # Add back to inventory
-                    inventory = None
-                    if delivery_item.inventory_item_id:
-                        # Use stored inventory_item_id
-                        inventory = InventoryRepository.get_by_id(db, delivery_item.inventory_item_id)
-                    else:
-                        # Try to find inventory by product_id or product_name
-                        from models.order_item import OrderItem
-                        order_item = db.query(OrderItem).filter(OrderItem.id == order_item_id).first()
-                        if order_item:
-                            inventory_items = InventoryRepository.get_by_warehouse(db, delivery.warehouse_id)
-                            
-                            # Try by product_id first
-                            if order_item.product_id:
-                                inventory = next(
-                                    (inv for inv in inventory_items if inv.product_id == order_item.product_id),
-                                    None
-                                )
-                            
-                            # If not found, try by product_name
-                            if not inventory and order_item.product_name:
-                                product_name_lower = order_item.product_name.lower().strip()
-                                inventory = next(
-                                    (inv for inv in inventory_items 
-                                     if inv.item_name and inv.item_name.lower().strip() == product_name_lower),
-                                    None
-                                )
-                            
-                            # If found, update delivery_item with inventory_item_id for future operations
-                            if inventory and not delivery_item.inventory_item_id:
-                                delivery_item.inventory_item_id = inventory.id
-                                db.commit()
-                                print(f"[return_to_warehouse] Found and linked inventory by name: {order_item.product_name} -> inventory_id {inventory.id}")
+                if new_quantity_returned > 0:
+                    # Get the current quantity_returned (should be 0 or None since we don't set it during delivery)
+                    current_quantity_returned = delivery_item.quantity_returned or 0
                     
-                    if inventory:
-                        old_quantity = inventory.quantity
-                        new_quantity = inventory.quantity + net_return_amount
-                        InventoryRepository.update(
-                            db=db,
-                            inventory_id=inventory.id,
-                            quantity=new_quantity
+                    # Validate return quantity
+                    max_returnable = delivery_item.quantity_picked_up - (delivery_item.quantity_delivered or 0)
+                    if new_quantity_returned > max_returnable:
+                        raise ValueError(
+                            f"Cannot return more than available. "
+                            f"Available to return: {max_returnable}, Requested: {new_quantity_returned}"
                         )
-                        print(f"[return_to_warehouse] Added back to inventory: {inventory.item_name or 'product'} - {old_quantity} -> {new_quantity} (net_return={net_return_amount})")
+                    
+                    # Calculate the NET amount to add back (incremental return)
+                    # This handles cases where user returns in multiple steps
+                    net_return_amount = new_quantity_returned - current_quantity_returned
+                    
+                    print(f"[return_to_warehouse] order_item_id={order_item_id}, current_returned={current_quantity_returned}, new_returned={new_quantity_returned}, net_return={net_return_amount}")
+                    
+                    # Update delivery item with new total returned quantity (no commit; single commit at end of flow)
+                    DeliveryItemRepository.update_quantities(
+                        db=db,
+                        delivery_item_id=delivery_item.id,
+                        quantity_returned=new_quantity_returned,
+                        auto_commit=False
+                    )
+                    
+                    # Add back to inventory the net return amount (incremental)
+                    if net_return_amount > 0:
+                        # Add back to inventory
+                        inventory = None
+                        if delivery_item.inventory_item_id:
+                            # Use stored inventory_item_id
+                            inventory = InventoryRepository.get_by_id(db, delivery_item.inventory_item_id)
+                        else:
+                            # Try to find inventory by product_id or product_name
+                            from models.order_item import OrderItem
+                            order_item = db.query(OrderItem).filter(OrderItem.id == order_item_id).first()
+                            if order_item:
+                                inventory_items = InventoryRepository.get_by_warehouse(db, delivery.warehouse_id)
+                                
+                                # Try by product_id first
+                                if order_item.product_id:
+                                    inventory = next(
+                                        (inv for inv in inventory_items if inv.product_id == order_item.product_id),
+                                        None
+                                    )
+                                
+                                # If not found, try by product_name
+                                if not inventory and order_item.product_name:
+                                    product_name_lower = order_item.product_name.lower().strip()
+                                    inventory = next(
+                                        (inv for inv in inventory_items 
+                                         if inv.item_name and inv.item_name.lower().strip() == product_name_lower),
+                                        None
+                                    )
+                                
+                                # If found, update delivery_item with inventory_item_id for future operations (no commit here; single commit at end)
+                                if inventory and not delivery_item.inventory_item_id:
+                                    delivery_item.inventory_item_id = inventory.id
+                                    print(f"[return_to_warehouse] Found and linked inventory by name: {order_item.product_name} -> inventory_id {inventory.id}")
+                        
+                        if inventory:
+                            old_quantity = inventory.quantity
+                            new_quantity = inventory.quantity + net_return_amount
+                            InventoryRepository.update(
+                                db=db,
+                                inventory_id=inventory.id,
+                                quantity=new_quantity,
+                                auto_commit=False
+                            )
+                            print(f"[return_to_warehouse] Added back to inventory: {inventory.item_name or 'product'} - {old_quantity} -> {new_quantity} (net_return={net_return_amount})")
+                        else:
+                            print(f"[return_to_warehouse] WARNING: Could not find inventory item for order_item_id {order_item_id}. Inventory not updated.")
+                    elif net_return_amount < 0:
+                        print(f"[return_to_warehouse] WARNING: net_return_amount is negative ({net_return_amount}). This shouldn't happen. Skipping inventory update.")
                     else:
-                        print(f"[return_to_warehouse] WARNING: Could not find inventory item for order_item_id {order_item_id}. Inventory not updated.")
-                elif net_return_amount < 0:
-                    print(f"[return_to_warehouse] WARNING: net_return_amount is negative ({net_return_amount}). This shouldn't happen. Skipping inventory update.")
-                else:
-                    print(f"[return_to_warehouse] No net return amount (already returned). Skipping inventory update.")
-        
-        # Recalculate totals after return to check if all items are accounted for
-        # Refresh delivery items to get updated quantities
-        delivery_items = DeliveryItemRepository.get_by_delivery(db, delivery_id)
-        total_delivered = 0
-        total_picked = 0
-        total_returned = 0
-        for delivery_item in delivery_items:
-            total_delivered += delivery_item.quantity_delivered or 0
-            total_picked += delivery_item.quantity_picked_up
-            total_returned += delivery_item.quantity_returned or 0
-        
-        # Calculate remaining items
-        total_remaining = total_picked - total_delivered - total_returned
-        
-        # Determine delivery status based on final state
-        if total_delivered == total_picked:
-            # All items delivered, none returned
-            delivery_status = 'delivered'
-        elif total_delivered > 0 and total_remaining == 0:
-            # Some items delivered, all remaining items returned
-            delivery_status = 'partially_delivered'
-        elif total_delivered == 0 and total_returned == total_picked:
-            # All items returned, nothing delivered
-            delivery_status = 'returned'
-        elif total_delivered > 0 and total_remaining > 0:
-            # Some items delivered, but still has remaining items (partial return)
-            delivery_status = 'partially_delivered'
-        else:
-            # Still has remaining items (shouldn't happen after return, but handle it)
-            delivery_status = 'partially_delivered'
-        
-        # Update delivery status
-        updated_delivery = DeliveryRepository.update_return(
-            db=db,
-            delivery_id=delivery_id,
-            returned_at=datetime.utcnow(),
-            return_gps_lat=return_gps_lat,
-            return_gps_lng=return_gps_lng,
-            return_reason=return_reason,
-            status=delivery_status
-        )
-        
-        # Update order status if all items are now accounted for (delivered + returned = picked)
-        if delivery.order_id and total_remaining == 0:
-            from models.order import OrderStatus
+                        print(f"[return_to_warehouse] No net return amount (already returned). Skipping inventory update.")
+            
+            # Recalculate totals after return to check if all items are accounted for
+            # Refresh delivery items to get updated quantities
+            delivery_items = DeliveryItemRepository.get_by_delivery(db, delivery_id)
+            total_delivered = 0
+            total_picked = 0
+            total_returned = 0
+            for delivery_item in delivery_items:
+                total_delivered += delivery_item.quantity_delivered or 0
+                total_picked += delivery_item.quantity_picked_up
+                total_returned += delivery_item.quantity_returned or 0
+            
+            # Calculate remaining items
+            total_remaining = total_picked - total_delivered - total_returned
+            
+            # Determine delivery status based on final state
             if total_delivered == total_picked:
-                # Fully delivered - update order status to DELIVERED
-                OrderRepository.update_status(db, delivery.order_id, OrderStatus.DELIVERED.value)
-                print(f"[return_to_warehouse] All items delivered. Order status updated to DELIVERED.")
-            elif total_delivered > 0:
-                # Partially delivered - update order status to PARTIAL_DELIVERED
-                OrderRepository.update_status(db, delivery.order_id, OrderStatus.PARTIAL_DELIVERED.value)
-                print(f"[return_to_warehouse] Some items delivered ({total_delivered}/{total_picked}). Order status updated to PARTIAL_DELIVERED.")
-            # If total_delivered == 0, order status remains PENDING (nothing delivered)
-        elif delivery.order_id and total_remaining > 0:
-            print(f"[return_to_warehouse] WARNING: Still have remaining items ({total_remaining}). Order status remains PENDING.")
-        
-        return DeliveryService._format_delivery_data(db, updated_delivery)
+                # All items delivered, none returned
+                delivery_status = 'delivered'
+            elif total_delivered > 0 and total_remaining == 0:
+                # Some items delivered, all remaining items returned
+                delivery_status = 'partially_delivered'
+            elif total_delivered == 0 and total_returned == total_picked:
+                # All items returned, nothing delivered
+                delivery_status = 'returned'
+            elif total_delivered > 0 and total_remaining > 0:
+                # Some items delivered, but still has remaining items (partial return)
+                delivery_status = 'partially_delivered'
+            else:
+                # Still has remaining items (shouldn't happen after return, but handle it)
+                delivery_status = 'partially_delivered'
+            
+            # Update delivery status (no commit yet; single commit at end of flow)
+            updated_delivery = DeliveryRepository.update_return(
+                db=db,
+                delivery_id=delivery_id,
+                returned_at=datetime.utcnow(),
+                return_gps_lat=return_gps_lat,
+                return_gps_lng=return_gps_lng,
+                return_reason=return_reason,
+                status=delivery_status,
+                auto_commit=False
+            )
+            
+            # Update order status if all items are now accounted for (delivered + returned = picked)
+            if delivery.order_id and total_remaining == 0:
+                from models.order import OrderStatus
+                if total_delivered == total_picked:
+                    # Fully delivered - update order status to DELIVERED
+                    OrderRepository.update_status(db, delivery.order_id, OrderStatus.DELIVERED.value, auto_commit=False)
+                    print(f"[return_to_warehouse] All items delivered. Order status updated to DELIVERED.")
+                elif total_delivered > 0:
+                    # Partially delivered - update order status to PARTIAL_DELIVERED
+                    OrderRepository.update_status(db, delivery.order_id, OrderStatus.PARTIAL_DELIVERED.value, auto_commit=False)
+                    print(f"[return_to_warehouse] Some items delivered ({total_delivered}/{total_picked}). Order status updated to PARTIAL_DELIVERED.")
+                # If total_delivered == 0, order status remains PENDING (nothing delivered)
+            elif delivery.order_id and total_remaining > 0:
+                print(f"[return_to_warehouse] WARNING: Still have remaining items ({total_remaining}). Order status remains PENDING.")
+            
+            # Single commit: only persist when all steps succeeded (no partial commit on error)
+            db.commit()
+            return DeliveryService._format_delivery_data(db, updated_delivery)
+        except Exception:
+            db.rollback()
+            raise
     
     @staticmethod
     def _format_delivery_data(db: Session, delivery) -> Dict:
